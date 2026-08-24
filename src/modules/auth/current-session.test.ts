@@ -27,6 +27,7 @@ describe("resolveCurrentSession", () => {
                 displayName: "超级管理员",
                 role: "super_admin",
                 mustChangePassword: false,
+                delegatedPermissions: [],
               },
               expiresAt,
             }
@@ -42,6 +43,7 @@ describe("resolveCurrentSession", () => {
         displayName: "超级管理员",
         role: "super_admin",
         mustChangePassword: false,
+        delegatedPermissions: [],
       },
       expiresAt,
     });

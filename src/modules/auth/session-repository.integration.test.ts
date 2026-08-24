@@ -8,7 +8,10 @@ import {
   type AuthSqlExecutor,
 } from "@/modules/auth/session-repository";
 
-const migrationPath = resolve(process.cwd(), "drizzle/0000_foundation.sql");
+const migrationPaths = [
+  resolve(process.cwd(), "drizzle/0000_foundation.sql"),
+  resolve(process.cwd(), "drizzle/0001_account_permissions.sql"),
+];
 let database: PGlite;
 let repository: DatabaseAuthRepository;
 let accountId: number;
@@ -40,7 +43,9 @@ describe("DatabaseAuthRepository", () => {
   beforeEach(async () => {
     database = new PGlite();
     await database.waitReady;
-    await database.exec(await readFile(migrationPath, "utf8"));
+    for (const path of migrationPaths) {
+      await database.exec(await readFile(path, "utf8"));
+    }
     const inserted = await database.query<{ id: number }>(
       `insert into staff_accounts
         (display_name, normalized_username, password_hash, role,
@@ -182,5 +187,59 @@ describe("DatabaseAuthRepository", () => {
       { event_type: "auth.login_succeeded" },
       { event_type: "auth.logout" },
     ]);
+  });
+
+  it("loads delegated permissions from the database on every session read", async () => {
+    const inserted = await database.query<{ id: number }>(
+      `insert into staff_accounts
+        (display_name, normalized_username, password_hash, role,
+         is_active, must_change_password, session_epoch)
+       values ('前台', 'frontdesk', 'argon2id-hash', 'front_desk', true, true, 1)
+       returning id`,
+    );
+    const frontDeskId = inserted.rows[0].id;
+    await database.query(
+      `insert into staff_account_permission_grants
+        (account_id, permission, granted_by)
+       values ($1, 'sensitive_operations.execute', $2)`,
+      [frontDeskId, accountId],
+    );
+    const createdAt = new Date("2026-08-25T00:00:00Z");
+    await repository.createLoginSession({
+      accountId: frontDeskId,
+      tokenHash: "frontdesk-delegated-session",
+      sessionEpoch: 1,
+      createdAt,
+      expiresAt: new Date("2026-08-25T12:00:00Z"),
+      ipAddress: null,
+      userAgent: null,
+      audit: {
+        eventType: "auth.login_succeeded",
+        normalizedUsername: "frontdesk",
+        accountId: frontDeskId,
+        occurredAt: createdAt,
+        requestId: "req-frontdesk-login",
+        ipAddress: null,
+        userAgent: null,
+      },
+    });
+
+    await expect(
+      repository.findSessionByTokenHash("frontdesk-delegated-session"),
+    ).resolves.toMatchObject({
+      account: {
+        delegatedPermissions: ["sensitive_operations.execute"],
+      },
+    });
+
+    await database.query(
+      "delete from staff_account_permission_grants where account_id = $1",
+      [frontDeskId],
+    );
+    await expect(
+      repository.findSessionByTokenHash("frontdesk-delegated-session"),
+    ).resolves.toMatchObject({
+      account: { delegatedPermissions: [] },
+    });
   });
 });

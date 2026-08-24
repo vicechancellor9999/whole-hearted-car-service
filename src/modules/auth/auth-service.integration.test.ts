@@ -110,6 +110,7 @@ describe("AuthService", () => {
       isActive: true,
       mustChangePassword: true,
       sessionEpoch: 1,
+      delegatedPermissions: [],
     };
     repository.accounts.push(account);
     service = new AuthService(repository, {
@@ -135,6 +136,7 @@ describe("AuthService", () => {
       displayName: "超级管理员",
       role: "super_admin",
       mustChangePassword: true,
+      delegatedPermissions: [],
     });
     expect(result.expiresAt).toEqual(new Date("2026-08-25T12:00:00.000Z"));
     expect(repository.sessions).toHaveLength(1);

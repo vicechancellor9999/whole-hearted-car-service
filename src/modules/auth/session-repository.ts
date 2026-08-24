@@ -28,6 +28,7 @@ type AccountRow = {
   is_active: boolean;
   must_change_password: boolean;
   session_epoch: number;
+  delegated_permissions: "sensitive_operations.execute"[];
 };
 
 type SessionRow = {
@@ -46,6 +47,7 @@ type SessionRow = {
   account_is_active: boolean;
   account_must_change_password: boolean;
   account_session_epoch: number;
+  account_delegated_permissions: "sensitive_operations.execute"[];
 };
 
 export class DatabaseAuthRepository implements AuthRepository {
@@ -55,10 +57,19 @@ export class DatabaseAuthRepository implements AuthRepository {
     normalizedUsername: string,
   ): Promise<AuthAccountRecord | null> {
     const rows = await this.database.query<AccountRow>(
-      `select id, display_name, normalized_username, password_hash, role,
-              is_active, must_change_password, session_epoch
-       from staff_accounts
-       where normalized_username = $1
+      `select account.id, account.display_name, account.normalized_username,
+              account.password_hash, account.role, account.is_active,
+              account.must_change_password, account.session_epoch,
+              coalesce(
+                (
+                  select array_agg(grant_row.permission::text order by grant_row.permission)
+                  from staff_account_permission_grants as grant_row
+                  where grant_row.account_id = account.id
+                ),
+                array[]::text[]
+              ) as delegated_permissions
+       from staff_accounts as account
+       where account.normalized_username = $1
        limit 1`,
       [normalizedUsername],
     );
@@ -199,7 +210,15 @@ async function selectSession(
             account.role as account_role,
             account.is_active as account_is_active,
             account.must_change_password as account_must_change_password,
-            account.session_epoch as account_session_epoch
+            account.session_epoch as account_session_epoch,
+            coalesce(
+              (
+                select array_agg(grant_row.permission::text order by grant_row.permission)
+                from staff_account_permission_grants as grant_row
+                where grant_row.account_id = account.id
+              ),
+              array[]::text[]
+            ) as account_delegated_permissions
      from auth_sessions as session
      join staff_accounts as account on account.id = session.account_id
      where session.token_hash = $1
@@ -220,6 +239,7 @@ function mapAccount(row: AccountRow): AuthAccountRecord {
     isActive: row.is_active,
     mustChangePassword: row.must_change_password,
     sessionEpoch: row.session_epoch,
+    delegatedPermissions: row.delegated_permissions,
   };
 }
 
@@ -242,6 +262,7 @@ function mapSession(row: SessionRow): AuthSessionRecord {
       isActive: row.account_is_active,
       mustChangePassword: row.account_must_change_password,
       sessionEpoch: row.account_session_epoch,
+      delegatedPermissions: row.account_delegated_permissions,
     },
   };
 }

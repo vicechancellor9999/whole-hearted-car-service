@@ -14,6 +14,7 @@ function session(
       displayName,
       role,
       mustChangePassword: false,
+      delegatedPermissions: [],
     },
     expiresAt: new Date("2026-08-25T12:00:00Z"),
   };

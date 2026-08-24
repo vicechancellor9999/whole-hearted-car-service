@@ -30,12 +30,17 @@ export class AuthorizationDeniedError extends Error {
 export function requirePermission(
   session: CurrentSession | null,
   permission: Permission,
-  delegatedPermissions: readonly Permission[] = [],
 ): AuthenticatedAccount {
   if (!session) {
     throw new AuthenticationRequiredError();
   }
-  if (!hasPermission(session.account.role, permission, delegatedPermissions)) {
+  if (
+    !hasPermission(
+      session.account.role,
+      permission,
+      session.account.delegatedPermissions,
+    )
+  ) {
     throw new AuthorizationDeniedError();
   }
   return session.account;

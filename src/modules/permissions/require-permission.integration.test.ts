@@ -6,7 +6,10 @@ import {
   requirePermission,
 } from "@/modules/permissions/require-permission";
 
-function session(role: CurrentSession["account"]["role"]): CurrentSession {
+function session(
+  role: CurrentSession["account"]["role"],
+  delegatedPermissions: CurrentSession["account"]["delegatedPermissions"] = [],
+): CurrentSession {
   return {
     sessionId: 1,
     account: {
@@ -14,6 +17,7 @@ function session(role: CurrentSession["account"]["role"]): CurrentSession {
       displayName: "Test account",
       role,
       mustChangePassword: false,
+      delegatedPermissions,
     },
     expiresAt: new Date("2026-08-25T12:00:00Z"),
   };
@@ -51,9 +55,8 @@ describe("requirePermission", () => {
   it("accepts an explicitly delegated front desk sensitive permission", () => {
     expect(
       requirePermission(
-        session("front_desk"),
+        session("front_desk", ["sensitive_operations.execute"]),
         "sensitive_operations.execute",
-        ["sensitive_operations.execute"],
       ),
     ).toMatchObject({ role: "front_desk" });
   });

@@ -20,6 +20,7 @@ export type AuthAccountRecord = {
   isActive: boolean;
   mustChangePassword: boolean;
   sessionEpoch: number;
+  delegatedPermissions: "sensitive_operations.execute"[];
 };
 
 export type AuthSessionRecord = {
@@ -92,6 +93,7 @@ export type AuthenticatedAccount = {
   displayName: string;
   role: AccountRole;
   mustChangePassword: boolean;
+  delegatedPermissions: "sensitive_operations.execute"[];
 };
 
 export type CurrentSession = {
@@ -253,5 +255,6 @@ function toAuthenticatedAccount(account: AuthAccountRecord): AuthenticatedAccoun
     displayName: account.displayName,
     role: account.role,
     mustChangePassword: account.mustChangePassword,
+    delegatedPermissions: account.delegatedPermissions,
   };
 }
