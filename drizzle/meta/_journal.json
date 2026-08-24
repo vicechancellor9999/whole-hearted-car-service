@@ -71,6 +71,13 @@
       "when": 1787570578161,
       "tag": "0009_business_order_core",
       "breakpoints": true
+    },
+    {
+      "idx": 10,
+      "version": "7",
+      "when": 1787571316812,
+      "tag": "0010_business_order_facts_append_only",
+      "breakpoints": true
     }
   ]
 }

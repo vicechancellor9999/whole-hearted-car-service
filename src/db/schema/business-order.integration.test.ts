@@ -14,6 +14,7 @@ const migrationPaths = [
   "0007_customer_trn_registry.sql",
   "0008_customer_trn_registry_sync.sql",
   "0009_business_order_core.sql",
+  "0010_business_order_facts_append_only.sql",
 ].map((file) => resolve(process.cwd(), "drizzle", file));
 
 let database: PGlite;
@@ -277,5 +278,103 @@ describe("Business Order core schema", () => {
         [version.rows[0].id, unitId],
       ),
     ).rejects.toMatchObject({ code: "23514" });
+  });
+
+  it("seals a current charge version and validates its detail totals before sealing", async () => {
+    const order = await insertBusinessOrder({
+      orderNo: "BO-20260824-0001",
+      personId,
+    });
+    const orderId = Number(order.rows[0].id);
+    const invalidVersion = await database.query<{ id: number }>(
+      `insert into business_order_charge_versions
+        (business_order_id, version_no, change_reason,
+         labor_discount_minor, part_discount_minor,
+         other_discount_minor, whole_order_discount_minor,
+         gross_minor, line_discount_minor, category_discount_minor,
+         total_due_minor, included_gct_minor, created_by)
+       values ($1, 1, '汇总与明细不符', 0, 0, 0, 0, 10000, 0, 0,
+               10000, 1304, $2)
+       returning id`,
+      [orderId, adminId],
+    );
+    await expect(
+      database.query(
+        "update business_orders set current_charge_version_no = 1 where id = $1",
+        [orderId],
+      ),
+    ).rejects.toThrow(/charge version totals do not match items/);
+    await database.query(
+      `insert into business_order_charge_items
+        (charge_version_id, kind, name_zh, unit_item_id, quantity,
+         unit_price_minor, item_discount_minor, subtotal_minor, sort_order)
+       values ($1, 'labor', '诊断工时', $2, 1, 10000, 0, 10000, 1)`,
+      [invalidVersion.rows[0].id, unitId],
+    );
+    await database.query(
+      "update business_orders set current_charge_version_no = 1 where id = $1",
+      [orderId],
+    );
+    await expect(
+      database.query(
+        `insert into business_order_charge_items
+          (charge_version_id, kind, name_zh, unit_item_id, quantity,
+           unit_price_minor, item_discount_minor, subtotal_minor, sort_order)
+         values ($1, 'labor', '封存后追加', $2, 1, 1, 0, 1, 2)`,
+        [invalidVersion.rows[0].id, unitId],
+      ),
+    ).rejects.toThrow(/charge version is sealed/);
+    await expect(
+      database.query(
+        `insert into business_order_notes
+          (charge_version_id, kind, content_zh, sort_order)
+         values ($1, 'internal', '封存后追加备注', 1)`,
+        [invalidVersion.rows[0].id],
+      ),
+    ).rejects.toThrow(/charge version is sealed/);
+  });
+
+  it("never rewrites payer snapshots and only allows one complete void transition", async () => {
+    const order = await insertBusinessOrder({
+      orderNo: "BO-20260824-0001",
+      personId,
+    });
+    const orderId = Number(order.rows[0].id);
+    await expect(
+      database.query(
+        "update business_orders set payer_display_name_snapshot = '改写付款人' where id = $1",
+        [orderId],
+      ),
+    ).rejects.toThrow(/Business Order identity snapshots are immutable/);
+    await database.query(
+      `update business_orders
+       set voided_at = now(), voided_by = $2, void_reason = '客户取消'
+       where id = $1`,
+      [orderId, adminId],
+    );
+    await expect(
+      database.query(
+        `update business_orders
+         set voided_at = null, voided_by = null, void_reason = null
+         where id = $1`,
+        [orderId],
+      ),
+    ).rejects.toThrow(/Business Order void fact is append-only/);
+    await expect(
+      database.query(
+        "update business_orders set void_reason = '改写原因' where id = $1",
+        [orderId],
+      ),
+    ).rejects.toThrow(/Business Order void fact is append-only/);
+  });
+
+  it("serializes detail inserts against sealing on the same Business Order row", async () => {
+    const migration = await readFile(
+      resolve(process.cwd(), "drizzle/0010_business_order_facts_append_only.sql"),
+      "utf8",
+    );
+    expect(migration).toMatch(
+      /WHERE charge\.id = NEW\.charge_version_id\s+FOR UPDATE OF business_order;/,
+    );
   });
 });

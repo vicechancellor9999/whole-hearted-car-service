@@ -6,6 +6,7 @@ export type Permission =
   | "business.read.all"
   | "customer_vehicle.read"
   | "customer_vehicle.write"
+  | "business_order.write"
   | "master_data.read"
   | "master_data.write"
   | "workforce.manage"
@@ -24,6 +25,7 @@ export const permissionMatrix: Record<
     "business.read.all": true,
     "customer_vehicle.read": true,
     "customer_vehicle.write": true,
+    "business_order.write": true,
     "master_data.read": true,
     "master_data.write": true,
     "workforce.manage": true,
@@ -38,6 +40,7 @@ export const permissionMatrix: Record<
     "business.read.all": true,
     "customer_vehicle.read": true,
     "customer_vehicle.write": true,
+    "business_order.write": true,
     "master_data.read": true,
     "master_data.write": true,
     "workforce.manage": false,
@@ -52,6 +55,7 @@ export const permissionMatrix: Record<
     "business.read.all": true,
     "customer_vehicle.read": true,
     "customer_vehicle.write": false,
+    "business_order.write": false,
     "master_data.read": true,
     "master_data.write": false,
     "workforce.manage": false,
@@ -66,6 +70,7 @@ export const permissionMatrix: Record<
     "business.read.all": false,
     "customer_vehicle.read": false,
     "customer_vehicle.write": false,
+    "business_order.write": false,
     "master_data.read": false,
     "master_data.write": false,
     "workforce.manage": false,
