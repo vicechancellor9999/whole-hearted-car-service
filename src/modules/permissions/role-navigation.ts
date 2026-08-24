@@ -1,0 +1,26 @@
+import type { AccountRole } from "@/modules/auth/auth-service";
+import { hasPermission } from "@/modules/permissions/permissions";
+
+export type NavigationItem = Readonly<{
+  label: string;
+  href: string;
+}>;
+
+const navigationItems = [
+  {
+    label: "工作台",
+    href: "/dashboard",
+    permission: "pc.dashboard.read",
+  },
+  {
+    label: "账号管理",
+    href: "/settings/accounts",
+    permission: "accounts.manage",
+  },
+] as const;
+
+export function getRoleNavigation(role: AccountRole): NavigationItem[] {
+  return navigationItems
+    .filter((item) => hasPermission(role, item.permission))
+    .map(({ label, href }) => ({ label, href }));
+}
