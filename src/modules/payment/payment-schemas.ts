@@ -18,6 +18,44 @@ export const recordPaymentSchema = z.object({
   note: optionalNote,
 });
 
+const storedEvidenceSchema = z.object({
+  storageKey: z.string().trim().min(1).max(500),
+  originalName: z.string().trim().min(1).max(500),
+  mediaType: z.enum(["image/jpeg", "image/png", "image/webp", "application/pdf"]),
+  sizeBytes: z.number().int().positive().max(25 * 1024 * 1024),
+  sha256Hex: z.string().regex(/^[0-9a-f]{64}$/),
+});
+
+export const recordRefundSchema = z.object({
+  businessOrderId: z.number().int().positive(),
+  amount: positiveMoneyText,
+  paymentMethodItemId: z.number().int().positive(),
+  reason: z.string().trim().min(1, "退款原因不能为空").max(2_000),
+  originalDocumentStatus: z.enum(["returned", "unavailable"]),
+  originalDocumentNote: z.string().trim().max(2_000).optional().transform(
+    (value) => value || null,
+  ),
+  proof: storedEvidenceSchema.nullable(),
+  customerSignature: storedEvidenceSchema.nullable().optional().transform(
+    (value) => value ?? null,
+  ),
+}).superRefine((value, context) => {
+  if (!value.proof) {
+    context.addIssue({
+      code: "custom",
+      message: "退款必须上传退款凭证",
+      path: ["proof"],
+    });
+  }
+  if (value.originalDocumentStatus === "unavailable" && !value.originalDocumentNote) {
+    context.addIssue({
+      code: "custom",
+      message: "原单无法交回时必须填写说明",
+      path: ["originalDocumentNote"],
+    });
+  }
+});
+
 export function moneyTextToMinor(value: string): number {
   const [whole, fraction = ""] = value.split(".");
   const minor = Number(whole) * 100 + Number(fraction.padEnd(2, "0"));

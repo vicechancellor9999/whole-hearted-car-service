@@ -40,6 +40,7 @@ let ownerId: number;
 let vehicleId: number;
 let hourUnitId: number;
 let cashMethodId: number;
+let bankMethodId: number;
 let inactiveMethodId: number;
 
 function executor(source: PGlite | Transaction): AuthSqlExecutor {
@@ -133,13 +134,15 @@ describe("PaymentService", () => {
        values
         ('charge_unit', 'hour', '工时', 'hour', true, $1),
         ('payment_method', 'cash', '现金', 'Cash', true, $1),
+        ('payment_method', 'bank_transfer', '银行转账', 'Bank transfer', true, $1),
         ('payment_method', 'disabled', '停用方式', 'Disabled', false, $1)
        returning id`,
       [adminId],
     );
     hourUnitId = Number(dictionary.rows[0].id);
     cashMethodId = Number(dictionary.rows[1].id);
-    inactiveMethodId = Number(dictionary.rows[2].id);
+    bankMethodId = Number(dictionary.rows[2].id);
+    inactiveMethodId = Number(dictionary.rows[3].id);
     const customerId = Number((await database.query<{ id: number }>(
       `insert into personal_customers
         (customer_no, full_name, normalized_phone, trn, created_by)
@@ -269,4 +272,138 @@ describe("PaymentService", () => {
       context: context(frontDeskId, "inactive-method", "2026-08-24T14:02:00Z"),
     })).rejects.toBeInstanceOf(PaymentValidationError);
   });
+
+  it("records an arbitrary non-cash refund without changing charges or payment facts", async () => {
+    const { order } = await createChargedOrder();
+    const payment = await paymentService.recordPayment({
+      businessOrderId: order.id,
+      amount: "3000",
+      paymentMethodItemId: cashMethodId,
+      context: context(frontDeskId, "payment-before-refund", "2026-08-24T14:00:00Z"),
+    });
+    const chargeBefore = await businessOrderService.getCurrentCharges({
+      businessOrderId: order.id,
+      viewerAccountId: ownerId,
+    });
+    const refund = await paymentService.recordRefund({
+      businessOrderId: order.id,
+      amount: "5000",
+      paymentMethodItemId: bankMethodId,
+      reason: "客户要求终止本次服务关系",
+      originalDocumentStatus: "returned",
+      proof: evidence("refund-proof.pdf", "application/pdf", "proof-key"),
+      context: context(adminId, "refund-arbitrary", "2026-08-24T15:00:00Z"),
+    });
+
+    expect(refund).toMatchObject({
+      refundNo: "RFD-20260824-0001",
+      amountMinor: 500_000,
+      paymentMethodCode: "bank_transfer",
+      evidence: [{ kind: "refund_proof" }],
+    });
+    expect(await businessOrderService.getCurrentCharges({
+      businessOrderId: order.id,
+      viewerAccountId: ownerId,
+    })).toEqual(chargeBefore);
+    expect(await paymentService.getReceipt({
+      receiptId: payment.receipt.id,
+      viewerAccountId: ownerId,
+    })).toEqual(payment.receipt);
+    expect(await paymentService.getBusinessOrderLedger({
+      businessOrderId: order.id,
+      viewerAccountId: ownerId,
+    })).toMatchObject({
+      currentDueMinor: 2_000_000,
+      totalPaidMinor: 300_000,
+      totalRefundedMinor: 500_000,
+      balanceMinor: 2_200_000,
+    });
+    const audit = await database.query<{ event_type: string; reason: string }>(
+      "select event_type, reason from audit_events where request_id = 'refund-arbitrary'",
+    );
+    expect(audit.rows).toEqual([{
+      event_type: "refund.created",
+      reason: "客户要求终止本次服务关系",
+    }]);
+  });
+
+  it("requires proof, cash signature and an unavailable-original explanation", async () => {
+    const { order } = await createChargedOrder();
+    await expect(paymentService.recordRefund({
+      businessOrderId: order.id,
+      amount: "1",
+      paymentMethodItemId: bankMethodId,
+      reason: "测试",
+      originalDocumentStatus: "returned",
+      proof: null,
+      context: context(adminId, "refund-no-proof", "2026-08-24T15:00:00Z"),
+    })).rejects.toBeInstanceOf(PaymentValidationError);
+    await expect(paymentService.recordRefund({
+      businessOrderId: order.id,
+      amount: "1",
+      paymentMethodItemId: cashMethodId,
+      reason: "测试",
+      originalDocumentStatus: "returned",
+      proof: evidence("cash-proof.jpg", "image/jpeg", "cash-proof-key"),
+      context: context(adminId, "refund-no-signature", "2026-08-24T15:01:00Z"),
+    })).rejects.toBeInstanceOf(PaymentValidationError);
+    await expect(paymentService.recordRefund({
+      businessOrderId: order.id,
+      amount: "1",
+      paymentMethodItemId: bankMethodId,
+      reason: "测试",
+      originalDocumentStatus: "unavailable",
+      originalDocumentNote: "",
+      proof: evidence("unavailable-proof.pdf", "application/pdf", "unavailable-key"),
+      context: context(adminId, "refund-no-original-note", "2026-08-24T15:02:00Z"),
+    })).rejects.toBeInstanceOf(PaymentValidationError);
+  });
+
+  it("requires sensitive permission for front desk refunds and keeps owner read-only", async () => {
+    const { order } = await createChargedOrder();
+    const refundInput = {
+      businessOrderId: order.id,
+      amount: "100",
+      paymentMethodItemId: cashMethodId,
+      reason: "现金退款",
+      originalDocumentStatus: "unavailable" as const,
+      originalDocumentNote: "客户说明原单已经遗失",
+      proof: evidence("proof.jpg", "image/jpeg", "front-proof-key"),
+      customerSignature: evidence("signature.jpg", "image/jpeg", "front-signature-key"),
+    };
+    await expect(paymentService.recordRefund({
+      ...refundInput,
+      context: context(frontDeskId, "front-no-grant", "2026-08-24T15:00:00Z"),
+    })).rejects.toBeInstanceOf(PaymentWriteDeniedError);
+    await expect(paymentService.recordRefund({
+      ...refundInput,
+      context: context(ownerId, "owner-refund", "2026-08-24T15:01:00Z"),
+    })).rejects.toBeInstanceOf(PaymentWriteDeniedError);
+    await database.query(
+      `insert into staff_account_permission_grants
+        (account_id, permission, granted_by, granted_at)
+       values ($1, 'sensitive_operations.execute', $2, '2026-08-24T15:02:00Z')`,
+      [frontDeskId, adminId],
+    );
+    await expect(paymentService.recordRefund({
+      ...refundInput,
+      context: context(frontDeskId, "front-with-grant", "2026-08-24T15:03:00Z"),
+    })).resolves.toMatchObject({
+      amountMinor: 10_000,
+      evidence: [
+        { kind: "refund_proof" },
+        { kind: "customer_signature" },
+      ],
+    });
+  });
 });
+
+function evidence(originalName: string, mediaType: string, storageKey: string) {
+  return {
+    storageKey: `refund-files/2026/08/${storageKey}`,
+    originalName,
+    mediaType,
+    sizeBytes: 100,
+    sha256Hex: "a".repeat(64),
+  };
+}

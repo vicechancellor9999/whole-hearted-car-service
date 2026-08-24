@@ -16,7 +16,9 @@ import {
 import {
   moneyTextToMinor,
   recordPaymentSchema,
+  recordRefundSchema,
 } from "@/modules/payment/payment-schemas";
+import type { StoredRefundUpload } from "@/modules/payment/refund-attachment-storage";
 
 export {
   PaymentConflictError,
@@ -48,6 +50,32 @@ type ReceiptRow = {
   render_snapshot: ReceiptRenderSnapshot | string;
   issued_at: Date;
   issued_by: number;
+};
+
+type RefundRow = {
+  id: number;
+  refund_no: string;
+  business_order_id: number;
+  payment_method_item_id: number;
+  payment_method_code_snapshot: string;
+  payment_method_label_zh_snapshot: string;
+  payment_method_label_en_snapshot: string | null;
+  amount_minor: number;
+  reason: string;
+  original_document_status: "returned" | "unavailable";
+  original_document_note: string | null;
+  refunded_at: Date;
+  recorded_by: number;
+};
+
+type RefundEvidenceRow = {
+  file_id: number;
+  kind: "refund_proof" | "customer_signature";
+  storage_key: string;
+  original_name: string;
+  media_type: string;
+  size_bytes: number;
+  sha256_hex: string;
 };
 
 type OrderChargeRow = {
@@ -109,6 +137,33 @@ export type PaymentReceiptRecord = {
   snapshot: ReceiptRenderSnapshot;
   issuedAt: Date;
   issuedBy: number;
+};
+
+export type RefundEvidenceRecord = {
+  fileId: number;
+  kind: "refund_proof" | "customer_signature";
+  storageKey: string;
+  originalName: string;
+  mediaType: string;
+  sizeBytes: number;
+  sha256Hex: string;
+};
+
+export type BusinessOrderRefundRecord = {
+  id: number;
+  refundNo: string;
+  businessOrderId: number;
+  paymentMethodItemId: number;
+  paymentMethodCode: string;
+  paymentMethodLabelZh: string;
+  paymentMethodLabelEn: string | null;
+  amountMinor: number;
+  reason: string;
+  originalDocumentStatus: "returned" | "unavailable";
+  originalDocumentNote: string | null;
+  refundedAt: Date;
+  recordedBy: number;
+  evidence: RefundEvidenceRecord[];
 };
 
 export type LedgerTransaction = {
@@ -271,6 +326,155 @@ export class PaymentService {
     return buildLedger(order.total_due_minor, input.businessOrderId, transactions);
   }
 
+  async recordRefund(input: {
+    businessOrderId: number;
+    amount: string;
+    paymentMethodItemId: number;
+    reason: string;
+    originalDocumentStatus: "returned" | "unavailable";
+    originalDocumentNote?: string;
+    proof: StoredRefundUpload | null;
+    customerSignature?: StoredRefundUpload | null;
+    context: BusinessOrderActionContext;
+  }): Promise<BusinessOrderRefundRecord> {
+    const parsed = recordRefundSchema.safeParse(input);
+    if (!parsed.success) {
+      throw new PaymentValidationError(parsed.error.issues[0]?.message ?? "退款数据不正确");
+    }
+    const proof = parsed.data.proof;
+    if (!proof) {
+      throw new PaymentValidationError("退款必须上传退款凭证");
+    }
+    const now = input.context.now ?? new Date();
+    const amountMinor = moneyTextToMinor(parsed.data.amount);
+    try {
+      return await this.database.transaction(async (transaction) => {
+        await requireSensitiveRefundWriter(transaction, input.context.actorAccountId);
+        await loadOrderAndCharge(transaction, parsed.data.businessOrderId, true);
+        const method = await requirePaymentMethod(
+          transaction,
+          parsed.data.paymentMethodItemId,
+        );
+        if (method.code === "cash" && !parsed.data.customerSignature) {
+          throw new PaymentValidationError("现金退款必须上传客户签字证据");
+        }
+        await transaction.query(
+          "lock table business_order_refunds in share row exclusive mode",
+        );
+        const dateKey = toBusinessDateKey(now).replaceAll("-", "");
+        const refundNo = await nextNumber(
+          transaction,
+          "business_order_refunds",
+          "refund_no",
+          `RFD-${dateKey}-`,
+        );
+        const refundRows = await transaction.query<RefundRow>(
+          `insert into business_order_refunds
+            (refund_no, business_order_id, payment_method_item_id,
+             payment_method_code_snapshot, payment_method_label_zh_snapshot,
+             payment_method_label_en_snapshot, amount_minor, reason,
+             original_document_status, original_document_note,
+             refunded_at, recorded_by)
+           values ($1, $2, $3, $4, $5, $6, $7, $8,
+                   $9::refund_original_document_status, $10, $11, $12)
+           returning id, refund_no, business_order_id, payment_method_item_id,
+                     payment_method_code_snapshot,
+                     payment_method_label_zh_snapshot,
+                     payment_method_label_en_snapshot, amount_minor, reason,
+                     original_document_status, original_document_note,
+                     refunded_at, recorded_by`,
+          [
+            refundNo,
+            parsed.data.businessOrderId,
+            parsed.data.paymentMethodItemId,
+            method.code,
+            method.label_zh,
+            method.label_en,
+            amountMinor,
+            parsed.data.reason,
+            parsed.data.originalDocumentStatus,
+            parsed.data.originalDocumentStatus === "unavailable"
+              ? parsed.data.originalDocumentNote
+              : null,
+            now,
+            input.context.actorAccountId,
+          ],
+        );
+        const refundRow = refundRows[0];
+        if (!refundRow) throw new Error("退款写入后无法读取");
+        await insertRefundEvidence(
+          transaction,
+          Number(refundRow.id),
+          "refund_proof",
+          proof,
+          input.context.actorAccountId,
+          now,
+        );
+        if (parsed.data.customerSignature) {
+          await insertRefundEvidence(
+            transaction,
+            Number(refundRow.id),
+            "customer_signature",
+            parsed.data.customerSignature,
+            input.context.actorAccountId,
+            now,
+          );
+        }
+        const evidence = await selectRefundEvidence(transaction, Number(refundRow.id));
+        const refund = mapRefund(refundRow, evidence);
+        const ledger = buildLedger(
+          (await loadOrderAndCharge(transaction, parsed.data.businessOrderId, false)).total_due_minor,
+          parsed.data.businessOrderId,
+          await selectLedgerTransactions(transaction, parsed.data.businessOrderId),
+        );
+        await writeAuditEvent(transaction, {
+          occurredAt: now,
+          actorAccountId: input.context.actorAccountId,
+          eventType: "refund.created",
+          objectType: "business_order_refund",
+          objectId: refund.refundNo,
+          reason: refund.reason,
+          after: {
+            businessOrderId: refund.businessOrderId,
+            amountMinor: refund.amountMinor,
+            paymentMethodCode: refund.paymentMethodCode,
+            originalDocumentStatus: refund.originalDocumentStatus,
+            evidenceKinds: refund.evidence.map((file) => file.kind),
+            balanceAfterMinor: ledger.balanceMinor,
+          },
+          requestId: input.context.requestId,
+          ipAddress: input.context.ipAddress,
+          userAgent: input.context.userAgent,
+        });
+        return refund;
+      });
+    } catch (error) {
+      rethrowPaymentError(error);
+    }
+  }
+
+  async getRefund(input: {
+    refundId: number;
+    viewerAccountId: number;
+  }): Promise<BusinessOrderRefundRecord> {
+    await requirePaymentReader(this.database, input.viewerAccountId);
+    const rows = await this.database.query<RefundRow>(
+      `select id, refund_no, business_order_id, payment_method_item_id,
+              payment_method_code_snapshot,
+              payment_method_label_zh_snapshot,
+              payment_method_label_en_snapshot, amount_minor, reason,
+              original_document_status, original_document_note,
+              refunded_at, recorded_by
+       from business_order_refunds where id = $1 limit 1`,
+      [input.refundId],
+    );
+    if (!rows[0]) throw new PaymentNotFoundError("退款记录不存在");
+    return mapRefund(
+      rows[0],
+      await selectRefundEvidence(this.database, input.refundId),
+    );
+  }
+
   async getReceipt(input: {
     receiptId: number;
     viewerAccountId: number;
@@ -378,6 +582,66 @@ async function selectLedgerTransactions(
     occurredAt: new Date(row.occurred_at),
     note: row.note,
     receiptId: row.receipt_id === null ? null : Number(row.receipt_id),
+  }));
+}
+
+async function insertRefundEvidence(
+  executor: AuthSqlExecutor,
+  refundId: number,
+  kind: "refund_proof" | "customer_signature",
+  file: StoredRefundUpload,
+  actorAccountId: number,
+  linkedAt: Date,
+) {
+  const rows = await executor.query<{ id: number }>(
+    `insert into stored_files
+      (storage_key, original_name, media_type, size_bytes, sha256_hex,
+       uploaded_by, uploaded_at)
+     values ($1, $2, $3, $4, $5, $6, $7)
+     returning id`,
+    [
+      file.storageKey,
+      file.originalName,
+      file.mediaType,
+      file.sizeBytes,
+      file.sha256Hex,
+      actorAccountId,
+      linkedAt,
+    ],
+  );
+  const fileId = Number(rows[0]?.id);
+  if (!fileId) throw new Error("退款凭证写入后无法读取");
+  await executor.query(
+    `insert into refund_evidence_files
+      (refund_id, file_id, kind, linked_at, linked_by)
+     values ($1, $2, $3::refund_evidence_kind, $4, $5)`,
+    [refundId, fileId, kind, linkedAt, actorAccountId],
+  );
+}
+
+async function selectRefundEvidence(
+  executor: AuthSqlExecutor,
+  refundId: number,
+): Promise<RefundEvidenceRecord[]> {
+  const rows = await executor.query<RefundEvidenceRow>(
+    `select evidence.file_id, evidence.kind, file.storage_key,
+            file.original_name, file.media_type, file.size_bytes,
+            file.sha256_hex
+     from refund_evidence_files as evidence
+     join stored_files as file on file.id = evidence.file_id
+     where evidence.refund_id = $1
+     order by case evidence.kind when 'refund_proof' then 1 else 2 end,
+              evidence.file_id`,
+    [refundId],
+  );
+  return rows.map((row) => ({
+    fileId: Number(row.file_id),
+    kind: row.kind,
+    storageKey: row.storage_key,
+    originalName: row.original_name,
+    mediaType: row.media_type,
+    sizeBytes: Number(row.size_bytes),
+    sha256Hex: row.sha256_hex,
   }));
 }
 
@@ -522,8 +786,8 @@ async function buildReceiptSnapshot(
 
 async function nextNumber(
   executor: AuthSqlExecutor,
-  table: "business_order_payments" | "payment_receipts",
-  column: "payment_no" | "receipt_no",
+  table: "business_order_payments" | "payment_receipts" | "business_order_refunds",
+  column: "payment_no" | "receipt_no" | "refund_no",
   prefix: string,
 ) {
   const rows = await executor.query<{ current_number: number }>(
@@ -558,6 +822,31 @@ async function requirePaymentWriter(executor: AuthSqlExecutor, accountId: number
   if (!rows[0]) throw new PaymentWriteDeniedError();
 }
 
+async function requireSensitiveRefundWriter(
+  executor: AuthSqlExecutor,
+  accountId: number,
+) {
+  const rows = await executor.query<{ role: string; delegated: boolean }>(
+    `select account.role,
+            exists (
+              select 1 from staff_account_permission_grants as permission_grant
+              where permission_grant.account_id = account.id
+                and permission_grant.permission = 'sensitive_operations.execute'
+            ) as delegated
+     from staff_accounts as account
+     where account.id = $1 and account.is_active = true
+     limit 1`,
+    [accountId],
+  );
+  const actor = rows[0];
+  if (
+    !actor ||
+    (actor.role !== "super_admin" && !(actor.role === "front_desk" && actor.delegated))
+  ) {
+    throw new PaymentWriteDeniedError("退款属于敏感操作，当前账号没有退款权限");
+  }
+}
+
 function mapPayment(row: PaymentRow | undefined): PaymentRecord {
   if (!row) throw new Error("收款写入后无法读取");
   return {
@@ -587,6 +876,28 @@ function mapReceipt(row: ReceiptRow | undefined): PaymentReceiptRecord {
       : row.render_snapshot,
     issuedAt: new Date(row.issued_at),
     issuedBy: Number(row.issued_by),
+  };
+}
+
+function mapRefund(
+  row: RefundRow,
+  evidence: RefundEvidenceRecord[],
+): BusinessOrderRefundRecord {
+  return {
+    id: Number(row.id),
+    refundNo: row.refund_no,
+    businessOrderId: Number(row.business_order_id),
+    paymentMethodItemId: Number(row.payment_method_item_id),
+    paymentMethodCode: row.payment_method_code_snapshot,
+    paymentMethodLabelZh: row.payment_method_label_zh_snapshot,
+    paymentMethodLabelEn: row.payment_method_label_en_snapshot,
+    amountMinor: Number(row.amount_minor),
+    reason: row.reason,
+    originalDocumentStatus: row.original_document_status,
+    originalDocumentNote: row.original_document_note,
+    refundedAt: new Date(row.refunded_at),
+    recordedBy: Number(row.recorded_by),
+    evidence,
   };
 }
 
