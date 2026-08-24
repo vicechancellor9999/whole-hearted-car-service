@@ -14,6 +14,7 @@ export function createDatabaseClient(source: Record<string, unknown> = process.e
 
   return {
     db: drizzle(queryClient, { schema }),
+    sql: queryClient,
     close: () => queryClient.end(),
   };
 }

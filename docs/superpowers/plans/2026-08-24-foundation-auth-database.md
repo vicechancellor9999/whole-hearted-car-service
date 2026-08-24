@@ -14,6 +14,8 @@
 - `/Volumes/公司文件/Whole Hearted Car Service 综合管理系统_协作开发/main/docs/formal-backend/2026-08-24-pc-web-acceptance-checklist.md`
 - `/Volumes/公司文件/Whole Hearted Car Service 正式系统/docs/architecture/2026-08-24-formal-system-roadmap.md`
 
+**2026-08-24 部署门禁：** 当前只写代码并在本地测试。全部功能完成后，先由专业人员审查全部代码与业务逻辑，审查问题修复并复验通过后才执行 Task 8–10 中的真实部署操作。在此之前只允许审查部署配置文件和运行本地验证，不连接正式服务器、域名或生产数据库。
+
 ---
 
 ## 前置约束
