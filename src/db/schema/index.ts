@@ -6,3 +6,4 @@ export * from "@/db/schema/master-data";
 export * from "@/db/schema/customer-vehicle";
 export * from "@/db/schema/business-order";
 export * from "@/db/schema/repair-round";
+export * from "@/db/schema/inspection-report";

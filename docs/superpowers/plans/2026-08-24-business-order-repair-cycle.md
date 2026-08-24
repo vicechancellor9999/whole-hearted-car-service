@@ -170,7 +170,7 @@ git commit -m "feat: add repair round workflow"
 - Create: `src/db/schema/inspection-report.ts`
 - Create: `src/modules/inspection-report/inspection-report-service.ts`
 - Create: `src/modules/inspection-report/inspection-report-service.integration.test.ts`
-- Create: `drizzle/0011_inspection_reports.sql`
+- Create: `drizzle/0012_inspection_reports.sql`
 - Modify: `src/db/schema/index.ts`
 
 **Interfaces:**
@@ -214,7 +214,7 @@ git commit -m "feat: add independent Inspection Reports"
 - Modify: `src/db/schema/business-order.ts`
 - Create: `src/modules/business-order/formal-handoff-service.ts`
 - Create: `src/modules/business-order/formal-handoff-service.integration.test.ts`
-- Create: `drizzle/0012_formal_handoffs.sql`
+- Create: `drizzle/0013_formal_handoffs.sql`
 
 **Interfaces:**
 - Produces: `formallyHandOffRound`、`cancelFormalHandoffInSameMonth`。
