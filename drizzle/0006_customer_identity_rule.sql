@@ -1,0 +1,2 @@
+DROP INDEX "personal_customers_normalized_phone_uq";--> statement-breakpoint
+CREATE UNIQUE INDEX "personal_customers_normalized_phone_uq" ON "personal_customers" USING btree ("normalized_phone") WHERE "personal_customers"."trn" is null;

@@ -13,6 +13,21 @@ const navigationItems = [
     permission: "pc.dashboard.read",
   },
   {
+    label: "客户档案",
+    href: "/customers",
+    permission: "customer_vehicle.read",
+  },
+  {
+    label: "公司账户",
+    href: "/companies",
+    permission: "customer_vehicle.read",
+  },
+  {
+    label: "车辆档案",
+    href: "/vehicles",
+    permission: "customer_vehicle.read",
+  },
+  {
     label: "基础资料",
     href: "/master-data",
     permission: "master_data.read",
