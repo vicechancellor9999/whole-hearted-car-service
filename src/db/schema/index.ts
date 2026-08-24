@@ -8,3 +8,4 @@ export * from "@/db/schema/business-order";
 export * from "@/db/schema/repair-round";
 export * from "@/db/schema/inspection-report";
 export * from "@/db/schema/formal-handoff";
+export * from "@/db/schema/payment";
