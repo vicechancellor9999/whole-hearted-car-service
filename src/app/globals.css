@@ -2101,6 +2101,57 @@ h1 {
   font-weight: 700;
 }
 
+.bo-document-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.bo-document-actions button {
+  min-height: 34px;
+  padding: 7px 10px;
+  border: 0;
+  border-radius: 8px;
+  background: var(--brand);
+  color: #fff;
+  cursor: pointer;
+  font: inherit;
+  font-size: 11px;
+  font-weight: 700;
+}
+
+.bo-document-history {
+  display: grid;
+  gap: 5px;
+  margin-top: 10px;
+}
+
+.bo-document-history article {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 180px auto;
+  gap: 10px;
+  align-items: center;
+  padding: 9px 10px;
+  border-radius: 8px;
+  background: #f7f9fc;
+  font-size: 11px;
+}
+
+.bo-document-history article > span:first-child {
+  display: grid;
+  gap: 2px;
+}
+
+.bo-document-history small {
+  color: var(--muted);
+}
+
+.bo-document-history a {
+  color: var(--brand-strong);
+  font-weight: 700;
+  text-decoration: none;
+}
+
 .ir-create-form {
   grid-template-columns: repeat(3, minmax(0, 1fr));
   margin-top: 10px;

@@ -22,6 +22,9 @@ import { ChargeEditor } from "@/app/(protected)/business-orders/charge-editor";
 import { businessOrderFinanceAction } from "@/app/(protected)/business-orders/[businessOrderId]/finance-actions";
 import { FinancePanel } from "@/app/(protected)/business-orders/[businessOrderId]/finance-panel";
 import type { BusinessOrderLedger } from "@/modules/payment/payment-service";
+import type { BusinessOrderDocumentRecord } from "@/modules/business-order/business-order-document-service";
+import { businessOrderDocumentAction } from "@/app/(protected)/business-orders/[businessOrderId]/document-actions";
+import { DocumentHistory } from "@/app/(protected)/business-orders/[businessOrderId]/document-history";
 
 type FormAction = (formData: FormData) => void | Promise<void>;
 type TeamOption = { id: number; name: string };
@@ -155,6 +158,7 @@ export function BusinessOrderDetailView({
   canRefund = false,
   chargeUnits,
   charges,
+  documents = [],
   error,
   formalHandoffs,
   isSuperAdmin,
@@ -173,6 +177,7 @@ export function BusinessOrderDetailView({
   canRefund?: boolean;
   chargeUnits: ChargeUnitOption[];
   charges: BusinessOrderChargeSnapshot;
+  documents?: BusinessOrderDocumentRecord[];
   error?: string;
   formalHandoffs: FormalHandoffRecord[];
   isSuperAdmin: boolean;
@@ -206,6 +211,7 @@ export function BusinessOrderDetailView({
       <ChargeEditor action={action} businessOrderId={order.id} businessOrderVersion={order.version} canWrite={canWrite && !order.voided} chargeUnits={chargeUnits} charges={charges} />
       <section className="bo-panel bo-finance-summary"><header className="bo-panel-heading"><div><h2>收费汇总</h2><p>单价和小计均为含税金额；所含 GCT 仅单独列示。</p></div></header><div><span>收费原价<strong>{money(charges.totals.grossMinor)}</strong></span><span>本项折扣<strong>{money(charges.totals.lineDiscountMinor)}</strong></span><span>分类折扣<strong>{money(charges.totals.categoryDiscountMinor)}</strong></span><span>整单折扣<strong>{money(charges.totals.wholeOrderDiscountMinor)}</strong></span><span>折后应收<strong>{money(charges.totals.totalDueMinor)}</strong></span><span>其中含 15% GCT<strong>{money(charges.totals.includedGctMinor)}</strong></span></div></section>
       {ledger ? <FinancePanel action={paymentAction} businessOrderId={order.id} canRecordPayment={canRecordPayment && !order.voided} canRefund={canRefund} ledger={ledger} paymentMethods={paymentMethods} /> : null}
+      <DocumentHistory action={businessOrderDocumentAction} businessOrderId={order.id} canGenerate={canWrite} documents={documents} />
       <section className="bo-panel"><header className="bo-panel-heading"><div><h2>正式交单历史</h2><p>取消不删除原交单；再次交单生成新的独立事实。</p></div></header>{formalHandoffs.length === 0 ? <p className="record-empty">尚无正式交单事实。</p> : <div className="bo-handoff-list">{formalHandoffs.map((handoff) => <article key={handoff.id}><strong>第 {handoff.handoffNo} 次交单 · 第 {handoff.repairRoundNo} 轮</strong><span>{handoff.jamaicaMonth} · 绩效 {money(handoff.performanceMinor)} · 收费版本 {handoff.chargeVersionNo}</span><em>{handoff.cancellation ? `已取消：${handoff.cancellation.reason}` : "当前有效"}</em></article>)}</div>}</section>
     </section>
   );
@@ -232,7 +238,7 @@ export default async function BusinessOrderDetailPage({ params, searchParams }: 
       if (error instanceof BusinessOrderNotFoundError) notFound();
       throw error;
     }
-    const [charges, repairRound, formalHandoffs, chargeUnits, paymentMethods, teams, staff, ledger] = await Promise.all([
+    const [charges, repairRound, formalHandoffs, chargeUnits, paymentMethods, teams, staff, ledger, documents] = await Promise.all([
       businessRuntime.service.getCurrentCharges({ businessOrderId, viewerAccountId: viewer.id }),
       businessRuntime.repairRounds.getCurrentRound({ businessOrderId, viewerAccountId: viewer.id }),
       businessRuntime.formalHandoffs.listFormalHandoffs({ businessOrderId, viewerAccountId: viewer.id }),
@@ -241,9 +247,10 @@ export default async function BusinessOrderDetailPage({ params, searchParams }: 
       masterRuntime.service.listRepairTeams({ viewerAccountId: viewer.id, activeOnly: true }),
       masterRuntime.service.listStaffMembers({ viewerAccountId: viewer.id }),
       businessRuntime.payments.getBusinessOrderLedger({ businessOrderId, viewerAccountId: viewer.id }),
+      businessRuntime.documents.listForBusinessOrder({ businessOrderId, viewerAccountId: viewer.id }),
     ]);
     const canWrite = hasPermission(viewer.role, "business_order.write", viewer.delegatedPermissions);
-    return <BusinessOrderDetailView canRecordPayment={canWrite} canRefund={hasPermission(viewer.role, "sensitive_operations.execute", viewer.delegatedPermissions)} canWrite={canWrite} chargeUnits={chargeUnits.map((unit) => ({ id: unit.id, labelZh: unit.labelZh, labelEn: unit.labelEn }))} charges={charges} error={query.error} formalHandoffs={formalHandoffs} isSuperAdmin={viewer.role === "super_admin"} ledger={ledger} mechanics={staff.filter((member) => member.status === "active").map((member) => ({ id: member.id, fullName: member.fullName, currentTeamId: member.currentTeamId }))} order={order} paymentMethods={paymentMethods.map((method) => ({ id: method.id, code: method.code, labelZh: method.labelZh, labelEn: method.labelEn }))} repairRound={repairRound} success={query.success} teams={teams.map((team) => ({ id: team.id, name: team.name }))} />;
+    return <BusinessOrderDetailView canRecordPayment={canWrite} canRefund={hasPermission(viewer.role, "sensitive_operations.execute", viewer.delegatedPermissions)} canWrite={canWrite} chargeUnits={chargeUnits.map((unit) => ({ id: unit.id, labelZh: unit.labelZh, labelEn: unit.labelEn }))} charges={charges} documents={documents} error={query.error} formalHandoffs={formalHandoffs} isSuperAdmin={viewer.role === "super_admin"} ledger={ledger} mechanics={staff.filter((member) => member.status === "active").map((member) => ({ id: member.id, fullName: member.fullName, currentTeamId: member.currentTeamId }))} order={order} paymentMethods={paymentMethods.map((method) => ({ id: method.id, code: method.code, labelZh: method.labelZh, labelEn: method.labelEn }))} repairRound={repairRound} success={query.success} teams={teams.map((team) => ({ id: team.id, name: team.name }))} />;
   } finally {
     await Promise.all([businessRuntime.close(), masterRuntime.close()]);
   }
