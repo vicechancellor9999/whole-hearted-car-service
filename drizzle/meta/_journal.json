@@ -64,6 +64,13 @@
       "when": 1787569696750,
       "tag": "0008_customer_trn_registry_sync",
       "breakpoints": true
+    },
+    {
+      "idx": 9,
+      "version": "7",
+      "when": 1787570578161,
+      "tag": "0009_business_order_core",
+      "breakpoints": true
     }
   ]
 }
