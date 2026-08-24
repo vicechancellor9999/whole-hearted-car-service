@@ -6,6 +6,7 @@ export type Permission =
   | "business.read.all"
   | "master_data.write"
   | "accounts.manage"
+  | "audit.read"
   | "sensitive_operations.execute"
   | "mechanic.mobile.access";
 
@@ -19,6 +20,7 @@ export const permissionMatrix: Record<
     "business.read.all": true,
     "master_data.write": true,
     "accounts.manage": true,
+    "audit.read": true,
     "sensitive_operations.execute": true,
     "mechanic.mobile.access": false,
   },
@@ -28,6 +30,7 @@ export const permissionMatrix: Record<
     "business.read.all": true,
     "master_data.write": true,
     "accounts.manage": false,
+    "audit.read": false,
     "sensitive_operations.execute": false,
     "mechanic.mobile.access": false,
   },
@@ -37,6 +40,7 @@ export const permissionMatrix: Record<
     "business.read.all": true,
     "master_data.write": false,
     "accounts.manage": false,
+    "audit.read": true,
     "sensitive_operations.execute": false,
     "mechanic.mobile.access": false,
   },
@@ -46,6 +50,7 @@ export const permissionMatrix: Record<
     "business.read.all": false,
     "master_data.write": false,
     "accounts.manage": false,
+    "audit.read": false,
     "sensitive_operations.execute": false,
     "mechanic.mobile.access": true,
   },

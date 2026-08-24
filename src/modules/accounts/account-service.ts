@@ -4,6 +4,7 @@ import type {
 } from "@/modules/auth/session-repository";
 import type { AccountRole } from "@/modules/auth/auth-service";
 import { hashPassword } from "@/modules/auth/password";
+import { writeAuditEvent } from "@/modules/audit/audit-service";
 import {
   accountDisplayNameSchema,
   accountRoleSchema,
@@ -189,21 +190,17 @@ export class AccountService {
           [fields.displayName, fields.username, passwordHash, now],
         );
         const account = mapAccount(rows[0]);
-        await transaction.query(
-          `insert into audit_events
-            (occurred_at, actor_account_id, event_type, object_type, object_id,
-             after_state, request_id, ip_address, user_agent)
-           values ($1, null, 'account.bootstrap_created', 'staff_account', $2,
-                   $3::jsonb, $4, $5::inet, $6)`,
-          [
-            now,
-            String(account.id),
-            JSON.stringify(toAuditState(account)),
-            input.context.requestId,
-            input.context.ipAddress ?? null,
-            input.context.userAgent ?? null,
-          ],
-        );
+        await writeAuditEvent(transaction, {
+          occurredAt: now,
+          actorAccountId: null,
+          eventType: "account.bootstrap_created",
+          objectType: "staff_account",
+          objectId: String(account.id),
+          after: toAuditState(account),
+          requestId: input.context.requestId,
+          ipAddress: input.context.ipAddress ?? null,
+          userAgent: input.context.userAgent ?? null,
+        });
         return account;
       });
     } catch (error) {
@@ -263,22 +260,17 @@ export class AccountService {
         const account = mapAccount(rows[0]);
         const afterState = toAuditState(account);
 
-        await transaction.query(
-          `insert into audit_events
-            (occurred_at, actor_account_id, event_type, object_type, object_id,
-             after_state, request_id, ip_address, user_agent)
-           values ($1, $2, 'account.created', 'staff_account', $3,
-                   $4::jsonb, $5, $6::inet, $7)`,
-          [
-            now,
-            input.context.actorAccountId,
-            String(account.id),
-            JSON.stringify(afterState),
-            input.context.requestId,
-            input.context.ipAddress ?? null,
-            input.context.userAgent ?? null,
-          ],
-        );
+        await writeAuditEvent(transaction, {
+          occurredAt: now,
+          actorAccountId: input.context.actorAccountId,
+          eventType: "account.created",
+          objectType: "staff_account",
+          objectId: String(account.id),
+          after: afterState,
+          requestId: input.context.requestId,
+          ipAddress: input.context.ipAddress ?? null,
+          userAgent: input.context.userAgent ?? null,
+        });
 
         return account;
       });
@@ -681,25 +673,19 @@ async function insertAccountAudit(
     reason?: string;
   },
 ) {
-  await executor.query(
-    `insert into audit_events
-      (occurred_at, actor_account_id, event_type, object_type, object_id,
-       reason, before_state, after_state, request_id, ip_address, user_agent)
-     values ($1, $2, $3, 'staff_account', $4, $5,
-             $6::jsonb, $7::jsonb, $8, $9::inet, $10)`,
-    [
-      input.now,
-      input.context.actorAccountId,
-      input.eventType,
-      String(input.accountId),
-      input.reason ?? null,
-      input.before ? JSON.stringify(input.before) : null,
-      input.after ? JSON.stringify(input.after) : null,
-      input.context.requestId,
-      input.context.ipAddress ?? null,
-      input.context.userAgent ?? null,
-    ],
-  );
+  await writeAuditEvent(executor, {
+    occurredAt: input.now,
+    actorAccountId: input.context.actorAccountId,
+    eventType: input.eventType,
+    objectType: "staff_account",
+    objectId: String(input.accountId),
+    reason: input.reason ?? null,
+    before: input.before ?? null,
+    after: input.after ?? null,
+    requestId: input.context.requestId,
+    ipAddress: input.context.ipAddress ?? null,
+    userAgent: input.context.userAgent ?? null,
+  });
 }
 
 async function revokeAccountSessions(

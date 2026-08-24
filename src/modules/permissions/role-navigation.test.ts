@@ -6,12 +6,14 @@ describe("role navigation", () => {
     expect(getRoleNavigation("super_admin")).toEqual([
       { label: "工作台", href: "/dashboard" },
       { label: "账号管理", href: "/settings/accounts" },
+      { label: "审计记录", href: "/settings/audit" },
     ]);
     expect(getRoleNavigation("front_desk")).toEqual([
       { label: "工作台", href: "/dashboard" },
     ]);
     expect(getRoleNavigation("owner")).toEqual([
       { label: "工作台", href: "/dashboard" },
+      { label: "审计记录", href: "/settings/audit" },
     ]);
   });
 

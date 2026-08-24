@@ -13,6 +13,7 @@ const expected: Record<AccountRole, Record<Permission, boolean>> = {
     "business.read.all": true,
     "master_data.write": true,
     "accounts.manage": true,
+    "audit.read": true,
     "sensitive_operations.execute": true,
     "mechanic.mobile.access": false,
   },
@@ -22,6 +23,7 @@ const expected: Record<AccountRole, Record<Permission, boolean>> = {
     "business.read.all": true,
     "master_data.write": true,
     "accounts.manage": false,
+    "audit.read": false,
     "sensitive_operations.execute": false,
     "mechanic.mobile.access": false,
   },
@@ -31,6 +33,7 @@ const expected: Record<AccountRole, Record<Permission, boolean>> = {
     "business.read.all": true,
     "master_data.write": false,
     "accounts.manage": false,
+    "audit.read": true,
     "sensitive_operations.execute": false,
     "mechanic.mobile.access": false,
   },
@@ -40,6 +43,7 @@ const expected: Record<AccountRole, Record<Permission, boolean>> = {
     "business.read.all": false,
     "master_data.write": false,
     "accounts.manage": false,
+    "audit.read": false,
     "sensitive_operations.execute": false,
     "mechanic.mobile.access": true,
   },
@@ -66,5 +70,13 @@ describe("formal role permissions", () => {
     expect(
       hasPermission("mechanic", "pc.dashboard.read", ["pc.dashboard.read"]),
     ).toBe(false);
+  });
+
+  it("allows only the super administrator and read-only owner to read the full audit", () => {
+    const auditPermission = "audit.read" as Permission;
+    expect(hasPermission("super_admin", auditPermission)).toBe(true);
+    expect(hasPermission("owner", auditPermission)).toBe(true);
+    expect(hasPermission("front_desk", auditPermission)).toBe(false);
+    expect(hasPermission("mechanic", auditPermission)).toBe(false);
   });
 });

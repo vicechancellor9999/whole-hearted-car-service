@@ -17,6 +17,11 @@ const navigationItems = [
     href: "/settings/accounts",
     permission: "accounts.manage",
   },
+  {
+    label: "审计记录",
+    href: "/settings/audit",
+    permission: "audit.read",
+  },
 ] as const;
 
 export function getRoleNavigation(role: AccountRole): NavigationItem[] {

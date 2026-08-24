@@ -35,3 +35,20 @@ export function toBusinessMonthKey(instant: Date): string {
   const { year, month } = getBusinessDateParts(instant);
   return `${year}-${month}`;
 }
+
+const businessDateKeyPattern = /^(\d{4})-(\d{2})-(\d{2})$/;
+
+export function fromBusinessDateKey(dateKey: string): Date | null {
+  const match = businessDateKeyPattern.exec(dateKey);
+  if (!match) return null;
+  const [, year, month, day] = match;
+  const instant = new Date(`${year}-${month}-${day}T00:00:00-05:00`);
+  if (Number.isNaN(instant.getTime())) return null;
+  return toBusinessDateKey(instant) === dateKey ? instant : null;
+}
+
+export function nextBusinessDateStart(dateKey: string): Date | null {
+  const start = fromBusinessDateKey(dateKey);
+  if (!start) return null;
+  return new Date(start.getTime() + 24 * 60 * 60 * 1_000);
+}

@@ -5,6 +5,7 @@ import type {
   LoginAuditRecord,
   NewLoginSession,
 } from "@/modules/auth/auth-service";
+import { writeAuditEvent } from "@/modules/audit/audit-service";
 
 export interface AuthSqlExecutor {
   query<Row extends Record<string, unknown>>(
@@ -179,21 +180,16 @@ async function insertLoginAudit(
   executor: AuthSqlExecutor,
   audit: LoginAuditRecord,
 ): Promise<void> {
-  await executor.query(
-    `insert into audit_events
-      (occurred_at, actor_account_id, event_type, object_type, object_id,
-       request_id, ip_address, user_agent)
-     values ($1, $2, $3, 'login_identity', $4, $5, $6::inet, $7)`,
-    [
-      audit.occurredAt,
-      audit.accountId,
-      audit.eventType,
-      audit.normalizedUsername,
-      audit.requestId,
-      audit.ipAddress,
-      audit.userAgent,
-    ],
-  );
+  await writeAuditEvent(executor, {
+    occurredAt: audit.occurredAt,
+    actorAccountId: audit.accountId,
+    eventType: audit.eventType,
+    objectType: "login_identity",
+    objectId: audit.normalizedUsername,
+    requestId: audit.requestId,
+    ipAddress: audit.ipAddress,
+    userAgent: audit.userAgent,
+  });
 }
 
 async function selectSession(
