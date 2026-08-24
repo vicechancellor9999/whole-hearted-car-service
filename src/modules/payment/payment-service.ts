@@ -475,6 +475,25 @@ export class PaymentService {
     );
   }
 
+  async getRefundEvidenceFile(input: {
+    fileId: number;
+    viewerAccountId: number;
+  }): Promise<RefundEvidenceRecord> {
+    await requirePaymentReader(this.database, input.viewerAccountId);
+    const rows = await this.database.query<RefundEvidenceRow>(
+      `select evidence.file_id, evidence.kind, file.storage_key,
+              file.original_name, file.media_type, file.size_bytes,
+              file.sha256_hex
+       from refund_evidence_files as evidence
+       join stored_files as file on file.id = evidence.file_id
+       where evidence.file_id = $1
+       limit 1`,
+      [input.fileId],
+    );
+    if (!rows[0]) throw new PaymentNotFoundError("退款凭证不存在");
+    return mapRefundEvidence(rows[0]);
+  }
+
   async getReceipt(input: {
     receiptId: number;
     viewerAccountId: number;
@@ -635,6 +654,12 @@ async function selectRefundEvidence(
     [refundId],
   );
   return rows.map((row) => ({
+    ...mapRefundEvidence(row),
+  }));
+}
+
+function mapRefundEvidence(row: RefundEvidenceRow): RefundEvidenceRecord {
+  return {
     fileId: Number(row.file_id),
     kind: row.kind,
     storageKey: row.storage_key,
@@ -642,7 +667,7 @@ async function selectRefundEvidence(
     mediaType: row.media_type,
     sizeBytes: Number(row.size_bytes),
     sha256Hex: row.sha256_hex,
-  }));
+  };
 }
 
 function buildLedger(

@@ -1740,6 +1740,342 @@ h1 {
   font-size: 13px;
 }
 
+.bo-ledger-summary {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 8px;
+  margin-top: 10px;
+}
+
+.bo-ledger-summary span {
+  display: grid;
+  gap: 4px;
+  padding: 10px;
+  border-radius: 8px;
+  background: #f7f9fc;
+  color: var(--muted);
+  font-size: 11px;
+}
+
+.bo-ledger-summary strong {
+  color: var(--ink);
+  font-size: 15px;
+}
+
+.bo-finance-actions {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+  margin-top: 10px;
+}
+
+.bo-finance-form {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 7px;
+  align-content: start;
+  padding: 10px;
+  border: 1px solid var(--line);
+  border-radius: 9px;
+  background: #fbfcfe;
+}
+
+.bo-finance-form h3,
+.bo-finance-form button {
+  grid-column: 1 / -1;
+}
+
+.bo-finance-form label {
+  display: grid;
+  min-width: 0;
+  gap: 4px;
+  color: #475467;
+  font-size: 11px;
+  font-weight: 700;
+}
+
+.bo-finance-form input,
+.bo-finance-form select,
+.bo-finance-form textarea,
+.bo-finance-form button {
+  width: 100%;
+  min-height: 34px;
+}
+
+.bo-finance-form textarea {
+  min-height: 52px;
+  resize: vertical;
+}
+
+.bo-finance-form small {
+  color: var(--muted);
+  font-weight: 500;
+}
+
+.bo-ledger-history {
+  margin-top: 12px;
+}
+
+.bo-ledger-history article {
+  display: grid;
+  grid-template-columns: minmax(180px, 1.2fr) minmax(120px, .65fr) minmax(140px, 1fr) minmax(150px, .8fr);
+  gap: 8px;
+  align-items: center;
+  padding: 8px 4px;
+  border-top: 1px solid var(--line);
+  font-size: 11px;
+}
+
+.bo-ledger-history article > div {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+}
+
+.bo-ledger-history small {
+  color: var(--muted);
+}
+
+.bo-ledger-history a {
+  color: var(--brand-strong);
+  font-weight: 700;
+}
+
+.payment-amount {
+  color: #067647;
+  font-weight: 800;
+}
+
+.refund-amount {
+  color: #c01048;
+  font-weight: 800;
+}
+
+.document-page {
+  width: min(100%, 920px);
+  margin: 0 auto;
+  padding: 20px;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: #fff;
+  box-shadow: 0 10px 30px rgba(16, 24, 40, .06);
+  color: #101828;
+}
+
+.document-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-bottom: 14px;
+}
+
+.document-toolbar a,
+.print-trigger {
+  padding: 7px 10px;
+  border: 1px solid var(--line);
+  border-radius: 7px;
+  background: #fff;
+  color: var(--brand-strong);
+  font-size: 12px;
+  font-weight: 700;
+  text-decoration: none;
+}
+
+.document-header {
+  display: flex;
+  justify-content: space-between;
+  gap: 20px;
+  padding-bottom: 14px;
+  border-bottom: 2px solid #1d4f91;
+}
+
+.document-header > div {
+  display: grid;
+  gap: 3px;
+}
+
+.document-header > div:last-child {
+  justify-items: end;
+  text-align: right;
+}
+
+.document-header h1,
+.document-header p {
+  margin: 0;
+}
+
+.document-facts {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+  margin-top: 14px;
+}
+
+.document-facts span {
+  display: grid;
+  gap: 3px;
+  padding: 8px;
+  border-radius: 7px;
+  background: #f7f9fc;
+  color: #667085;
+  font-size: 11px;
+}
+
+.document-facts strong {
+  color: #101828;
+  font-size: 13px;
+}
+
+.document-section {
+  margin-top: 16px;
+}
+
+.document-section h2 {
+  margin: 0 0 8px;
+  font-size: 15px;
+}
+
+.document-charge-group h3 {
+  margin: 8px 0 4px;
+  color: #1d4f91;
+  font-size: 12px;
+}
+
+.document-charge-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 90px 110px 110px;
+  gap: 8px;
+  align-items: center;
+  padding: 7px 0;
+  border-top: 1px solid #e7ecf2;
+  font-size: 11px;
+}
+
+.document-charge-row > span:first-child {
+  display: grid;
+  gap: 2px;
+}
+
+.document-charge-row small {
+  color: #667085;
+}
+
+.document-totals {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 6px;
+  margin-top: 10px;
+}
+
+.document-totals span,
+.receipt-current-payment {
+  display: grid;
+  gap: 3px;
+  padding: 8px;
+  border-radius: 7px;
+  background: #f7f9fc;
+  color: #667085;
+  font-size: 10px;
+}
+
+.document-totals strong,
+.receipt-current-payment strong {
+  color: #101828;
+  font-size: 13px;
+}
+
+.document-ledger > div {
+  display: grid;
+  grid-template-columns: 150px minmax(160px, 1fr) 130px 110px;
+  gap: 8px;
+  padding: 6px 0;
+  border-top: 1px solid #e7ecf2;
+  font-size: 10px;
+}
+
+.receipt-current-payment {
+  grid-template-columns: 1fr auto auto;
+  align-items: center;
+  margin-top: 9px;
+  background: #eaf3ff;
+}
+
+.document-note {
+  display: grid;
+  grid-template-columns: 170px minmax(0, 1fr);
+  gap: 10px;
+  padding: 7px 0;
+  border-top: 1px solid #e7ecf2;
+  font-size: 11px;
+}
+
+.document-note p {
+  margin: 0;
+  white-space: pre-wrap;
+}
+
+.refund-amount-box {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-top: 14px;
+  padding: 14px;
+  border-radius: 9px;
+  background: #fff2f0;
+}
+
+.refund-amount-box strong {
+  color: #b42318;
+  font-size: 24px;
+}
+
+.refund-evidence-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.refund-evidence-list a {
+  padding: 7px 9px;
+  border-radius: 7px;
+  background: #eef4ff;
+  color: #1d4f91;
+  font-size: 11px;
+  font-weight: 700;
+}
+
+.refund-acknowledgement {
+  margin-top: 18px;
+  padding: 14px;
+  border: 1px solid #98a2b3;
+  border-radius: 9px;
+  font-size: 12px;
+}
+
+.refund-acknowledgement > div {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 24px;
+  margin-top: 20px;
+}
+
+.refund-acknowledgement span {
+  display: grid;
+  gap: 12px;
+}
+
+.document-footer {
+  display: flex;
+  justify-content: space-between;
+  gap: 16px;
+  margin-top: 20px;
+  padding-top: 10px;
+  border-top: 1px solid #98a2b3;
+  color: #667085;
+  font-size: 10px;
+}
+
 .bo-handoff-list article {
   display: grid;
   grid-template-columns: minmax(0, 1fr) minmax(0, 1.4fr) auto;
@@ -1829,6 +2165,8 @@ h1 {
   .bo-notes-editor,
   .bo-readonly-notes,
   .bo-finance-summary > div,
+  .bo-ledger-summary,
+  .bo-finance-actions,
   .ir-create-form {
     grid-template-columns: 1fr;
   }
@@ -1847,7 +2185,24 @@ h1 {
   }
 
   .bo-form-footer,
-  .bo-handoff-list article {
+  .bo-handoff-list article,
+  .bo-finance-form,
+  .bo-ledger-history article,
+  .document-facts,
+  .document-totals,
+  .refund-acknowledgement > div {
+    grid-template-columns: 1fr;
+  }
+
+  .bo-finance-form h3,
+  .bo-finance-form button {
+    grid-column: auto;
+  }
+
+  .document-charge-row,
+  .document-ledger > div,
+  .document-note,
+  .receipt-current-payment {
     grid-template-columns: 1fr;
   }
 
@@ -1875,5 +2230,46 @@ h1 {
   .audit-pagination {
     align-items: flex-start;
     flex-direction: column;
+  }
+}
+
+@media print {
+  @page {
+    size: A4;
+    margin: 10mm;
+  }
+
+  body {
+    background: #fff;
+  }
+
+  .protected-shell {
+    display: block;
+  }
+
+  .protected-sidebar,
+  .protected-header,
+  .document-toolbar {
+    display: none !important;
+  }
+
+  .protected-content {
+    width: 100%;
+    padding: 0;
+  }
+
+  .document-page {
+    width: 100%;
+    margin: 0;
+    padding: 0;
+    border: 0;
+    border-radius: 0;
+    box-shadow: none;
+  }
+
+  .document-section,
+  .document-charge-group,
+  .refund-acknowledgement {
+    break-inside: avoid;
   }
 }

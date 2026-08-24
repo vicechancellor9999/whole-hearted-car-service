@@ -19,11 +19,15 @@ import { hasPermission } from "@/modules/permissions/permissions";
 import { requirePermission } from "@/modules/permissions/require-permission";
 import { businessOrderAction } from "@/app/(protected)/business-orders/actions";
 import { ChargeEditor } from "@/app/(protected)/business-orders/charge-editor";
+import { businessOrderFinanceAction } from "@/app/(protected)/business-orders/[businessOrderId]/finance-actions";
+import { FinancePanel } from "@/app/(protected)/business-orders/[businessOrderId]/finance-panel";
+import type { BusinessOrderLedger } from "@/modules/payment/payment-service";
 
 type FormAction = (formData: FormData) => void | Promise<void>;
 type TeamOption = { id: number; name: string };
 type MechanicOption = { id: number; fullName: string; currentTeamId: number };
 type ChargeUnitOption = { id: number; labelZh: string; labelEn: string | null };
+type PaymentMethodOption = { id: number; code: string; labelZh: string; labelEn: string | null };
 
 const progress = [
   ["waiting_assignment", "待派单"],
@@ -147,6 +151,8 @@ function WorkflowActions({
 export function BusinessOrderDetailView({
   action = businessOrderAction,
   canWrite,
+  canRecordPayment = canWrite,
+  canRefund = false,
   chargeUnits,
   charges,
   error,
@@ -154,12 +160,17 @@ export function BusinessOrderDetailView({
   isSuperAdmin,
   mechanics,
   order,
+  ledger,
+  paymentAction = businessOrderFinanceAction,
+  paymentMethods = [],
   repairRound,
   success,
   teams,
 }: {
   action?: FormAction;
   canWrite: boolean;
+  canRecordPayment?: boolean;
+  canRefund?: boolean;
   chargeUnits: ChargeUnitOption[];
   charges: BusinessOrderChargeSnapshot;
   error?: string;
@@ -167,6 +178,9 @@ export function BusinessOrderDetailView({
   isSuperAdmin: boolean;
   mechanics: MechanicOption[];
   order: BusinessOrderRecord;
+  ledger?: BusinessOrderLedger;
+  paymentAction?: FormAction;
+  paymentMethods?: PaymentMethodOption[];
   repairRound: CurrentRepairRound;
   success?: string;
   teams: TeamOption[];
@@ -191,6 +205,7 @@ export function BusinessOrderDetailView({
       <section className="bo-panel bo-identity-panel"><div><small>费用承担方</small><strong>{order.payer.displayName}</strong><span>{order.payer.contactName ?? order.payer.phone ?? "联系方式未填"}</span></div><div><small>接车里程</small><strong>{repairRound.intakeMileageKm === null ? "尚未记录" : `${repairRound.intakeMileageKm.toLocaleString()} km`}</strong><span>{isSuperAdmin && canWrite ? "超级管理员可在维修中记录" : "由维修班组或超级管理员记录"}</span></div><div><small>当前维修班组</small><strong>{teams.find((team) => team.id === repairRound.assignedTeamId)?.name ?? "尚未派单"}</strong><span>轮次记录和时间戳独立保存</span></div></section>
       <ChargeEditor action={action} businessOrderId={order.id} businessOrderVersion={order.version} canWrite={canWrite && !order.voided} chargeUnits={chargeUnits} charges={charges} />
       <section className="bo-panel bo-finance-summary"><header className="bo-panel-heading"><div><h2>收费汇总</h2><p>单价和小计均为含税金额；所含 GCT 仅单独列示。</p></div></header><div><span>收费原价<strong>{money(charges.totals.grossMinor)}</strong></span><span>本项折扣<strong>{money(charges.totals.lineDiscountMinor)}</strong></span><span>分类折扣<strong>{money(charges.totals.categoryDiscountMinor)}</strong></span><span>整单折扣<strong>{money(charges.totals.wholeOrderDiscountMinor)}</strong></span><span>折后应收<strong>{money(charges.totals.totalDueMinor)}</strong></span><span>其中含 15% GCT<strong>{money(charges.totals.includedGctMinor)}</strong></span></div></section>
+      {ledger ? <FinancePanel action={paymentAction} businessOrderId={order.id} canRecordPayment={canRecordPayment && !order.voided} canRefund={canRefund} ledger={ledger} paymentMethods={paymentMethods} /> : null}
       <section className="bo-panel"><header className="bo-panel-heading"><div><h2>正式交单历史</h2><p>取消不删除原交单；再次交单生成新的独立事实。</p></div></header>{formalHandoffs.length === 0 ? <p className="record-empty">尚无正式交单事实。</p> : <div className="bo-handoff-list">{formalHandoffs.map((handoff) => <article key={handoff.id}><strong>第 {handoff.handoffNo} 次交单 · 第 {handoff.repairRoundNo} 轮</strong><span>{handoff.jamaicaMonth} · 绩效 {money(handoff.performanceMinor)} · 收费版本 {handoff.chargeVersionNo}</span><em>{handoff.cancellation ? `已取消：${handoff.cancellation.reason}` : "当前有效"}</em></article>)}</div>}</section>
     </section>
   );
@@ -217,15 +232,18 @@ export default async function BusinessOrderDetailPage({ params, searchParams }: 
       if (error instanceof BusinessOrderNotFoundError) notFound();
       throw error;
     }
-    const [charges, repairRound, formalHandoffs, chargeUnits, teams, staff] = await Promise.all([
+    const [charges, repairRound, formalHandoffs, chargeUnits, paymentMethods, teams, staff, ledger] = await Promise.all([
       businessRuntime.service.getCurrentCharges({ businessOrderId, viewerAccountId: viewer.id }),
       businessRuntime.repairRounds.getCurrentRound({ businessOrderId, viewerAccountId: viewer.id }),
       businessRuntime.formalHandoffs.listFormalHandoffs({ businessOrderId, viewerAccountId: viewer.id }),
       masterRuntime.service.listDictionaryItems({ viewerAccountId: viewer.id, category: "charge_unit", activeOnly: true }),
+      masterRuntime.service.listDictionaryItems({ viewerAccountId: viewer.id, category: "payment_method", activeOnly: true }),
       masterRuntime.service.listRepairTeams({ viewerAccountId: viewer.id, activeOnly: true }),
       masterRuntime.service.listStaffMembers({ viewerAccountId: viewer.id }),
+      businessRuntime.payments.getBusinessOrderLedger({ businessOrderId, viewerAccountId: viewer.id }),
     ]);
-    return <BusinessOrderDetailView canWrite={hasPermission(viewer.role, "business_order.write", viewer.delegatedPermissions)} chargeUnits={chargeUnits.map((unit) => ({ id: unit.id, labelZh: unit.labelZh, labelEn: unit.labelEn }))} charges={charges} error={query.error} formalHandoffs={formalHandoffs} isSuperAdmin={viewer.role === "super_admin"} mechanics={staff.filter((member) => member.status === "active").map((member) => ({ id: member.id, fullName: member.fullName, currentTeamId: member.currentTeamId }))} order={order} repairRound={repairRound} success={query.success} teams={teams.map((team) => ({ id: team.id, name: team.name }))} />;
+    const canWrite = hasPermission(viewer.role, "business_order.write", viewer.delegatedPermissions);
+    return <BusinessOrderDetailView canRecordPayment={canWrite} canRefund={hasPermission(viewer.role, "sensitive_operations.execute", viewer.delegatedPermissions)} canWrite={canWrite} chargeUnits={chargeUnits.map((unit) => ({ id: unit.id, labelZh: unit.labelZh, labelEn: unit.labelEn }))} charges={charges} error={query.error} formalHandoffs={formalHandoffs} isSuperAdmin={viewer.role === "super_admin"} ledger={ledger} mechanics={staff.filter((member) => member.status === "active").map((member) => ({ id: member.id, fullName: member.fullName, currentTeamId: member.currentTeamId }))} order={order} paymentMethods={paymentMethods.map((method) => ({ id: method.id, code: method.code, labelZh: method.labelZh, labelEn: method.labelEn }))} repairRound={repairRound} success={query.success} teams={teams.map((team) => ({ id: team.id, name: team.name }))} />;
   } finally {
     await Promise.all([businessRuntime.close(), masterRuntime.close()]);
   }
