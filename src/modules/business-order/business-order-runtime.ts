@@ -5,6 +5,7 @@ import { RepairRoundService } from "@/modules/business-order/repair-round-servic
 import { FormalHandoffService } from "@/modules/business-order/formal-handoff-service";
 import { InspectionReportService } from "@/modules/inspection-report/inspection-report-service";
 import { PaymentService } from "@/modules/payment/payment-service";
+import { BusinessOrderDocumentService } from "@/modules/business-order/business-order-document-service";
 
 export function createBusinessOrderRuntime(
   source: Record<string, unknown> = process.env,
@@ -17,6 +18,7 @@ export function createBusinessOrderRuntime(
     formalHandoffs: new FormalHandoffService(database),
     inspectionReports: new InspectionReportService(database),
     payments: new PaymentService(database),
+    documents: new BusinessOrderDocumentService(database),
     close: databaseClient.close,
   };
 }
