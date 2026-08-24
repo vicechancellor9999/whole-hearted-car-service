@@ -13,6 +13,16 @@ const navigationItems = [
     permission: "pc.dashboard.read",
   },
   {
+    label: "Business Order",
+    href: "/business-orders",
+    permission: "business.read.all",
+  },
+  {
+    label: "Inspection Report",
+    href: "/inspection-reports",
+    permission: "business.read.all",
+  },
+  {
     label: "客户档案",
     href: "/customers",
     permission: "customer_vehicle.read",

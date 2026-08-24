@@ -5,6 +5,8 @@ describe("role navigation", () => {
   it("shows account management only to a super administrator", () => {
     expect(getRoleNavigation("super_admin")).toEqual([
       { label: "工作台", href: "/dashboard" },
+      { label: "Business Order", href: "/business-orders" },
+      { label: "Inspection Report", href: "/inspection-reports" },
       { label: "客户档案", href: "/customers" },
       { label: "公司账户", href: "/companies" },
       { label: "车辆档案", href: "/vehicles" },
@@ -15,6 +17,8 @@ describe("role navigation", () => {
     ]);
     expect(getRoleNavigation("front_desk")).toEqual([
       { label: "工作台", href: "/dashboard" },
+      { label: "Business Order", href: "/business-orders" },
+      { label: "Inspection Report", href: "/inspection-reports" },
       { label: "客户档案", href: "/customers" },
       { label: "公司账户", href: "/companies" },
       { label: "车辆档案", href: "/vehicles" },
@@ -23,6 +27,8 @@ describe("role navigation", () => {
     ]);
     expect(getRoleNavigation("owner")).toEqual([
       { label: "工作台", href: "/dashboard" },
+      { label: "Business Order", href: "/business-orders" },
+      { label: "Inspection Report", href: "/inspection-reports" },
       { label: "客户档案", href: "/customers" },
       { label: "公司账户", href: "/companies" },
       { label: "车辆档案", href: "/vehicles" },
