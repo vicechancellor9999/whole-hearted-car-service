@@ -267,6 +267,13 @@ export class BusinessOrderService {
            where id = $1`,
           [insertedOrder.id, now],
         );
+        await transaction.query(
+          `insert into repair_rounds
+            (business_order_id, round_no, source, status,
+             created_at, created_by, updated_at)
+           values ($1, 1, 'initial', 'waiting_assignment', $2, $3, $2)`,
+          [insertedOrder.id, now, input.context.actorAccountId],
+        );
         const order = { ...insertedOrder, currentChargeVersionNo: 1 };
         await audit(transaction, input.context, now, {
           eventType: "business_order.created",

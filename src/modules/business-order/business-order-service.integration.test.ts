@@ -25,6 +25,7 @@ const migrationPaths = [
   "0008_customer_trn_registry_sync.sql",
   "0009_business_order_core.sql",
   "0010_business_order_facts_append_only.sql",
+  "0011_repair_rounds.sql",
 ].map((name) => resolve(process.cwd(), "drizzle", name));
 
 let database: PGlite;

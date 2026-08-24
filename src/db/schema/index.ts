@@ -5,3 +5,4 @@ export * from "@/db/schema/sessions";
 export * from "@/db/schema/master-data";
 export * from "@/db/schema/customer-vehicle";
 export * from "@/db/schema/business-order";
+export * from "@/db/schema/repair-round";
