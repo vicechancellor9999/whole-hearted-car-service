@@ -1908,6 +1908,24 @@ h1 {
   text-align: right;
 }
 
+.document-brand {
+  display: flex !important;
+  grid-template-columns: auto minmax(0, 1fr);
+  align-items: center;
+  gap: 10px !important;
+}
+
+.document-brand > span {
+  display: grid;
+  gap: 3px;
+}
+
+.document-logo {
+  width: 54px;
+  height: 54px;
+  border-radius: 14px;
+}
+
 .document-header h1,
 .document-header p {
   margin: 0;
@@ -1991,6 +2009,86 @@ h1 {
 .receipt-current-payment strong {
   color: #101828;
   font-size: 13px;
+}
+
+.document-charge-row > strong {
+  display: grid;
+  gap: 2px;
+}
+
+.document-charge-row > strong small {
+  color: #c01048;
+  font-size: 9px;
+  font-weight: 700;
+}
+
+.document-approval,
+.mechanic-return-section {
+  margin-top: 18px;
+  padding: 14px;
+  border: 1px solid #98a2b3;
+  border-radius: 9px;
+  font-size: 11px;
+}
+
+.document-approval p {
+  margin: 0 0 5px;
+}
+
+.document-approval > div,
+.mechanic-return-section > div {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 24px;
+  margin-top: 20px;
+}
+
+.document-approval span,
+.mechanic-return-section label {
+  display: grid;
+  gap: 10px;
+}
+
+.mechanic-work-items {
+  display: grid;
+  gap: 5px;
+}
+
+.mechanic-work-items article {
+  display: grid;
+  grid-template-columns: 70px minmax(140px, .8fr) minmax(0, 1.4fr) 100px;
+  gap: 10px;
+  align-items: center;
+  padding: 8px 0;
+  border-top: 1px solid #e7ecf2;
+  font-size: 11px;
+}
+
+.mechanic-work-items article > span {
+  color: var(--brand-strong);
+  font-weight: 700;
+}
+
+.mechanic-work-items p {
+  margin: 0;
+  color: #475467;
+}
+
+.mechanic-return-section h2 {
+  margin: 0 0 12px;
+  font-size: 15px;
+}
+
+.mechanic-return-section > label:first-of-type span {
+  display: block;
+  min-height: 100px;
+  border-bottom: 1px solid #98a2b3;
+  background: repeating-linear-gradient(
+    to bottom,
+    transparent 0,
+    transparent 25px,
+    #d0d5dd 26px
+  );
 }
 
 .document-ledger > div {
