@@ -93,6 +93,14 @@ a {
   letter-spacing: -0.04em;
 }
 
+.login-logo {
+  display: block;
+  width: 88px;
+  height: 88px;
+  border-radius: 22px;
+  box-shadow: 0 12px 30px rgb(36 103 178 / 22%);
+}
+
 .eyebrow {
   margin: 22px 0 5px;
   color: var(--brand-strong);

@@ -1,3 +1,4 @@
+import Image from "next/image";
 import Link from "next/link";
 import { loginAction } from "@/app/login/actions";
 
@@ -20,9 +21,14 @@ export default async function LoginPage({ searchParams }: LoginPageProps) {
         <Link className="back-link" href="/">
           返回系统入口
         </Link>
-        <div className="brand-mark" aria-hidden="true">
-          WH
-        </div>
+        <Image
+          alt="Whole Hearted Car Service Logo"
+          className="login-logo"
+          height={88}
+          priority
+          src="/brand-logo-wh-512.png"
+          width={88}
+        />
         <p className="eyebrow">Whole Hearted Car Service Limited</p>
         <h1 id="login-title">登录正式系统</h1>
         <p className="login-description">使用超级管理员创建的工作账号登录。</p>

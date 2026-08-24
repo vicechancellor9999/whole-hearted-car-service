@@ -6,6 +6,9 @@ describe("LoginPage", () => {
   it("shows only the credentials needed to enter the formal system", async () => {
     render(await LoginPage({ searchParams: Promise.resolve({}) }));
 
+    expect(screen.getByRole("img", {
+      name: "Whole Hearted Car Service Logo",
+    })).toHaveAttribute("src", expect.stringContaining("brand-logo-wh-512.png"));
     expect(screen.getByRole("heading", { name: "登录正式系统" })).toBeInTheDocument();
     expect(screen.getByLabelText("登录名")).toHaveAttribute("name", "username");
     expect(screen.getByLabelText("密码")).toHaveAttribute("name", "password");
