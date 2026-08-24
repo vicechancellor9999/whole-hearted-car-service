@@ -122,8 +122,10 @@ git commit -m "feat: add Business Order creation and charges"
 ### Task 3：维修轮次、派单、接单、回单与接车资料
 
 **Files:**
+- Create: `src/db/schema/repair-round.ts`
 - Modify: `src/db/schema/business-order.ts`
-- Create: `drizzle/0010_repair_rounds.sql`
+- Modify: `src/db/schema/index.ts`
+- Create: `drizzle/0011_repair_rounds.sql`
 - Create: `src/modules/business-order/repair-round-service.ts`
 - Create: `src/modules/business-order/repair-round-service.integration.test.ts`
 - Modify: `src/modules/customer-vehicle/attachment-storage.ts`
@@ -211,7 +213,9 @@ git commit -m "feat: add independent Inspection Reports"
 ### Task 5：正式交单、当月取消与收费快照
 
 **Files:**
-- Modify: `src/db/schema/business-order.ts`
+- Create: `src/db/schema/formal-handoff.ts`
+- Modify: `src/db/schema/repair-round.ts`
+- Modify: `src/db/schema/index.ts`
 - Create: `src/modules/business-order/formal-handoff-service.ts`
 - Create: `src/modules/business-order/formal-handoff-service.integration.test.ts`
 - Create: `drizzle/0013_formal_handoffs.sql`

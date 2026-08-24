@@ -41,6 +41,8 @@ export const repairRoundEventType = pgEnum("repair_round_event_type", [
   "work_return_submitted",
   "work_return_rejected",
   "work_return_approved",
+  "formally_handed_off",
+  "formal_handoff_cancelled",
 ]);
 
 export const repairRounds = pgTable(
@@ -137,6 +139,7 @@ export const repairRoundEvents = pgTable(
       () => repairRoundWorkReturns.id,
       { onDelete: "restrict" },
     ),
+    formalHandoffId: bigint("formal_handoff_id", { mode: "number" }),
     customerConfirmedWithoutPayment: boolean("customer_confirmed_without_payment"),
     note: text("note"),
     actorAccountId: bigint("actor_account_id", { mode: "number" })
@@ -167,6 +170,13 @@ export const repairRoundEvents = pgTable(
       "repair_round_events_rejection_reason",
       sql`${table.eventType} <> 'work_return_rejected'
           or length(btrim(${table.note})) > 0`,
+    ),
+    check(
+      "repair_round_events_formal_handoff_link",
+      sql`(${table.eventType} in ('formally_handed_off', 'formal_handoff_cancelled')
+           and ${table.formalHandoffId} is not null)
+          or (${table.eventType} not in ('formally_handed_off', 'formal_handoff_cancelled')
+              and ${table.formalHandoffId} is null)`,
     ),
   ],
 );
