@@ -220,7 +220,7 @@ pnpm add -D drizzle-kit@0.31.10
 `staff_accounts`：
 
 ```text
-id uuid primary key
+id bigint generated always as identity primary key
 display_name text not null
 normalized_username text unique not null
 password_hash text not null
@@ -230,15 +230,15 @@ must_change_password boolean not null default true
 session_epoch integer not null default 1
 created_at timestamptz not null
 updated_at timestamptz not null
-created_by uuid nullable
+created_by bigint nullable
 version integer not null default 1
 ```
 
 `auth_sessions`：
 
 ```text
-id uuid primary key
-account_id uuid not null references staff_accounts
+id bigint generated always as identity primary key
+account_id bigint not null references staff_accounts
 token_hash text unique not null
 session_epoch integer not null
 created_at timestamptz not null
@@ -252,9 +252,9 @@ user_agent text nullable
 `audit_events`：
 
 ```text
-id uuid primary key
+id bigint generated always as identity primary key
 occurred_at timestamptz not null
-actor_account_id uuid nullable
+actor_account_id bigint nullable
 event_type text not null
 object_type text not null
 object_id text not null
@@ -274,9 +274,17 @@ Run:
 pnpm drizzle-kit generate --name foundation
 ```
 
-检查 SQL 只创建预期枚举、表、索引和外键。迁移必须显式启用 `pgcrypto` 以生成 UUID，不能删除已有对象。
+检查 SQL 只创建预期枚举、表、顺序 identity、索引、检查约束和外键，不能删除已有对象。Business Order、Receipt 等对外业务编号与内部主键分开保存。
 
 **Step 5: 在 PostgreSQL 18 测试库执行迁移**
+
+本机未安装 PostgreSQL 或 Docker 时，先用 `@electric-sql/pglite` 执行生成的真实 SQL 迁移，验证表、约束、触发器、索引和不可改写事实：
+
+```bash
+pnpm test src/db/schema/foundation.integration.test.ts
+```
+
+PGlite 验证不替代正式 PostgreSQL 18 门禁。服务器或容器环境可用后继续运行：
 
 Run:
 
