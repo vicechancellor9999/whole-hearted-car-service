@@ -5,14 +5,20 @@ describe("role navigation", () => {
   it("shows account management only to a super administrator", () => {
     expect(getRoleNavigation("super_admin")).toEqual([
       { label: "工作台", href: "/dashboard" },
+      { label: "基础资料", href: "/master-data" },
+      { label: "员工管理", href: "/employees" },
       { label: "账号管理", href: "/settings/accounts" },
       { label: "审计记录", href: "/settings/audit" },
     ]);
     expect(getRoleNavigation("front_desk")).toEqual([
       { label: "工作台", href: "/dashboard" },
+      { label: "基础资料", href: "/master-data" },
+      { label: "员工管理", href: "/employees" },
     ]);
     expect(getRoleNavigation("owner")).toEqual([
       { label: "工作台", href: "/dashboard" },
+      { label: "基础资料", href: "/master-data" },
+      { label: "员工管理", href: "/employees" },
       { label: "审计记录", href: "/settings/audit" },
     ]);
   });

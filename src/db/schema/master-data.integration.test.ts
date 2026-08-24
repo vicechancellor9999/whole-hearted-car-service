@@ -7,6 +7,7 @@ const migrationPaths = [
   resolve(process.cwd(), "drizzle/0000_foundation.sql"),
   resolve(process.cwd(), "drizzle/0001_account_permissions.sql"),
   resolve(process.cwd(), "drizzle/0002_master_data.sql"),
+  resolve(process.cwd(), "drizzle/0003_master_data_facts_append_only.sql"),
 ];
 
 let database: PGlite;
@@ -212,5 +213,73 @@ describe("master data schema", () => {
         [memberId, adminId],
       ),
     ).rejects.toMatchObject({ code: "23514" });
+  });
+
+  it("keeps team retirement and monthly versions append-only", async () => {
+    const adminId = await seedAdmin();
+    const positionId = await seedPosition(adminId);
+    const sourceTeamId = await seedTeam("TEAM-202608-0001", "维修一组", adminId);
+    const replacementTeamId = await seedTeam("TEAM-202608-0002", "维修二组", adminId);
+    const member = await database.query<{ id: number }>(
+      `insert into staff_members
+        (staff_no, full_name, position_item_id, current_team_id,
+         hired_on, created_by)
+       values ('STAFF-202608-0001', '维修工一号', $1, $2,
+               date '2026-08-01', $3)
+       returning id`,
+      [positionId, sourceTeamId, adminId],
+    );
+    const memberId = Number(member.rows[0].id);
+    await database.query(
+      `insert into staff_team_assignment_versions
+        (staff_member_id, team_id, effective_month, set_by)
+       values ($1, $2, date '2026-08-01', $3)`,
+      [memberId, sourceTeamId, adminId],
+    );
+    await database.query(
+      `insert into employee_salary_versions
+        (staff_member_id, effective_month, base_salary_cny_minor, set_by)
+       values ($1, date '2026-08-01', 500000, $2)`,
+      [memberId, adminId],
+    );
+    await database.query(
+      `insert into payroll_parameter_versions
+        (effective_month, commission_rate, cny_to_jmd_rate, set_by)
+       values (date '2026-08-01', 0.100000, 21.500000, $1)`,
+      [adminId],
+    );
+    await database.query(
+      `insert into repair_team_retirements
+        (source_team_id, replacement_team_id, reason, retired_by)
+       values ($1, $2, '班组整合', $3)`,
+      [sourceTeamId, replacementTeamId, adminId],
+    );
+
+    await expect(
+      database.query(
+        `update staff_team_assignment_versions
+         set team_id = $1
+         where staff_member_id = $2`,
+        [replacementTeamId, memberId],
+      ),
+    ).rejects.toThrow(/append-only/i);
+    await expect(
+      database.query(
+        `delete from employee_salary_versions
+         where staff_member_id = $1`,
+        [memberId],
+      ),
+    ).rejects.toThrow(/append-only/i);
+    await expect(
+      database.query("delete from payroll_parameter_versions"),
+    ).rejects.toThrow(/append-only/i);
+    await expect(
+      database.query(
+        `update repair_team_retirements
+         set reason = '覆盖历史'
+         where source_team_id = $1`,
+        [sourceTeamId],
+      ),
+    ).rejects.toThrow(/append-only/i);
   });
 });

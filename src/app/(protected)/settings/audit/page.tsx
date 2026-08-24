@@ -39,6 +39,14 @@ const eventLabels: Record<string, string> = {
   "customer.dispute_opened": "登记客户争议",
   "customer.dispute_resolved": "解决客户争议",
   "refund.created": "登记退款",
+  "dictionary_item.created": "创建字典项目",
+  "dictionary_item.updated": "修改字典项目",
+  "repair_team.created": "创建维修班组",
+  "repair_team.renamed": "修改维修班组名称",
+  "repair_team.retired": "停用并继承维修班组",
+  "staff.created": "创建员工资料",
+  "staff.salary_version_created": "新增员工工资版本",
+  "payroll.parameters_version_created": "新增月度工资参数",
 };
 
 const auditTimeFormatter = new Intl.DateTimeFormat("zh-CN", {

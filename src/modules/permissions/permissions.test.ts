@@ -11,7 +11,9 @@ const expected: Record<AccountRole, Record<Permission, boolean>> = {
     login: true,
     "pc.dashboard.read": true,
     "business.read.all": true,
+    "master_data.read": true,
     "master_data.write": true,
+    "workforce.manage": true,
     "accounts.manage": true,
     "audit.read": true,
     "sensitive_operations.execute": true,
@@ -21,7 +23,9 @@ const expected: Record<AccountRole, Record<Permission, boolean>> = {
     login: true,
     "pc.dashboard.read": true,
     "business.read.all": true,
+    "master_data.read": true,
     "master_data.write": true,
+    "workforce.manage": false,
     "accounts.manage": false,
     "audit.read": false,
     "sensitive_operations.execute": false,
@@ -31,7 +35,9 @@ const expected: Record<AccountRole, Record<Permission, boolean>> = {
     login: true,
     "pc.dashboard.read": true,
     "business.read.all": true,
+    "master_data.read": true,
     "master_data.write": false,
+    "workforce.manage": false,
     "accounts.manage": false,
     "audit.read": true,
     "sensitive_operations.execute": false,
@@ -41,7 +47,9 @@ const expected: Record<AccountRole, Record<Permission, boolean>> = {
     login: true,
     "pc.dashboard.read": false,
     "business.read.all": false,
+    "master_data.read": false,
     "master_data.write": false,
+    "workforce.manage": false,
     "accounts.manage": false,
     "audit.read": false,
     "sensitive_operations.execute": false,
@@ -78,5 +86,12 @@ describe("formal role permissions", () => {
     expect(hasPermission("owner", auditPermission)).toBe(true);
     expect(hasPermission("front_desk", auditPermission)).toBe(false);
     expect(hasPermission("mechanic", auditPermission)).toBe(false);
+  });
+
+  it("keeps workforce and payroll maintenance with the super administrator", () => {
+    expect(hasPermission("super_admin", "workforce.manage")).toBe(true);
+    expect(hasPermission("front_desk", "workforce.manage")).toBe(false);
+    expect(hasPermission("owner", "workforce.manage")).toBe(false);
+    expect(hasPermission("mechanic", "workforce.manage")).toBe(false);
   });
 });

@@ -4,7 +4,9 @@ export type Permission =
   | "login"
   | "pc.dashboard.read"
   | "business.read.all"
+  | "master_data.read"
   | "master_data.write"
+  | "workforce.manage"
   | "accounts.manage"
   | "audit.read"
   | "sensitive_operations.execute"
@@ -18,7 +20,9 @@ export const permissionMatrix: Record<
     login: true,
     "pc.dashboard.read": true,
     "business.read.all": true,
+    "master_data.read": true,
     "master_data.write": true,
+    "workforce.manage": true,
     "accounts.manage": true,
     "audit.read": true,
     "sensitive_operations.execute": true,
@@ -28,7 +32,9 @@ export const permissionMatrix: Record<
     login: true,
     "pc.dashboard.read": true,
     "business.read.all": true,
+    "master_data.read": true,
     "master_data.write": true,
+    "workforce.manage": false,
     "accounts.manage": false,
     "audit.read": false,
     "sensitive_operations.execute": false,
@@ -38,7 +44,9 @@ export const permissionMatrix: Record<
     login: true,
     "pc.dashboard.read": true,
     "business.read.all": true,
+    "master_data.read": true,
     "master_data.write": false,
+    "workforce.manage": false,
     "accounts.manage": false,
     "audit.read": true,
     "sensitive_operations.execute": false,
@@ -48,7 +56,9 @@ export const permissionMatrix: Record<
     login: true,
     "pc.dashboard.read": false,
     "business.read.all": false,
+    "master_data.read": false,
     "master_data.write": false,
+    "workforce.manage": false,
     "accounts.manage": false,
     "audit.read": false,
     "sensitive_operations.execute": false,

@@ -13,6 +13,16 @@ const navigationItems = [
     permission: "pc.dashboard.read",
   },
   {
+    label: "基础资料",
+    href: "/master-data",
+    permission: "master_data.read",
+  },
+  {
+    label: "员工管理",
+    href: "/employees",
+    permission: "master_data.read",
+  },
+  {
     label: "账号管理",
     href: "/settings/accounts",
     permission: "accounts.manage",
