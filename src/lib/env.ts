@@ -17,7 +17,14 @@ const appEnvSchema = z
     UPLOAD_ROOT: z.string().startsWith("/"),
   })
   .superRefine((value, context) => {
-    if (value.NODE_ENV === "production" && !value.APP_ORIGIN.startsWith("https://")) {
+    const origin = new URL(value.APP_ORIGIN);
+    const localLoopback = origin.protocol === "http:"
+      && ["127.0.0.1", "localhost", "::1"].includes(origin.hostname);
+    if (
+      value.NODE_ENV === "production"
+      && origin.protocol !== "https:"
+      && !localLoopback
+    ) {
       context.addIssue({
         code: "custom",
         message: "APP_ORIGIN must use HTTPS in production",

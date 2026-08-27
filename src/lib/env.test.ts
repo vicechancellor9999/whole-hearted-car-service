@@ -43,6 +43,13 @@ describe("parseAppEnv", () => {
     ).toThrow(/APP_ORIGIN/);
   });
 
+  it("allows an HTTP loopback origin for a local production-build acceptance run", () => {
+    expect(parseAppEnv({
+      ...validProductionEnv,
+      APP_ORIGIN: "http://127.0.0.1:3220",
+    }).APP_ORIGIN).toBe("http://127.0.0.1:3220");
+  });
+
   it("keeps a test database isolated from the production address", () => {
     const parsed = parseAppEnv({
       ...validProductionEnv,

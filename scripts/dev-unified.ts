@@ -2,7 +2,7 @@ import { existsSync } from "node:fs";
 import { mkdir } from "node:fs/promises";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
-import { spawn } from "node:child_process";
+import { spawn, type ChildProcess } from "node:child_process";
 import EmbeddedPostgres from "embedded-postgres";
 import postgres from "postgres";
 import { migrate } from "drizzle-orm/postgres-js/migrator";
@@ -126,56 +126,63 @@ async function main() {
     onError: (error) => process.stderr.write(`[PostgreSQL] ${String(error)}\n`),
   });
 
-  await prepareLocalPostgres({
-    isInitialised: async () => existsSync(path.join(config.database.databaseDir, "PG_VERSION")),
-    initialise: async () => localPostgres.initialise(),
-    start: async () => localPostgres.start(),
-    ensureDatabase: async () => ensureDatabase(config),
-  });
-
-  const { createDatabaseClient } = await import("../src/db/client");
-  const databaseClient = createDatabaseClient(config.childEnvironment);
-  try {
-    await migrate(databaseClient.db, {
-      migrationsFolder: path.join(config.projectRoot, "drizzle"),
-    });
-  } finally {
-    await databaseClient.close();
-  }
-
-  const nextBin = path.join(config.projectRoot, "node_modules", "next", "dist", "bin", "next");
-  const nextProcess = spawn(process.execPath, [
-    nextBin,
-    config.nextMode,
-    "-H",
-    config.appHost,
-    "-p",
-    String(config.appPort),
-  ], {
-    cwd: config.webRoot,
-    env: config.childEnvironment,
-    stdio: "inherit",
-  });
-  process.stdout.write(`[统一应用] 正在启动 ${config.appOrigin}\n`);
-
+  let databaseStarted = false;
+  let nextProcess: ChildProcess | undefined;
   let stopping = false;
   async function stop(signal: NodeJS.Signals = "SIGTERM") {
     if (stopping) return;
     stopping = true;
-    if (nextProcess.exitCode === null) nextProcess.kill(signal);
-    await localPostgres.stop();
+    if (nextProcess?.exitCode === null) nextProcess.kill(signal);
+    if (databaseStarted) await localPostgres.stop();
   }
   process.once("SIGINT", () => void stop("SIGINT"));
   process.once("SIGTERM", () => void stop("SIGTERM"));
-  nextProcess.once("error", (error) => {
-    process.stderr.write(`[统一应用] 启动失败：${error.message}\n`);
-    void stop();
-  });
-  const exitCode = await new Promise<number>((resolve) => {
-    nextProcess.once("exit", (code) => resolve(code ?? 0));
-  });
-  await stop();
-  process.exitCode = exitCode;
+  try {
+    await prepareLocalPostgres({
+      isInitialised: async () => existsSync(path.join(config.database.databaseDir, "PG_VERSION")),
+      initialise: async () => localPostgres.initialise(),
+      start: async () => {
+        await localPostgres.start();
+        databaseStarted = true;
+      },
+      ensureDatabase: async () => ensureDatabase(config),
+    });
+
+    const { createDatabaseClient } = await import("../src/db/client");
+    const databaseClient = createDatabaseClient(config.childEnvironment);
+    try {
+      await migrate(databaseClient.db, {
+        migrationsFolder: path.join(config.projectRoot, "drizzle"),
+      });
+    } finally {
+      await databaseClient.close();
+    }
+
+    const nextBin = path.join(config.projectRoot, "node_modules", "next", "dist", "bin", "next");
+    nextProcess = spawn(process.execPath, [
+      nextBin,
+      config.nextMode,
+      "-H",
+      config.appHost,
+      "-p",
+      String(config.appPort),
+    ], {
+      cwd: config.webRoot,
+      env: config.childEnvironment,
+      stdio: "inherit",
+    });
+    process.stdout.write(`[统一应用] 正在启动 ${config.appOrigin}\n`);
+    nextProcess.once("error", (error) => {
+      process.stderr.write(`[统一应用] 启动失败：${error.message}\n`);
+      void stop();
+    });
+    const exitCode = await new Promise<number>((resolve) => {
+      nextProcess!.once("exit", (code) => resolve(code ?? 0));
+    });
+    process.exitCode = exitCode;
+  } finally {
+    await stop();
+  }
 }
 
 async function ensureDatabase(config: UnifiedRuntimeConfig): Promise<void> {
