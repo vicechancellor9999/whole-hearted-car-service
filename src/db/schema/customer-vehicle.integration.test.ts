@@ -13,6 +13,7 @@ const migrationPaths = [
   resolve(process.cwd(), "drizzle/0006_customer_identity_rule.sql"),
   resolve(process.cwd(), "drizzle/0007_customer_trn_registry.sql"),
   resolve(process.cwd(), "drizzle/0008_customer_trn_registry_sync.sql"),
+  resolve(process.cwd(), "drizzle/0025_fantastic_dakota_north.sql"),
 ];
 
 let database: PGlite;
@@ -90,16 +91,49 @@ describe("customer and vehicle schema", () => {
     ]);
   });
 
-  it("requires a phone identity when TRN is absent and keeps phone and TRN unique", async () => {
+  it("adds formal customer phone ownership and driver-license record storage while allowing an incomplete identity", async () => {
+    const tables = await database.query<{ table_name: string }>(
+      `select table_name
+       from information_schema.tables
+       where table_schema = 'public'
+         and table_name in ('customer_phone_registry', 'customer_driver_license_records')
+       order by table_name`,
+    );
+    expect(tables.rows.map((row) => row.table_name)).toEqual([
+      "customer_driver_license_records",
+      "customer_phone_registry",
+    ]);
+
+    const columns = await database.query<{ column_name: string }>(
+      `select column_name
+       from information_schema.columns
+       where table_schema = 'public'
+         and table_name = 'personal_customers'
+         and column_name in ('birth_date', 'gender')
+       order by column_name`,
+    );
+    expect(columns.rows.map((row) => row.column_name)).toEqual(["birth_date", "gender"]);
+
+    const identityConstraint = await database.query<{ constraint_name: string }>(
+      `select constraint_name
+       from information_schema.table_constraints
+       where table_schema = 'public'
+         and table_name = 'personal_customers'
+         and constraint_name = 'personal_customers_identity_present'`,
+    );
+    expect(identityConstraint.rows).toEqual([]);
+
     await expect(
       database.query(
         `insert into personal_customers
           (customer_no, full_name, created_by)
-         values ('CUST-202608-0001', '无身份客户', $1)`,
+         values ('CUST-202608-0099', '资料待补客户', $1)`,
         [adminId],
       ),
-    ).rejects.toMatchObject({ code: "23514" });
+    ).resolves.toMatchObject({ affectedRows: 1 });
+  });
 
+  it("keeps supplied phone and TRN identities unique", async () => {
     await seedPerson("CUST-202608-0001", "张伟", "+18765550101");
     await expect(
       seedPerson("CUST-202608-0002", "重复手机号", "+18765550101"),
@@ -112,7 +146,7 @@ describe("customer and vehicle schema", () => {
 
     await expect(
       seedPerson("CUST-202608-0005", "有独立 TRN 的家庭联系人", "+18765550101", "987654321"),
-    ).resolves.toBeTypeOf("number");
+    ).rejects.toMatchObject({ code: "23505" });
 
     await expect(
       database.query(
@@ -122,6 +156,38 @@ describe("customer and vehicle schema", () => {
                  '123456789', $1)`,
         [adminId],
       ),
+    ).rejects.toMatchObject({ code: "23505" });
+  });
+
+  it("registers phone ownership across person phone, WhatsApp, and company phone writes", async () => {
+    const personId = await seedPerson("CUST-202608-0010", "同号客户", "+18765550110", "123456710");
+    await database.query(
+      "update personal_customers set whatsapp = '+1 876 555 0110' where id = $1",
+      [personId],
+    );
+    const owned = await database.query<{ normalized_phone: string; owner_kind: string; owner_id: number }>(
+      `select normalized_phone, owner_kind, owner_id
+       from customer_phone_registry
+       where owner_kind = 'person' and owner_id = $1`,
+      [personId],
+    );
+    expect(owned.rows).toEqual([{
+      normalized_phone: "+18765550110",
+      owner_kind: "person",
+      owner_id: personId,
+    }]);
+
+    await expect(
+      seedPerson("CUST-202608-0011", "跨字段冲突", null, "123456711")
+        .then((id) => database.query(
+          "update personal_customers set whatsapp = '+1 (876) 555-0110' where id = $1",
+          [id],
+        )),
+    ).rejects.toMatchObject({ code: "23505" });
+
+    const companyId = await seedCompany("COMP-202608-0010", "冲突公司");
+    await expect(
+      database.query("update company_accounts set phone = '+1 876 555 0110' where id = $1", [companyId]),
     ).rejects.toMatchObject({ code: "23505" });
   });
 

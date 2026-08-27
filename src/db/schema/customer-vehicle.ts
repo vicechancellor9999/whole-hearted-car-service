@@ -3,6 +3,7 @@ import {
   bigint,
   boolean,
   check,
+  date,
   index,
   integer,
   pgEnum,
@@ -26,6 +27,17 @@ export const customerAccountKind = pgEnum("customer_account_kind", [
   "company",
 ]);
 
+export const customerLicenseSubjectType = pgEnum(
+  "customer_license_subject_type",
+  ["individual_customer", "organization_primary_contact"],
+);
+
+export const customerLicenseStatus = pgEnum("customer_license_status", [
+  "pending_verification",
+  "verified",
+  "needs_reverification",
+]);
+
 export const customerTrnRegistry = pgTable(
   "customer_trn_registry",
   {
@@ -46,6 +58,29 @@ export const customerTrnRegistry = pgTable(
   ],
 );
 
+export const customerPhoneRegistry = pgTable(
+  "customer_phone_registry",
+  {
+    normalizedPhone: text("normalized_phone").primaryKey(),
+    ownerKind: customerAccountKind("owner_kind").notNull(),
+    ownerId: bigint("owner_id", { mode: "number" }).notNull(),
+    registeredAt: timestamp("registered_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (table) => [
+    index("customer_phone_registry_owner_idx").on(
+      table.ownerKind,
+      table.ownerId,
+    ),
+    check(
+      "customer_phone_registry_format",
+      sql`${table.normalizedPhone} ~ '^\\+[1-9][0-9]{6,14}$'`,
+    ),
+    check("customer_phone_registry_owner_positive", sql`${table.ownerId} > 0`),
+  ],
+);
+
 export const personalCustomers = pgTable(
   "personal_customers",
   {
@@ -57,6 +92,8 @@ export const personalCustomers = pgTable(
     email: text("email"),
     address: text("address"),
     trn: text("trn"),
+    birthDate: date("birth_date"),
+    gender: text("gender"),
     isActive: boolean("is_active").notNull().default(true),
     createdAt: timestamp("created_at", { withTimezone: true })
       .notNull()
@@ -85,16 +122,16 @@ export const personalCustomers = pgTable(
       sql`length(btrim(${table.fullName})) > 0`,
     ),
     check(
-      "personal_customers_identity_present",
-      sql`${table.trn} is not null or ${table.normalizedPhone} is not null`,
-    ),
-    check(
       "personal_customers_phone_nonempty",
       sql`${table.normalizedPhone} is null or length(btrim(${table.normalizedPhone})) > 0`,
     ),
     check(
       "personal_customers_trn_nonempty",
       sql`${table.trn} is null or length(btrim(${table.trn})) > 0`,
+    ),
+    check(
+      "personal_customers_gender_valid",
+      sql`${table.gender} is null or ${table.gender} in ('M', 'F')`,
     ),
     check("personal_customers_version_positive", sql`${table.version} >= 1`),
   ],
@@ -392,6 +429,103 @@ export const storedFiles = pgTable(
   ],
 );
 
+export const customerDriverLicenseRecords = pgTable(
+  "customer_driver_license_records",
+  {
+    id: identityPrimaryKey(),
+    subjectType: customerLicenseSubjectType("subject_type").notNull(),
+    personalCustomerId: bigint("personal_customer_id", { mode: "number" })
+      .references(() => personalCustomers.id, { onDelete: "restrict" }),
+    companyAccountId: bigint("company_account_id", { mode: "number" })
+      .references(() => companyAccounts.id, { onDelete: "restrict" }),
+    companyContactId: bigint("company_contact_id", { mode: "number" })
+      .references(() => companyContacts.id, { onDelete: "restrict" }),
+    fileId: bigint("file_id", { mode: "number" })
+      .notNull()
+      .references(() => storedFiles.id, { onDelete: "restrict" }),
+    documentName: text("document_name").notNull(),
+    birthDate: date("birth_date").notNull(),
+    sex: text("sex").notNull(),
+    documentAddress: text("document_address").notNull(),
+    status: customerLicenseStatus("status").notNull(),
+    verifiedBy: bigint("verified_by", { mode: "number" })
+      .references(() => staffAccounts.id, { onDelete: "restrict" }),
+    verifiedAt: timestamp("verified_at", { withTimezone: true }),
+    supersededAt: timestamp("superseded_at", { withTimezone: true }),
+    supersededBy: bigint("superseded_by", { mode: "number" })
+      .references(() => staffAccounts.id, { onDelete: "restrict" }),
+    createdBy: bigint("created_by", { mode: "number" })
+      .notNull()
+      .references(() => staffAccounts.id, { onDelete: "restrict" }),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+    version: integer("version").notNull().default(1),
+  },
+  (table) => [
+    uniqueIndex("customer_driver_license_records_file_uq").on(table.fileId),
+    uniqueIndex("customer_driver_license_records_person_current_uq")
+      .on(table.personalCustomerId)
+      .where(sql`${table.subjectType} = 'individual_customer' and ${table.supersededAt} is null`),
+    uniqueIndex("customer_driver_license_records_company_current_uq")
+      .on(table.companyAccountId)
+      .where(sql`${table.subjectType} = 'organization_primary_contact' and ${table.supersededAt} is null`),
+    index("customer_driver_license_records_contact_idx").on(
+      table.companyContactId,
+      table.createdAt,
+    ),
+    check(
+      "customer_driver_license_records_subject_valid",
+      sql`(
+        ${table.subjectType} = 'individual_customer'
+        and ${table.personalCustomerId} is not null
+        and ${table.companyAccountId} is null
+        and ${table.companyContactId} is null
+      ) or (
+        ${table.subjectType} = 'organization_primary_contact'
+        and ${table.companyAccountId} is not null
+        and (
+          (${table.companyContactId} is null and ${table.personalCustomerId} is null)
+          or (${table.companyContactId} is not null and ${table.personalCustomerId} is not null)
+        )
+      )`,
+    ),
+    check(
+      "customer_driver_license_records_profile_nonempty",
+      sql`length(btrim(${table.documentName})) > 0 and length(btrim(${table.documentAddress})) > 0`,
+    ),
+    check(
+      "customer_driver_license_records_sex_valid",
+      sql`${table.sex} in ('M', 'F')`,
+    ),
+    check(
+      "customer_driver_license_records_verification_complete",
+      sql`(
+        ${table.status} = 'verified'
+        and ${table.verifiedBy} is not null
+        and ${table.verifiedAt} is not null
+      ) or (
+        ${table.status} <> 'verified'
+        and ${table.verifiedBy} is null
+        and ${table.verifiedAt} is null
+      )`,
+    ),
+    check(
+      "customer_driver_license_records_supersession_complete",
+      sql`num_nonnulls(${table.supersededAt}, ${table.supersededBy}) in (0, 2)`,
+    ),
+    check(
+      "customer_driver_license_records_dates_valid",
+      sql`(${table.verifiedAt} is null or ${table.verifiedAt} >= ${table.createdAt})
+          and (${table.supersededAt} is null or ${table.supersededAt} >= ${table.createdAt})`,
+    ),
+    check(
+      "customer_driver_license_records_version_positive",
+      sql`${table.version} >= 1`,
+    ),
+  ],
+);
+
 export const vehicleAttachments = pgTable(
   "vehicle_attachments",
   {
@@ -423,3 +557,4 @@ export const vehicleAttachments = pgTable(
 export type PersonalCustomer = typeof personalCustomers.$inferSelect;
 export type CompanyAccount = typeof companyAccounts.$inferSelect;
 export type Vehicle = typeof vehicles.$inferSelect;
+export type CustomerDriverLicenseRecord = typeof customerDriverLicenseRecords.$inferSelect;
