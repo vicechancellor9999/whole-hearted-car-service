@@ -6,7 +6,7 @@ type TransactionRow = {
   id: number;
   kind: "payment" | "refund";
   amount_minor: number;
-  occurred_at: Date;
+  occurred_at: Date | string;
   method_label: string;
 };
 
@@ -80,5 +80,38 @@ describe("RevenueService", () => {
     });
 
     expect(detail.summary).toMatchObject({ grossPaidJmd: 100, netPaidJmd: 100, paymentCount: 1 });
+  });
+
+  it("accepts timestamp strings returned by the production SQL adapter", async () => {
+    const service = new RevenueService(revenueDatabase([
+      {
+        id: 1,
+        kind: "payment",
+        amount_minor: 24_700_00,
+        occurred_at: "2026-08-26 03:42:19.12-05",
+        method_label: "现金",
+      },
+      {
+        id: 2,
+        kind: "refund",
+        amount_minor: 10_000_00,
+        occurred_at: "2026-08-26 03:46:55.44-05",
+        method_label: "现金",
+      },
+    ]));
+
+    const detail = await service.getDetail({
+      viewerAccountId: 1,
+      range: "day",
+      now: new Date("2026-08-26T18:00:00Z"),
+    });
+
+    expect(detail.summary).toMatchObject({
+      grossPaidJmd: 24_700,
+      cashRefundedJmd: 10_000,
+      netPaidJmd: 14_700,
+      paymentCount: 1,
+      refundCount: 1,
+    });
   });
 });

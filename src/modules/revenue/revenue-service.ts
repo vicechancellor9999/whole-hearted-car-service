@@ -6,7 +6,7 @@ type TransactionRow = {
   id: number;
   kind: "payment" | "refund";
   amount_minor: number;
-  occurred_at: Date;
+  occurred_at: Date | string;
   method_label: string;
 };
 
@@ -62,14 +62,17 @@ export class RevenueService {
        order by occurred_at, id`,
       [now],
     );
-    const events = rows.map((row) => ({
-      id: `${row.kind}-${row.id}`,
-      date: jamaicaDay(row.occurred_at),
-      occurredAt: new Date(row.occurred_at),
-      method: row.method_label,
-      kind: row.kind,
-      amountJmd: Number(row.amount_minor) / 100,
-    } satisfies RevenueEvent));
+    const events = rows.map((row) => {
+      const occurredAt = parseOccurredAt(row.occurred_at);
+      return {
+        id: `${row.kind}-${row.id}`,
+        date: jamaicaDay(occurredAt),
+        occurredAt,
+        method: row.method_label,
+        kind: row.kind,
+        amountJmd: Number(row.amount_minor) / 100,
+      } satisfies RevenueEvent;
+    });
     return projectRevenue(events, input.range, now);
   }
 }
@@ -140,6 +143,14 @@ function summarizeMethods(events: RevenueEvent[]) {
     map.set(event.method, current);
   }
   return [...map.values()].sort((left, right) => right.total - left.total || left.method.localeCompare(right.method, "zh-CN"));
+}
+
+function parseOccurredAt(value: Date | string) {
+  const occurredAt = value instanceof Date ? value : new Date(value);
+  if (Number.isNaN(occurredAt.getTime())) {
+    throw new Error("收付款发生时间无效");
+  }
+  return occurredAt;
 }
 
 function jamaicaDay(value: Date) {
