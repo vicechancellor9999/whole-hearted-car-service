@@ -11,6 +11,7 @@ type ServiceMethods = Pick<MasterDataService,
   | "listRepairTeams"
   | "listStaffMembers"
   | "listPayrollParameters"
+  | "listTeamCommissionRates"
   | "createRepairTeam"
   | "createDictionaryItem"
   | "updateDictionaryItem"
@@ -18,6 +19,8 @@ type ServiceMethods = Pick<MasterDataService,
   | "renameRepairTeam"
   | "retireRepairTeam"
   | "setEmployeeSalary"
+  | "setPayrollParameters"
+  | "setTeamCommissionRate"
 >;
 
 type MasterDataApiDependencies = ServiceMethods & {
@@ -50,13 +53,17 @@ export function createMasterDataApiHandler(dependencies: MasterDataApiDependenci
         const payrollParametersPromise = session.account.role === "super_admin" || session.account.role === "owner"
           ? dependencies.listPayrollParameters({ viewerAccountId: session.account.id })
           : Promise.resolve([]);
-        const [dictionaries, teams, staff, payrollParameters] = await Promise.all([
+        const teamCommissionRatesPromise = session.account.role === "super_admin" || session.account.role === "owner"
+          ? dependencies.listTeamCommissionRates({ viewerAccountId: session.account.id })
+          : Promise.resolve([]);
+        const [dictionaries, teams, staff, payrollParameters, teamCommissionRates] = await Promise.all([
           dependencies.listDictionaryItems({ viewerAccountId: session.account.id }),
           dependencies.listRepairTeams({ viewerAccountId: session.account.id }),
           dependencies.listStaffMembers({ viewerAccountId: session.account.id }),
           payrollParametersPromise,
+          teamCommissionRatesPromise,
         ]);
-        return NextResponse.json({ dictionaries, teams, staff, payrollParameters });
+        return NextResponse.json({ dictionaries, teams, staff, payrollParameters, teamCommissionRates });
       }
 
       if (request.method !== "POST") {
@@ -126,6 +133,24 @@ export function createMasterDataApiHandler(dependencies: MasterDataApiDependenci
         });
         return NextResponse.json({ ok: true });
       }
+      if (action === "set_payroll_parameters") {
+        return NextResponse.json(await dependencies.setPayrollParameters({
+          effectiveMonth: text(body, "effectiveMonth"),
+          commissionRate: text(body, "commissionRate"),
+          cnyToJmdRate: text(body, "cnyToJmdRate"),
+          context: actionContext,
+        }), { status: 201 });
+      }
+      if (action === "set_team_commission_rate") {
+        return NextResponse.json(await dependencies.setTeamCommissionRate({
+          teamId: number(body, "teamId"),
+          effectiveMonth: text(body, "effectiveMonth"),
+          commissionRate: body.commissionRate === null
+            ? null
+            : text(body, "commissionRate"),
+          context: actionContext,
+        }), { status: 201 });
+      }
       return NextResponse.json({ error: "基础资料操作无效" }, { status: 400 });
     } catch (error) {
       const status = typeof error === "object" && error !== null && "status" in error
@@ -157,6 +182,7 @@ async function run(request: Request): Promise<Response> {
       listRepairTeams: (input) => runtime.service.listRepairTeams(input),
       listStaffMembers: (input) => runtime.service.listStaffMembers(input),
       listPayrollParameters: (input) => runtime.service.listPayrollParameters(input),
+      listTeamCommissionRates: (input) => runtime.service.listTeamCommissionRates(input),
       createRepairTeam: (input) => runtime.service.createRepairTeam(input),
       createDictionaryItem: (input) => runtime.service.createDictionaryItem(input),
       updateDictionaryItem: (input) => runtime.service.updateDictionaryItem(input),
@@ -164,6 +190,8 @@ async function run(request: Request): Promise<Response> {
       renameRepairTeam: (input) => runtime.service.renameRepairTeam(input),
       retireRepairTeam: (input) => runtime.service.retireRepairTeam(input),
       setEmployeeSalary: (input) => runtime.service.setEmployeeSalary(input),
+      setPayrollParameters: (input) => runtime.service.setPayrollParameters(input),
+      setTeamCommissionRate: (input) => runtime.service.setTeamCommissionRate(input),
     })(request);
   } finally {
     await runtime.close();

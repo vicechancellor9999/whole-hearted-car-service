@@ -140,4 +140,32 @@ describe("calculatePerformanceTargets", () => {
       }],
     });
   });
+
+  it("uses a team's effective special commission rate instead of the whole-shop default", () => {
+    expect(calculatePerformanceTargets({
+      month: "2026-08",
+      commissionRate: 0.25,
+      cnyToJmdRate: 22,
+      teamCommissionRates: { 8: 0.2 },
+      members: [{
+        teamId: 7,
+        teamName: "维修一组",
+        memberId: 3,
+        memberName: "张三",
+        salaryCnyMinor: 200_000,
+      }, {
+        teamId: 8,
+        teamName: "维修二组",
+        memberId: 4,
+        memberName: "李四",
+        salaryCnyMinor: 200_000,
+      }],
+    })).toMatchObject({
+      targetPerformanceMinor: 39_600_000,
+      teams: [{ teamId: 7, targetPerformanceMinor: 17_600_000 }, {
+        teamId: 8,
+        targetPerformanceMinor: 22_000_000,
+      }],
+    });
+  });
 });

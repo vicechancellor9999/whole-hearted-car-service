@@ -63,6 +63,13 @@ export type PayrollParameterVersion = {
   cnyToJmdRate: string;
 };
 
+export type TeamCommissionRateVersion = {
+  teamId: number;
+  teamName: string;
+  effectiveMonth: string;
+  commissionRate: string | null;
+};
+
 export type StaffMemberListItem = ManagedStaffMember & {
   currentTeamName: string | null;
   positionLabel: string;
@@ -194,6 +201,31 @@ export class MasterDataService {
       effectiveMonth: row.effective_month.slice(0, 7),
       commissionRate: row.commission_rate,
       cnyToJmdRate: row.cny_to_jmd_rate,
+    }));
+  }
+
+  async listTeamCommissionRates(input: {
+    viewerAccountId: number;
+  }): Promise<TeamCommissionRateVersion[]> {
+    await requirePayrollReader(this.database, input.viewerAccountId);
+    const rows = await this.database.query<{
+      team_id: number;
+      team_name: string;
+      effective_month: string;
+      commission_rate: string | null;
+    }>(
+      `select version.team_id, team.name as team_name,
+              version.effective_month::text,
+              version.commission_rate::text
+       from team_commission_rate_versions as version
+       join repair_teams as team on team.id = version.team_id
+       order by version.effective_month desc, version.team_id`,
+    );
+    return rows.map((row) => ({
+      teamId: Number(row.team_id),
+      teamName: row.team_name,
+      effectiveMonth: row.effective_month.slice(0, 7),
+      commissionRate: row.commission_rate,
     }));
   }
 
@@ -776,6 +808,67 @@ export class MasterDataService {
       });
     } catch (error) {
       rethrowConflict(error, "这个月份已经有提成比例和汇率版本");
+    }
+  }
+
+  async setTeamCommissionRate(input: {
+    teamId: number;
+    effectiveMonth: string;
+    commissionRate: string | null;
+    context: MasterDataActionContext;
+  }): Promise<TeamCommissionRateVersion> {
+    const effectiveMonth = monthKeySchema.parse(input.effectiveMonth);
+    const commissionRate = input.commissionRate === null
+      ? null
+      : commissionRateSchema.parse(input.commissionRate);
+    const now = input.context.now ?? new Date();
+    try {
+      return await this.database.transaction(async (transaction) => {
+        await requireSuperAdmin(transaction, input.context.actorAccountId);
+        const teams = await transaction.query<{ id: number; name: string }>(
+          `select id, name
+           from repair_teams
+           where id = $1 and is_active = true
+           for update`,
+          [input.teamId],
+        );
+        const team = teams[0];
+        if (!team) throw new MasterDataNotFoundError("维修组不存在或已经停用");
+        const rows = await transaction.query<{
+          team_id: number;
+          effective_month: string;
+          commission_rate: string | null;
+        }>(
+          `insert into team_commission_rate_versions
+            (team_id, effective_month, commission_rate, set_by, created_at)
+           values ($1, $2::date, $3::numeric, $4, $5)
+           returning team_id, effective_month::text, commission_rate::text`,
+          [
+            input.teamId,
+            `${effectiveMonth}-01`,
+            commissionRate,
+            input.context.actorAccountId,
+            now,
+          ],
+        );
+        const version = {
+          teamId: Number(rows[0].team_id),
+          teamName: team.name,
+          effectiveMonth,
+          commissionRate: rows[0].commission_rate,
+        };
+        await writeContextAudit(transaction, input.context, now, {
+          eventType: commissionRate === null
+            ? "payroll.team_commission_default_restored"
+            : "payroll.team_commission_version_created",
+          objectType: "repair_team",
+          objectId: String(input.teamId),
+          after: version,
+        });
+        return version;
+      });
+    } catch (error) {
+      rethrowConflict(error, "这个维修组在该月份已经有提成比例版本");
     }
   }
 }

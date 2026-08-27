@@ -33,6 +33,7 @@ const migrationPaths = [
   "0014_payments_receipts_refunds.sql",
   "0018_business_order_number_format.sql",
   "0021_optional_work_return_details.sql",
+  "0024_team_commission_rate_versions.sql",
 ].map((name) => resolve(process.cwd(), "drizzle", name));
 
 let database: PGlite;
@@ -456,6 +457,60 @@ describe("PerformanceService", () => {
         targetPerformanceMinor: 8_800_000,
         completionRate: 0,
         targetMissingReasons: [],
+      })]),
+    });
+  });
+
+  it("uses a team special rate until a later version restores the whole-shop default", async () => {
+    await database.query(
+      `insert into staff_team_assignment_versions
+        (staff_member_id, effective_month, team_id, set_by)
+       values ($1, date '2026-08-01', $3, $5),
+              ($2, date '2026-08-01', $4, $5)`,
+      [mechanicOneStaffId, mechanicTwoStaffId, teamOneId, teamTwoId, adminId],
+    );
+    await database.query(
+      `insert into employee_salary_versions
+        (staff_member_id, effective_month, base_salary_cny_minor, set_by)
+       values ($1, date '2026-08-01', 200000, $3),
+              ($2, date '2026-08-01', 100000, $3)`,
+      [mechanicOneStaffId, mechanicTwoStaffId, adminId],
+    );
+    await database.query(
+      `insert into payroll_parameter_versions
+        (effective_month, commission_rate, cny_to_jmd_rate, set_by)
+       values (date '2026-07-01', 0.25, 22, $1)`,
+      [adminId],
+    );
+    await database.query(
+      `insert into team_commission_rate_versions
+        (team_id, effective_month, commission_rate, set_by)
+       values ($1, date '2026-08-01', 0.20, $2),
+              ($1, date '2026-09-01', null, $2)`,
+      [teamTwoId, adminId],
+    );
+
+    const august = await performance.getMonthlyPerformance({
+      month: "2026-08",
+      viewerAccountId: ownerId,
+    });
+    const september = await performance.getMonthlyPerformance({
+      month: "2026-09",
+      viewerAccountId: ownerId,
+    });
+
+    expect(august).toMatchObject({
+      targetPerformanceMinor: 28_600_000,
+      teams: expect.arrayContaining([expect.objectContaining({
+        teamId: teamTwoId,
+        targetPerformanceMinor: 11_000_000,
+      })]),
+    });
+    expect(september).toMatchObject({
+      targetPerformanceMinor: 26_400_000,
+      teams: expect.arrayContaining([expect.objectContaining({
+        teamId: teamTwoId,
+        targetPerformanceMinor: 8_800_000,
       })]),
     });
   });

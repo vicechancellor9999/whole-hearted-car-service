@@ -81,6 +81,11 @@ async function dashboardDatabase(): Promise<AuthSqlDatabase> {
       commission_rate numeric not null,
       cny_to_jmd_rate numeric not null
     );
+    create table team_commission_rate_versions (
+      team_id bigint not null,
+      effective_month date not null,
+      commission_rate numeric
+    );
     create table formal_handoffs (
       id bigint primary key,
       business_order_id bigint not null,

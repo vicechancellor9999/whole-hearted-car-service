@@ -11,12 +11,14 @@ describe("/api/master-data", () => {
         commissionRate: "0.100000",
         cnyToJmdRate: "21.500000",
       }]);
+      const listTeamCommissionRates = vi.fn(async () => []);
       const handler = createMasterDataApiHandler({
         readSession: async () => ({ account: { id: 5, role } }),
         listDictionaryItems: vi.fn(async () => []),
         listRepairTeams: vi.fn(async () => []),
         listStaffMembers: vi.fn(async () => []),
         listPayrollParameters,
+        listTeamCommissionRates,
         createRepairTeam: vi.fn(),
         createDictionaryItem: vi.fn(),
         updateDictionaryItem: vi.fn(),
@@ -24,6 +26,8 @@ describe("/api/master-data", () => {
         renameRepairTeam: vi.fn(),
         retireRepairTeam: vi.fn(),
         setEmployeeSalary: vi.fn(),
+        setPayrollParameters: vi.fn(),
+        setTeamCommissionRate: vi.fn(),
       });
 
       const response = await handler(new Request("http://localhost/api/master-data"));
@@ -38,6 +42,7 @@ describe("/api/master-data", () => {
           commissionRate: "0.100000",
           cnyToJmdRate: "21.500000",
         }],
+        teamCommissionRates: [],
       });
       expect(listPayrollParameters).toHaveBeenCalledWith({ viewerAccountId: 5 });
     },
@@ -81,12 +86,16 @@ describe("/api/master-data", () => {
     const listPayrollParameters = vi.fn(async () => {
       throw new MasterDataManagementDeniedError();
     });
+    const listTeamCommissionRates = vi.fn(async () => {
+      throw new MasterDataManagementDeniedError();
+    });
     const handler = createMasterDataApiHandler({
       readSession: async () => ({ account: { id: 5, role: "front_desk" as const } }),
       listDictionaryItems,
       listRepairTeams,
       listStaffMembers,
       listPayrollParameters,
+      listTeamCommissionRates,
       createRepairTeam: vi.fn(),
       createDictionaryItem: vi.fn(),
       updateDictionaryItem: vi.fn(),
@@ -94,6 +103,8 @@ describe("/api/master-data", () => {
       renameRepairTeam: vi.fn(),
       retireRepairTeam: vi.fn(),
       setEmployeeSalary: vi.fn(),
+      setPayrollParameters: vi.fn(),
+      setTeamCommissionRate: vi.fn(),
     });
     const response = await handler(new Request("http://localhost/api/master-data"));
     expect(response.status).toBe(200);
@@ -118,11 +129,13 @@ describe("/api/master-data", () => {
         version: 1,
       }],
       payrollParameters: [],
+      teamCommissionRates: [],
     });
     expect(listDictionaryItems).toHaveBeenCalledWith({ viewerAccountId: 5 });
     expect(listRepairTeams).toHaveBeenCalledWith({ viewerAccountId: 5 });
     expect(listStaffMembers).toHaveBeenCalledWith({ viewerAccountId: 5 });
     expect(listPayrollParameters).not.toHaveBeenCalled();
+    expect(listTeamCommissionRates).not.toHaveBeenCalled();
   });
 
   it("keeps mechanics outside the PC master-data response", async () => {
@@ -134,12 +147,14 @@ describe("/api/master-data", () => {
       commissionRate: "0.100000",
       cnyToJmdRate: "21.500000",
     }]);
+    const listTeamCommissionRates = vi.fn(async () => []);
     const handler = createMasterDataApiHandler({
       readSession: async () => ({ account: { id: 6, role: "mechanic" as const } }),
       listDictionaryItems: vi.fn(denied),
       listRepairTeams: vi.fn(denied),
       listStaffMembers: vi.fn(denied),
       listPayrollParameters,
+      listTeamCommissionRates,
       createRepairTeam: vi.fn(),
       createDictionaryItem: vi.fn(),
       updateDictionaryItem: vi.fn(),
@@ -147,6 +162,8 @@ describe("/api/master-data", () => {
       renameRepairTeam: vi.fn(),
       retireRepairTeam: vi.fn(),
       setEmployeeSalary: vi.fn(),
+      setPayrollParameters: vi.fn(),
+      setTeamCommissionRate: vi.fn(),
     });
 
     const response = await handler(new Request("http://localhost/api/master-data"));
@@ -159,6 +176,7 @@ describe("/api/master-data", () => {
     expect(payload).not.toHaveProperty("staff");
     expect(payload).not.toHaveProperty("payrollParameters");
     expect(listPayrollParameters).not.toHaveBeenCalled();
+    expect(listTeamCommissionRates).not.toHaveBeenCalled();
   });
 
   it("returns 401 without invoking readers when there is no session", async () => {
@@ -166,12 +184,14 @@ describe("/api/master-data", () => {
     const listRepairTeams = vi.fn();
     const listStaffMembers = vi.fn();
     const listPayrollParameters = vi.fn();
+    const listTeamCommissionRates = vi.fn();
     const handler = createMasterDataApiHandler({
       readSession: async () => null,
       listDictionaryItems,
       listRepairTeams,
       listStaffMembers,
       listPayrollParameters,
+      listTeamCommissionRates,
       createRepairTeam: vi.fn(),
       createDictionaryItem: vi.fn(),
       updateDictionaryItem: vi.fn(),
@@ -179,6 +199,8 @@ describe("/api/master-data", () => {
       renameRepairTeam: vi.fn(),
       retireRepairTeam: vi.fn(),
       setEmployeeSalary: vi.fn(),
+      setPayrollParameters: vi.fn(),
+      setTeamCommissionRate: vi.fn(),
     });
 
     const response = await handler(new Request("http://localhost/api/master-data"));
@@ -189,15 +211,16 @@ describe("/api/master-data", () => {
     expect(listRepairTeams).not.toHaveBeenCalled();
     expect(listStaffMembers).not.toHaveBeenCalled();
     expect(listPayrollParameters).not.toHaveBeenCalled();
+    expect(listTeamCommissionRates).not.toHaveBeenCalled();
   });
 
   it("creates a real repair team with the signed-in super administrator", async () => {
     const createRepairTeam = vi.fn(async () => ({ id: 8, teamNo: "TEAM-202608-008", name: "钣金喷漆", isActive: true, version: 1 }));
     const handler = createMasterDataApiHandler({
       readSession: async () => ({ account: { id: 5, role: "super_admin" as const } }),
-      listDictionaryItems: vi.fn(), listRepairTeams: vi.fn(), listStaffMembers: vi.fn(), listPayrollParameters: vi.fn(),
+      listDictionaryItems: vi.fn(), listRepairTeams: vi.fn(), listStaffMembers: vi.fn(), listPayrollParameters: vi.fn(), listTeamCommissionRates: vi.fn(),
       createRepairTeam,
-      createDictionaryItem: vi.fn(), updateDictionaryItem: vi.fn(), createMechanic: vi.fn(), renameRepairTeam: vi.fn(), retireRepairTeam: vi.fn(), setEmployeeSalary: vi.fn(),
+      createDictionaryItem: vi.fn(), updateDictionaryItem: vi.fn(), createMechanic: vi.fn(), renameRepairTeam: vi.fn(), retireRepairTeam: vi.fn(), setEmployeeSalary: vi.fn(), setPayrollParameters: vi.fn(), setTeamCommissionRate: vi.fn(),
     });
     const response = await handler(new Request("http://localhost/api/master-data", {
       method: "POST",
@@ -208,6 +231,61 @@ describe("/api/master-data", () => {
     expect(createRepairTeam).toHaveBeenCalledWith(expect.objectContaining({
       name: "钣金喷漆",
       context: expect.objectContaining({ actorAccountId: 5, requestId: "req-team" }),
+    }));
+  });
+
+  it("creates whole-shop parameters and team commission versions through the formal API", async () => {
+    const setPayrollParameters = vi.fn(async () => ({
+      effectiveMonth: "2026-08",
+      commissionRate: "0.250000",
+      cnyToJmdRate: "22.000000",
+    }));
+    const setTeamCommissionRate = vi.fn(async () => ({
+      teamId: 8,
+      teamName: "维修二组",
+      effectiveMonth: "2026-08",
+      commissionRate: "0.200000",
+    }));
+    const handler = createMasterDataApiHandler({
+      readSession: async () => ({ account: { id: 5, role: "super_admin" as const } }),
+      listDictionaryItems: vi.fn(), listRepairTeams: vi.fn(), listStaffMembers: vi.fn(), listPayrollParameters: vi.fn(), listTeamCommissionRates: vi.fn(),
+      createRepairTeam: vi.fn(), createDictionaryItem: vi.fn(), updateDictionaryItem: vi.fn(), createMechanic: vi.fn(), renameRepairTeam: vi.fn(), retireRepairTeam: vi.fn(), setEmployeeSalary: vi.fn(),
+      setPayrollParameters,
+      setTeamCommissionRate,
+    });
+
+    const wholeShopResponse = await handler(new Request("http://localhost/api/master-data", {
+      method: "POST",
+      headers: { "content-type": "application/json", "x-request-id": "req-payroll" },
+      body: JSON.stringify({
+        action: "set_payroll_parameters",
+        effectiveMonth: "2026-08",
+        commissionRate: "0.250000",
+        cnyToJmdRate: "22.000000",
+      }),
+    }));
+    const teamResponse = await handler(new Request("http://localhost/api/master-data", {
+      method: "POST",
+      headers: { "content-type": "application/json", "x-request-id": "req-team-rate" },
+      body: JSON.stringify({
+        action: "set_team_commission_rate",
+        teamId: 8,
+        effectiveMonth: "2026-08",
+        commissionRate: "0.200000",
+      }),
+    }));
+
+    expect(wholeShopResponse.status).toBe(201);
+    expect(teamResponse.status).toBe(201);
+    expect(setPayrollParameters).toHaveBeenCalledWith(expect.objectContaining({
+      effectiveMonth: "2026-08",
+      commissionRate: "0.250000",
+      cnyToJmdRate: "22.000000",
+    }));
+    expect(setTeamCommissionRate).toHaveBeenCalledWith(expect.objectContaining({
+      teamId: 8,
+      effectiveMonth: "2026-08",
+      commissionRate: "0.200000",
     }));
   });
 });

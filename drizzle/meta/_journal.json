@@ -169,6 +169,13 @@
       "when": 1787798040000,
       "tag": "0023_vehicle_pickup_presence",
       "breakpoints": true
+    },
+    {
+      "idx": 24,
+      "version": "7",
+      "when": 1787866872391,
+      "tag": "0024_team_commission_rate_versions",
+      "breakpoints": true
     }
   ]
 }

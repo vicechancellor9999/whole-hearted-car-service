@@ -30,6 +30,11 @@ type PayrollParameterRow = {
   cny_to_jmd_rate: string;
 };
 
+type TeamCommissionRateRow = {
+  team_id: number;
+  commission_rate: string | null;
+};
+
 type PerformanceTargetMemberRow = {
   team_id: number;
   team_name: string;
@@ -42,13 +47,20 @@ export async function readPerformanceTargets(
   database: AuthSqlExecutor,
   month: string,
 ): Promise<PerformanceTargetResult> {
-  const [parameterRows, memberRows] = await Promise.all([
+  const [parameterRows, teamCommissionRateRows, memberRows] = await Promise.all([
     database.query<PayrollParameterRow>(
       `select commission_rate::text, cny_to_jmd_rate::text
        from payroll_parameter_versions
        where effective_month <= $1::date
        order by effective_month desc
        limit 1`,
+      [`${month}-01`],
+    ),
+    database.query<TeamCommissionRateRow>(
+      `select distinct on (team_id) team_id, commission_rate::text
+       from team_commission_rate_versions
+       where effective_month <= $1::date
+       order by team_id, effective_month desc`,
       [`${month}-01`],
     ),
     database.query<PerformanceTargetMemberRow>(
@@ -80,10 +92,16 @@ export async function readPerformanceTargets(
     ),
   ]);
   const parameter = parameterRows[0];
+  const teamCommissionRates = Object.fromEntries(
+    teamCommissionRateRows
+      .filter((row) => row.commission_rate !== null)
+      .map((row) => [Number(row.team_id), Number(row.commission_rate)]),
+  );
   return calculatePerformanceTargets({
     month,
     commissionRate: parameter ? Number(parameter.commission_rate) : null,
     cnyToJmdRate: parameter ? Number(parameter.cny_to_jmd_rate) : null,
+    teamCommissionRates,
     members: memberRows.map((row) => ({
       teamId: Number(row.team_id),
       teamName: row.team_name,
@@ -108,6 +126,7 @@ export function calculatePerformanceTargets(input: {
   month: string;
   commissionRate: number | null;
   cnyToJmdRate: number | null;
+  teamCommissionRates?: Readonly<Record<number, number>>;
   members: PerformanceTargetMember[];
 }): PerformanceTargetResult {
   const parameterMissing = input.commissionRate === null
@@ -150,10 +169,12 @@ export function calculatePerformanceTargets(input: {
       }
       const targetPerformanceMinor = members.reduce((sum, member) => {
         const salary = member.salaryCnyMinor!;
+        const commissionRate = input.teamCommissionRates?.[teamId]
+          ?? input.commissionRate!;
         if (!Number.isSafeInteger(salary) || salary < 0) {
           throw new RangeError(`${teamName}：${member.memberName}月标准工资无效`);
         }
-        return sum + Math.round(salary / input.commissionRate! * input.cnyToJmdRate!);
+        return sum + Math.round(salary / commissionRate * input.cnyToJmdRate!);
       }, 0);
       if (!Number.isSafeInteger(targetPerformanceMinor)) {
         throw new RangeError(`${teamName}绩效目标超出安全范围`);

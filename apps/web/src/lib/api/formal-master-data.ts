@@ -41,11 +41,19 @@ export type FormalPayrollParameters = {
   cnyToJmdRate: string;
 };
 
+export type FormalTeamCommissionRate = {
+  teamId: number;
+  teamName: string;
+  effectiveMonth: string;
+  commissionRate: string | null;
+};
+
 export type FormalMasterData = {
   dictionaries: FormalDictionaryItem[];
   teams: FormalRepairTeam[];
   staff: FormalStaffMember[];
   payrollParameters: FormalPayrollParameters[];
+  teamCommissionRates: FormalTeamCommissionRate[];
 };
 
 async function masterDataJson<ResponseBody>(init?: RequestInit): Promise<ResponseBody> {
@@ -146,5 +154,29 @@ export function setFormalEmployeeSalary(input: {
     method: "POST",
     headers: { "content-type": "application/json" },
     body: JSON.stringify({ action: "set_employee_salary", ...input }),
+  });
+}
+
+export function setFormalPayrollParameters(input: {
+  effectiveMonth: string;
+  commissionRate: string;
+  cnyToJmdRate: string;
+}): Promise<FormalPayrollParameters> {
+  return masterDataJson({
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ action: "set_payroll_parameters", ...input }),
+  });
+}
+
+export function setFormalTeamCommissionRate(input: {
+  teamId: number;
+  effectiveMonth: string;
+  commissionRate: string | null;
+}): Promise<FormalTeamCommissionRate> {
+  return masterDataJson({
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ action: "set_team_commission_rate", ...input }),
   });
 }

@@ -303,6 +303,41 @@ export const payrollParameterVersions = pgTable(
   ],
 );
 
+export const teamCommissionRateVersions = pgTable(
+  "team_commission_rate_versions",
+  {
+    teamId: bigint("team_id", { mode: "number" })
+      .notNull()
+      .references(() => repairTeams.id, { onDelete: "restrict" }),
+    effectiveMonth: date("effective_month", { mode: "string" }).notNull(),
+    commissionRate: numeric("commission_rate", {
+      precision: 9,
+      scale: 6,
+    }),
+    setBy: bigint("set_by", { mode: "number" })
+      .notNull()
+      .references(() => staffAccounts.id, { onDelete: "restrict" }),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (table) => [
+    primaryKey({
+      columns: [table.teamId, table.effectiveMonth],
+      name: "team_commission_rate_versions_pk",
+    }),
+    index("team_commission_rate_versions_month_idx").on(table.effectiveMonth),
+    check(
+      "team_commission_rate_versions_month_start",
+      sql`${table.effectiveMonth} = date_trunc('month', ${table.effectiveMonth})::date`,
+    ),
+    check(
+      "team_commission_rate_versions_rate_valid",
+      sql`${table.commissionRate} is null or (${table.commissionRate} > 0 and ${table.commissionRate} <= 1)`,
+    ),
+  ],
+);
+
 export type DictionaryItem = typeof dictionaryItems.$inferSelect;
 export type RepairTeam = typeof repairTeams.$inferSelect;
 export type StaffMember = typeof staffMembers.$inferSelect;

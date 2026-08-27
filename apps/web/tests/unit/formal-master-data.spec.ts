@@ -1,5 +1,10 @@
 import { expect, test } from "@playwright/test";
-import { createFormalRepairTeam, fetchFormalMasterData } from "../../src/lib/api/formal-master-data";
+import {
+  createFormalRepairTeam,
+  fetchFormalMasterData,
+  setFormalPayrollParameters,
+  setFormalTeamCommissionRate,
+} from "../../src/lib/api/formal-master-data";
 
 test("formal master data reads and creates teams through the backend proxy", async () => {
   const originalFetch = globalThis.fetch;
@@ -18,6 +23,40 @@ test("formal master data reads and creates teams through the backend proxy", asy
       { url: "/api/formal/master-data", method: "GET" },
       { url: "/api/formal/master-data", method: "POST" },
     ]);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test("formal master data saves whole-shop and team commission parameter versions", async () => {
+  const originalFetch = globalThis.fetch;
+  const bodies: unknown[] = [];
+  globalThis.fetch = (async (_input: RequestInfo | URL, init?: RequestInit) => {
+    bodies.push(JSON.parse(String(init?.body)));
+    return new Response(JSON.stringify({ ok: true }), { status: 201 });
+  }) as typeof fetch;
+  try {
+    await setFormalPayrollParameters({
+      effectiveMonth: "2026-08",
+      commissionRate: "0.250000",
+      cnyToJmdRate: "22.000000",
+    });
+    await setFormalTeamCommissionRate({
+      teamId: 8,
+      effectiveMonth: "2026-09",
+      commissionRate: null,
+    });
+    expect(bodies).toEqual([{
+      action: "set_payroll_parameters",
+      effectiveMonth: "2026-08",
+      commissionRate: "0.250000",
+      cnyToJmdRate: "22.000000",
+    }, {
+      action: "set_team_commission_rate",
+      teamId: 8,
+      effectiveMonth: "2026-09",
+      commissionRate: null,
+    }]);
   } finally {
     globalThis.fetch = originalFetch;
   }

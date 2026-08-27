@@ -35,6 +35,7 @@ function dashboardDatabase(input: {
       if (text.includes("from payroll_parameter_versions")) {
         return (input.payrollParameters ?? []) as unknown as Row[];
       }
+      if (text.includes("from team_commission_rate_versions")) return [] as Row[];
       if (text.includes("from staff_members as member") && text.includes("join lateral")) {
         return (input.targetMembers ?? []) as unknown as Row[];
       }

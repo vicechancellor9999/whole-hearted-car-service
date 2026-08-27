@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { AlertCircle, RefreshCw, Users } from "lucide-react";
 import { PageHeader } from "@/components/layout/page-header";
@@ -34,6 +35,9 @@ export function PerformanceWorkspace() {
   const targetConfigured = selectedTeam?.targetStatus === "configured"
     && selectedTeam.targetPerformanceMinor !== null;
   const targetMissingReason = selectedTeam?.targetMissingReasons[0] ?? "目标资料不完整";
+  const targetSetupHref = selectedTeam && targetMissingReason.includes("绩效参数")
+    ? `/settings?team=${encodeURIComponent(String(selectedTeam.teamId))}#performance-parameters`
+    : "/employees";
 
   useEffect(() => {
     let cancelled = false;
@@ -111,7 +115,11 @@ export function PerformanceWorkspace() {
                   <p className="mt-1 text-[11px] text-ink-soft">
                     {targetConfigured
                       ? `已完成 ${formatPerformance(selectedTeam.performanceMinor)} / 目标 ${formatPerformance(selectedTeam.targetPerformanceMinor!)}`
-                      : "请在员工与工资参数中补齐上述月度资料"}
+                      : (
+                        <Link href={targetSetupHref} className="font-semibold text-primary hover:underline">
+                          {targetMissingReason.includes("绩效参数") ? "前往设置全厂参数或维修组特殊比例" : "前往员工资料补齐月标准工资"}
+                        </Link>
+                      )}
                   </p>
                   {!targetConfigured && selectedTeam.targetMissingReasons.length > 1 ? (
                     <p className="sr-only">{selectedTeam.targetMissingReasons.slice(1).join("；")}</p>

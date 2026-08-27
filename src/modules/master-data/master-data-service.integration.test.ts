@@ -18,6 +18,7 @@ const migrationPaths = [
   resolve(process.cwd(), "drizzle/0001_account_permissions.sql"),
   resolve(process.cwd(), "drizzle/0002_master_data.sql"),
   resolve(process.cwd(), "drizzle/0003_master_data_facts_append_only.sql"),
+  resolve(process.cwd(), "drizzle/0024_team_commission_rate_versions.sql"),
 ];
 
 let database: PGlite;
@@ -387,6 +388,40 @@ describe("MasterDataService", () => {
         context: context("req-payroll-duplicate"),
       }),
     ).rejects.toMatchObject({ code: "master_data_conflict" });
+  });
+
+  it("saves a team special commission rate and a later return to the whole-shop default", async () => {
+    const team = await service.createRepairTeam({
+      name: "维修一组",
+      context: context("req-team"),
+    });
+
+    await service.setTeamCommissionRate({
+      teamId: team.id,
+      effectiveMonth: "2026-08",
+      commissionRate: "0.150000",
+      context: context("req-team-rate-special"),
+    });
+    await service.setTeamCommissionRate({
+      teamId: team.id,
+      effectiveMonth: "2026-10",
+      commissionRate: null,
+      context: context("req-team-rate-default"),
+    });
+
+    await expect(
+      service.listTeamCommissionRates({ viewerAccountId: adminId }),
+    ).resolves.toEqual([{
+      teamId: team.id,
+      teamName: "维修一组",
+      effectiveMonth: "2026-10",
+      commissionRate: null,
+    }, {
+      teamId: team.id,
+      teamName: "维修一组",
+      effectiveMonth: "2026-08",
+      commissionRate: "0.150000",
+    }]);
   });
 
   it("updates dictionary and team names with versioned audit facts", async () => {

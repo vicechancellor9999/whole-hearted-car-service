@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import Link from "next/link";
 import { KeyRound, Save, TestTube } from "lucide-react";
 import { PageHeader } from "@/components/layout/page-header";
+import { PerformanceParametersCard } from "@/components/settings/performance-parameters-card";
 import {
   AI_MODEL_PRESETS,
   DEFAULT_DEEPSEEK_MODEL,
@@ -151,6 +152,8 @@ export default function SettingsPage() {
     <div className="min-h-full bg-[var(--wh-page-bg)] px-3 py-3 sm:px-5">
       <div className="mx-auto w-full max-w-4xl">
         <PageHeader breadcrumb="系统" title="系统设置" description="AI 服务连接与密钥管理；换密钥即时生效，失效随时替换。" />
+
+        <PerformanceParametersCard />
 
         <section data-testid="settings-ai-card" className="mt-3 rounded-[22px] border border-line bg-white/75 p-4 shadow-card dark:border-slate-700 dark:bg-slate-900/35 sm:p-5">
           <div className="flex items-start justify-between gap-3">

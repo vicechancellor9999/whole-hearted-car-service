@@ -89,10 +89,13 @@ export function TeamPerformanceSection({ data, header }: TeamPerformanceSectionP
           const targetConfigured = team.targetStatus === "configured"
             && team.targetAmount !== null;
           const missingReason = team.targetMissingReasons[0] ?? "目标资料不完整";
+          const teamHref = !targetConfigured && team.targetMissingReasons.some((reason) => reason.includes("绩效参数"))
+            ? `/settings?team=${encodeURIComponent(team.id)}#performance-parameters`
+            : `/performance?team=${encodeURIComponent(team.id)}`;
           return (
             <Link
               key={team.id}
-              href={`/performance?team=${team.id}`}
+              href={teamHref}
               data-testid="team-card"
               className="flex flex-col justify-between rounded-lg border border-blue-100 bg-white p-2.5 shadow-card transition-all duration-200 hover:-translate-y-0.5 hover:border-primary-200 hover:bg-blue-50/50 hover:shadow-card-hover dark:border-slate-700 dark:bg-slate-800 dark:hover:border-primary-200 dark:hover:bg-slate-700/50 lg:p-3"
             >

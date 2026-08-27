@@ -151,6 +151,71 @@ test("系统设置：AI 默认关闭，可明确启用并持久化设置（#5）
   expect(storedOff.provider).toBe("off");
 });
 
+test("绩效参数入口：设置全厂默认、维修组特殊比例并恢复默认", async ({ page }) => {
+  const posts: Record<string, unknown>[] = [];
+  await page.route("**/api/formal/master-data", async (route) => {
+    if (route.request().method() === "POST") {
+      const body = route.request().postDataJSON() as Record<string, unknown>;
+      posts.push(body);
+      await route.fulfill({ status: 201, contentType: "application/json", body: JSON.stringify(body) });
+      return;
+    }
+    await route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify({
+        dictionaries: [],
+        staff: [],
+        teams: [{ id: 7, teamNo: "TEAM-202608-0001", name: "维修一组", isActive: true, version: 1 }, {
+          id: 8, teamNo: "TEAM-202608-0002", name: "维修二组", isActive: true, version: 1,
+        }],
+        payrollParameters: [{ effectiveMonth: "2026-08", commissionRate: "0.250000", cnyToJmdRate: "22.000000" }],
+        teamCommissionRates: [],
+      }),
+    });
+  });
+
+  await page.goto("/settings#performance-parameters");
+  const card = page.getByTestId("settings-performance-parameters");
+  await expect(card).toBeVisible();
+  await expect(card).toContainText("全厂月度参数");
+  await expect(card).toContainText("25%");
+  await expect(card).toContainText("1 CNY = 22 JMD");
+
+  await page.getByTestId("performance-global-month").fill("2026-09");
+  await page.getByTestId("performance-global-commission").fill("30");
+  await page.getByTestId("performance-global-exchange").fill("23.5");
+  await page.getByTestId("performance-global-save").click();
+  await expect(page.getByTestId("performance-parameters-notice")).toContainText("全厂参数已保存");
+
+  await page.getByTestId("performance-team-select").selectOption("8");
+  await page.getByTestId("performance-team-month").fill("2026-09");
+  await page.getByTestId("performance-team-commission").fill("20");
+  await page.getByTestId("performance-team-save").click();
+  await expect(page.getByTestId("performance-parameters-notice")).toContainText("特殊比例已保存");
+
+  await page.getByTestId("performance-team-month").fill("2026-10");
+  await page.getByTestId("performance-team-restore").click();
+  await expect(page.getByTestId("performance-parameters-notice")).toContainText("恢复全厂默认");
+
+  expect(posts).toEqual([{
+    action: "set_payroll_parameters",
+    effectiveMonth: "2026-09",
+    commissionRate: "0.3",
+    cnyToJmdRate: "23.5",
+  }, {
+    action: "set_team_commission_rate",
+    teamId: 8,
+    effectiveMonth: "2026-09",
+    commissionRate: "0.2",
+  }, {
+    action: "set_team_commission_rate",
+    teamId: 8,
+    effectiveMonth: "2026-10",
+    commissionRate: null,
+  }]);
+});
+
 
 test("AI 模型下拉：默认快速模型，可选最强推理模型并持久化（8/18 老板问）", async ({ page }) => {
   await page.goto("/settings");

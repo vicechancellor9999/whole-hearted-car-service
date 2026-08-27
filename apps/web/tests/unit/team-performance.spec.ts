@@ -9,6 +9,14 @@ function visibleText(value: unknown): string {
   return visibleText((value as { props?: { children?: unknown } }).props?.children);
 }
 
+function hrefs(value: unknown): string[] {
+  if (Array.isArray(value)) return value.flatMap(hrefs);
+  if (typeof value !== "object" || value === null || !("props" in value)) return [];
+  const props = (value as { props?: { href?: unknown; children?: unknown } }).props;
+  return [typeof props?.href === "string" ? props.href : null, ...hrefs(props?.children)]
+    .filter((href): href is string => href !== null);
+}
+
 test("an incomplete target renders the exact missing fact without zero amounts or zero percent", () => {
   const header = {
     breadcrumb: "门店经营 · 实时数据",
@@ -120,4 +128,33 @@ test("a configured zero target is shown as not applicable rather than missing", 
   expect(text).toContain("完成率不适用");
   expect(text).toContain("目标 JMD 0");
   expect(text).not.toContain("目标资料不完整");
+});
+
+test("a missing monthly performance parameter links the affected team to its settings entry", () => {
+  const header = {
+    targetStatus: "not_configured",
+    targetCompletionRate: null,
+    targetCompletedAmount: 0,
+    targetTotalAmount: null,
+    targetMissingReasons: ["缺少 2026-08 绩效参数"],
+  } as DashboardHeader;
+  const data = {
+    title: "维修班组与绩效",
+    dateRange: "2026年8月",
+    hint: "正式交单后这里显示绩效。",
+    actionText: "查看绩效",
+    teams: [{
+      id: "7",
+      name: "维修一组",
+      targetStatus: "not_configured",
+      completionRate: null,
+      currentAmount: 0,
+      targetAmount: null,
+      targetMissingReasons: ["缺少 2026-08 绩效参数"],
+      color: "#465fff",
+    }],
+  } as TeamPerformance;
+
+  expect(hrefs(TeamPerformanceSection({ data, header })))
+    .toContain("/settings?team=7#performance-parameters");
 });

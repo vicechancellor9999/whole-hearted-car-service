@@ -8,6 +8,7 @@ const migrationPaths = [
   resolve(process.cwd(), "drizzle/0001_account_permissions.sql"),
   resolve(process.cwd(), "drizzle/0002_master_data.sql"),
   resolve(process.cwd(), "drizzle/0003_master_data_facts_append_only.sql"),
+  resolve(process.cwd(), "drizzle/0024_team_commission_rate_versions.sql"),
 ];
 
 let database: PGlite;
@@ -66,7 +67,8 @@ describe("master data schema", () => {
          and table_name in (
            'dictionary_items', 'repair_teams', 'repair_team_retirements',
            'staff_members', 'staff_team_assignment_versions',
-           'employee_salary_versions', 'payroll_parameter_versions'
+           'employee_salary_versions', 'payroll_parameter_versions',
+           'team_commission_rate_versions'
          )
        order by table_name`,
     );
@@ -79,6 +81,7 @@ describe("master data schema", () => {
       "repair_teams",
       "staff_members",
       "staff_team_assignment_versions",
+      "team_commission_rate_versions",
     ]);
   });
 
