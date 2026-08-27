@@ -346,6 +346,7 @@ export function CustomerDetailPage({ customerId }: CustomerDetailPageProps) {
               organization={organization}
               primaryContactName={primaryContact?.personalCustomerName ?? null}
               hasPrimaryContact={hasPrimaryContact}
+              onChanged={() => setReloadSequence((value) => value + 1)}
             />
           ) : null}
           {!isFormalCustomerVehicleApiEnabled ? <VerificationRiskSections customer={customer} onChanged={() => setReloadSequence((value) => value + 1)} /> : null}

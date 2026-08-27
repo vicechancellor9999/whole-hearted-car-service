@@ -84,4 +84,5 @@ test("formal customer license detail UI keeps company contact ownership and read
   expect(dialog).toContain("FormalCustomerLicenseSection");
   expect(page).toContain("FormalCustomerLicenseCard");
   expect(page).toContain("hasPrimaryContact");
+  expect(page).toContain("onChanged={() => setReloadSequence");
 });

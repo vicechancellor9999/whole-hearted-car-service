@@ -32,11 +32,13 @@ export function FormalCustomerLicenseCard({
   organization,
   primaryContactName,
   hasPrimaryContact,
+  onChanged,
 }: {
   customerNo: string;
   organization: boolean;
   primaryContactName: string | null;
   hasPrimaryContact: boolean;
+  onChanged?: () => void;
 }) {
   const [records, setRecords] = useState<FormalCustomerLicenseRecord[]>([]);
   const [loading, setLoading] = useState(true);
@@ -96,6 +98,7 @@ export function FormalCustomerLicenseCard({
     setDialogOpen(false);
     setHistoryOpen(true);
     setNotice("驾驶证记录已保存，旧记录继续保留在历史中。");
+    onChanged?.();
   };
 
   return (
