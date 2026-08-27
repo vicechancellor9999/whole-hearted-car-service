@@ -1,10 +1,10 @@
 import { describe, expect, it } from "vitest";
-import type { CurrentSession } from "@/modules/auth/auth-service";
+import type { CurrentSession } from "@formal/modules/auth/auth-service";
 import {
   AuthenticationRequiredError,
   AuthorizationDeniedError,
   requirePermission,
-} from "@/modules/permissions/require-permission";
+} from "@formal/modules/permissions/require-permission";
 
 function session(
   role: CurrentSession["account"]["role"],

@@ -5,15 +5,15 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import type {
   AuthSqlDatabase,
   AuthSqlExecutor,
-} from "@/modules/auth/session-repository";
-import { BusinessOrderService } from "@/modules/business-order/business-order-service";
-import { FormalHandoffService } from "@/modules/business-order/formal-handoff-service";
-import { RepairRoundService } from "@/modules/business-order/repair-round-service";
+} from "@formal/modules/auth/session-repository";
+import { BusinessOrderService } from "@formal/modules/business-order/business-order-service";
+import { FormalHandoffService } from "@formal/modules/business-order/formal-handoff-service";
+import { RepairRoundService } from "@formal/modules/business-order/repair-round-service";
 import {
   PerformanceReadDeniedError,
   PerformanceService,
   PerformanceValidationError,
-} from "@/modules/performance/performance-service";
+} from "@formal/modules/performance/performance-service";
 
 const migrationPaths = [
   "0000_foundation.sql",

@@ -5,15 +5,15 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import type {
   AuthSqlDatabase,
   AuthSqlExecutor,
-} from "@/modules/auth/session-repository";
-import { BusinessOrderService } from "@/modules/business-order/business-order-service";
+} from "@formal/modules/auth/session-repository";
+import { BusinessOrderService } from "@formal/modules/business-order/business-order-service";
 import {
   PaymentConflictError,
   PaymentNotFoundError,
   PaymentService,
   PaymentValidationError,
   PaymentWriteDeniedError,
-} from "@/modules/payment/payment-service";
+} from "@formal/modules/payment/payment-service";
 
 const migrationPaths = [
   "0000_foundation.sql",

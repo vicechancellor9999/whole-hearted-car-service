@@ -3,7 +3,7 @@ import {
   generateSessionToken,
   getSessionCookieOptions,
   hashSessionToken,
-} from "@/modules/auth/session-token";
+} from "@formal/modules/auth/session-token";
 
 const pepper = "0123456789abcdef0123456789abcdef";
 

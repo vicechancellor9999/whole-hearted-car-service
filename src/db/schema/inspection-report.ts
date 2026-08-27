@@ -11,12 +11,12 @@ import {
   timestamp,
   uniqueIndex,
 } from "drizzle-orm/pg-core";
-import { staffAccounts } from "@/db/schema/accounts";
-import { businessOrders } from "@/db/schema/business-order";
-import { identityPrimaryKey } from "@/db/schema/common";
-import { storedFiles, vehicles } from "@/db/schema/customer-vehicle";
-import { staffMembers } from "@/db/schema/master-data";
-import { repairRounds } from "@/db/schema/repair-round";
+import { staffAccounts } from "@formal/db/schema/accounts";
+import { businessOrders } from "@formal/db/schema/business-order";
+import { identityPrimaryKey } from "@formal/db/schema/common";
+import { storedFiles, vehicles } from "@formal/db/schema/customer-vehicle";
+import { staffMembers } from "@formal/db/schema/master-data";
+import { repairRounds } from "@formal/db/schema/repair-round";
 
 export const inspectionReportStatus = pgEnum("inspection_report_status", [
   "draft",

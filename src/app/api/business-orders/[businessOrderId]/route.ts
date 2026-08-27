@@ -1,10 +1,10 @@
 import { NextResponse } from "next/server";
-import { businessApiError, positiveRouteId } from "@/app/api/business-orders/api-helpers";
-import { currentSession } from "@/modules/auth/current-session";
-import type { AccountRole } from "@/modules/auth/auth-service";
-import { createBusinessOrderRuntime } from "@/modules/business-order/business-order-runtime";
-import { createMasterDataRuntime } from "@/modules/master-data/master-data-runtime";
-import { hasPermission, type Permission } from "@/modules/permissions/permissions";
+import { businessApiError, positiveRouteId } from "@formal/app/api/business-orders/api-helpers";
+import { currentSession } from "@formal/modules/auth/current-session";
+import type { AccountRole } from "@formal/modules/auth/auth-service";
+import { createBusinessOrderRuntime } from "@formal/modules/business-order/business-order-runtime";
+import { createMasterDataRuntime } from "@formal/modules/master-data/master-data-runtime";
+import { hasPermission, type Permission } from "@formal/modules/permissions/permissions";
 
 type BusinessOrderSession = {
   account: {

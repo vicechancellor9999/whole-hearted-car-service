@@ -5,13 +5,13 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import type {
   AuthSqlDatabase,
   AuthSqlExecutor,
-} from "@/modules/auth/session-repository";
+} from "@formal/modules/auth/session-repository";
 import {
   BusinessOrderDocumentService,
   BusinessOrderDocumentWriteDeniedError,
-} from "@/modules/business-order/business-order-document-service";
-import { BusinessOrderService } from "@/modules/business-order/business-order-service";
-import { PaymentService } from "@/modules/payment/payment-service";
+} from "@formal/modules/business-order/business-order-document-service";
+import { BusinessOrderService } from "@formal/modules/business-order/business-order-service";
+import { PaymentService } from "@formal/modules/payment/payment-service";
 
 const migrationPaths = [
   "0000_foundation.sql",

@@ -1,15 +1,15 @@
 import type {
   AuthSqlDatabase,
   AuthSqlExecutor,
-} from "@/modules/auth/session-repository";
-import type { AccountRole } from "@/modules/auth/auth-service";
-import { hashPassword } from "@/modules/auth/password";
-import { writeAuditEvent } from "@/modules/audit/audit-service";
+} from "@formal/modules/auth/session-repository";
+import type { AccountRole } from "@formal/modules/auth/auth-service";
+import { hashPassword } from "@formal/modules/auth/password";
+import { writeAuditEvent } from "@formal/modules/audit/audit-service";
 import {
   accountDisplayNameSchema,
   accountRoleSchema,
   createAccountFieldsSchema,
-} from "@/modules/accounts/account-schemas";
+} from "@formal/modules/accounts/account-schemas";
 
 export type AccountActionContext = {
   actorAccountId: number;

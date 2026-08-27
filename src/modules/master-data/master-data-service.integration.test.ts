@@ -5,13 +5,13 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import type {
   AuthSqlDatabase,
   AuthSqlExecutor,
-} from "@/modules/auth/session-repository";
-import { verifyPassword } from "@/modules/auth/password";
+} from "@formal/modules/auth/session-repository";
+import { verifyPassword } from "@formal/modules/auth/password";
 import {
   MasterDataManagementDeniedError,
   MasterDataService,
   TeamReplacementRequiredError,
-} from "@/modules/master-data/master-data-service";
+} from "@formal/modules/master-data/master-data-service";
 
 const migrationPaths = [
   resolve(process.cwd(), "drizzle/0000_foundation.sql"),

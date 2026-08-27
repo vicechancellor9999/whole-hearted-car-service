@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import { createBusinessOrderRoundsApiHandler } from "@/app/api/business-orders/[businessOrderId]/rounds/route";
+import { createBusinessOrderRoundsApiHandler } from "@formal/app/api/business-orders/[businessOrderId]/rounds/route";
 
 describe("/api/business-orders/:id/rounds", () => {
   it("returns current round and immutable round history", async () => {

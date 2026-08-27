@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import { createRefundSignedAcknowledgementApiHandler } from "@/app/api/business-orders/[businessOrderId]/refunds/[refundId]/signed-acknowledgement/route";
+import { createRefundSignedAcknowledgementApiHandler } from "@formal/app/api/business-orders/[businessOrderId]/refunds/[refundId]/signed-acknowledgement/route";
 
 describe("POST /api/business-orders/:businessOrderId/refunds/:refundId/signed-acknowledgement", () => {
   it("uploads a signed paper acknowledgement after the refund was recorded", async () => {

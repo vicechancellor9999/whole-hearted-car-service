@@ -1,11 +1,11 @@
 import type {
   AuthenticatedAccount,
   CurrentSession,
-} from "@/modules/auth/auth-service";
+} from "@formal/modules/auth/auth-service";
 import {
   hasPermission,
   type Permission,
-} from "@/modules/permissions/permissions";
+} from "@formal/modules/permissions/permissions";
 
 export class AuthenticationRequiredError extends Error {
   readonly status = 401;

@@ -2,14 +2,14 @@ import { readFile } from "node:fs/promises";
 import { resolve } from "node:path";
 import { PGlite, type Transaction } from "@electric-sql/pglite";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import type { AuthSqlDatabase, AuthSqlExecutor } from "@/modules/auth/session-repository";
-import { BusinessOrderService } from "@/modules/business-order/business-order-service";
+import type { AuthSqlDatabase, AuthSqlExecutor } from "@formal/modules/auth/session-repository";
+import { BusinessOrderService } from "@formal/modules/business-order/business-order-service";
 import {
   RepairRoundService,
   RepairRoundValidationError,
   RepairRoundWriteDeniedError,
-} from "@/modules/business-order/repair-round-service";
-import { MasterDataService } from "@/modules/master-data/master-data-service";
+} from "@formal/modules/business-order/repair-round-service";
+import { MasterDataService } from "@formal/modules/master-data/master-data-service";
 
 const migrationPaths = [
   "0000_foundation.sql",

@@ -1,8 +1,8 @@
 import type {
   AuthSqlDatabase,
   AuthSqlExecutor,
-} from "@/modules/auth/session-repository";
-import { redactSensitive } from "@/modules/audit/redact-sensitive";
+} from "@formal/modules/auth/session-repository";
+import { redactSensitive } from "@formal/modules/audit/redact-sensitive";
 
 export type AuditEventRecord = {
   id: number;

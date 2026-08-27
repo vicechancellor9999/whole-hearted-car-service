@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import { createBusinessOrderDocumentsApiHandler } from "@/app/api/business-orders/[businessOrderId]/documents/route";
+import { createBusinessOrderDocumentsApiHandler } from "@formal/app/api/business-orders/[businessOrderId]/documents/route";
 
 describe("/api/business-orders/:businessOrderId/documents", () => {
   it("lists immutable print snapshots", async () => {

@@ -1,10 +1,10 @@
 import type {
   AuthSqlDatabase,
   AuthSqlExecutor,
-} from "@/modules/auth/session-repository";
-import { hashPassword } from "@/modules/auth/password";
-import { toBusinessMonthKey } from "@/lib/time";
-import { writeAuditEvent } from "@/modules/audit/audit-service";
+} from "@formal/modules/auth/session-repository";
+import { hashPassword } from "@formal/modules/auth/password";
+import { toBusinessMonthKey } from "@formal/lib/time";
+import { writeAuditEvent } from "@formal/modules/audit/audit-service";
 import {
   createDictionaryItemSchema,
   createMechanicSchema,
@@ -14,7 +14,7 @@ import {
   nonnegativeMinorAmountSchema,
   positiveDecimalSchema,
   updateDictionaryItemSchema,
-} from "@/modules/master-data/master-data-schemas";
+} from "@formal/modules/master-data/master-data-schemas";
 
 export type MasterDataActionContext = {
   actorAccountId: number;

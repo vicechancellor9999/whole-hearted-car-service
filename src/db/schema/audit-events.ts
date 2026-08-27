@@ -7,8 +7,8 @@ import {
   text,
   timestamp,
 } from "drizzle-orm/pg-core";
-import { staffAccounts } from "@/db/schema/accounts";
-import { identityPrimaryKey } from "@/db/schema/common";
+import { staffAccounts } from "@formal/db/schema/accounts";
+import { identityPrimaryKey } from "@formal/db/schema/common";
 
 export type AuditState = Record<string, unknown>;
 

@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import { createBusinessOrderFinanceApiHandler } from "@/app/api/business-orders/[businessOrderId]/finance/route";
+import { createBusinessOrderFinanceApiHandler } from "@formal/app/api/business-orders/[businessOrderId]/finance/route";
 
 describe("GET /api/business-orders/:id/finance", () => {
   it("requires a formal session", async () => {

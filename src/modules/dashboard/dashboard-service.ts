@@ -1,7 +1,7 @@
 import type {
   AuthSqlDatabase,
   AuthSqlExecutor,
-} from "@/modules/auth/session-repository";
+} from "@formal/modules/auth/session-repository";
 
 type OrderLedgerRow = {
   id: number;

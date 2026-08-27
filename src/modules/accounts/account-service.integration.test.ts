@@ -5,15 +5,15 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import type {
   AuthSqlDatabase,
   AuthSqlExecutor,
-} from "@/modules/auth/session-repository";
-import { hashPassword, verifyPassword } from "@/modules/auth/password";
+} from "@formal/modules/auth/session-repository";
+import { hashPassword, verifyPassword } from "@formal/modules/auth/password";
 import {
   AccountService,
   DelegatedPermissionTargetError,
   DuplicateUsernameError,
   LastActiveSuperAdminError,
   SuperAdminAlreadyExistsError,
-} from "@/modules/accounts/account-service";
+} from "@formal/modules/accounts/account-service";
 
 const migrationPaths = [
   resolve(process.cwd(), "drizzle/0000_foundation.sql"),

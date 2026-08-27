@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
-import { currentSession } from "@/modules/auth/current-session";
-import { createCustomerVehicleRuntime } from "@/modules/customer-vehicle/customer-vehicle-runtime";
-import type { PageResult } from "@/modules/customer-vehicle/customer-vehicle-service";
+import { currentSession } from "@formal/modules/auth/current-session";
+import { createCustomerVehicleRuntime } from "@formal/modules/customer-vehicle/customer-vehicle-runtime";
+import type { PageResult } from "@formal/modules/customer-vehicle/customer-vehicle-service";
 
 type WorkspaceSession = { account: { id: number } };
 

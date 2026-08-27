@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { createReadinessHandler } from "@/app/api/health/ready/route";
+import { createReadinessHandler } from "@formal/app/api/health/ready/route";
 
 describe("GET /api/health/ready", () => {
   it("reports ready only after the database check succeeds", async () => {

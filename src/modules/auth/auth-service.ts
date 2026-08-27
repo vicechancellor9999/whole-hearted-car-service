@@ -1,13 +1,13 @@
-import { normalizeUsername, verifyPassword } from "@/modules/auth/password";
+import { normalizeUsername, verifyPassword } from "@formal/modules/auth/password";
 import {
   getLoginFailureWindowStart,
   isLoginRateLimited,
-} from "@/modules/auth/login-rate-limit";
+} from "@formal/modules/auth/login-rate-limit";
 import {
   generateSessionToken,
   hashSessionToken,
   SESSION_DURATION_MS,
-} from "@/modules/auth/session-token";
+} from "@formal/modules/auth/session-token";
 
 export type AccountRole = "super_admin" | "front_desk" | "owner" | "mechanic";
 

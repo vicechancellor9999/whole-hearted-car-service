@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import { createVehicleDetailApiHandler } from "@/app/api/vehicles/[vehicleNo]/route";
+import { createVehicleDetailApiHandler } from "@formal/app/api/vehicles/[vehicleNo]/route";
 
 const vehicle = {
   id: 21,

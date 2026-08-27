@@ -1,7 +1,7 @@
 import { drizzle } from "drizzle-orm/postgres-js";
 import postgres from "postgres";
-import * as schema from "@/db/schema";
-import { parseAppEnv } from "@/lib/env";
+import * as schema from "@formal/db/schema";
+import { parseAppEnv } from "@formal/lib/env";
 
 export function createDatabaseClient(source: Record<string, unknown> = process.env) {
   const env = parseAppEnv(source);

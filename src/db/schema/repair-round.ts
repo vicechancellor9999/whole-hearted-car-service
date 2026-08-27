@@ -12,20 +12,20 @@ import {
   timestamp,
   uniqueIndex,
 } from "drizzle-orm/pg-core";
-import { staffAccounts } from "@/db/schema/accounts";
+import { staffAccounts } from "@formal/db/schema/accounts";
 import {
   businessOrders,
   businessOrderStatus,
-} from "@/db/schema/business-order";
-import { identityPrimaryKey } from "@/db/schema/common";
+} from "@formal/db/schema/business-order";
+import { identityPrimaryKey } from "@formal/db/schema/common";
 import {
   storedFiles,
   vehicles,
-} from "@/db/schema/customer-vehicle";
+} from "@formal/db/schema/customer-vehicle";
 import {
   repairTeams,
   staffMembers,
-} from "@/db/schema/master-data";
+} from "@formal/db/schema/master-data";
 
 export const repairRoundSource = pgEnum("repair_round_source", [
   "initial",

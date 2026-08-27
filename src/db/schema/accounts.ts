@@ -12,7 +12,7 @@ import {
   timestamp,
   uniqueIndex,
 } from "drizzle-orm/pg-core";
-import { identityPrimaryKey } from "@/db/schema/common";
+import { identityPrimaryKey } from "@formal/db/schema/common";
 
 export const accountRole = pgEnum("account_role", [
   "super_admin",

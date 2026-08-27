@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { createBusinessOrderDocumentApiHandler } from "@/app/api/business-orders/[businessOrderId]/documents/[documentId]/route";
+import { createBusinessOrderDocumentApiHandler } from "@formal/app/api/business-orders/[businessOrderId]/documents/[documentId]/route";
 
 describe("GET /api/business-orders/:businessOrderId/documents/:documentId", () => {
   it("returns only a document belonging to the route Business Order", async () => {

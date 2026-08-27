@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import { createParkingApiHandler } from "@/app/api/parking/route";
+import { createParkingApiHandler } from "@formal/app/api/parking/route";
 
 describe("POST /api/parking", () => {
   it("records an explicit formal pickup notice rather than trusting frontend state", async () => {

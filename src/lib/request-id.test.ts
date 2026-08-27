@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { createRequestId } from "@/lib/request-id";
+import { createRequestId } from "@formal/lib/request-id";
 
 describe("createRequestId", () => {
   it("creates distinct request identifiers safe for audit correlation", () => {

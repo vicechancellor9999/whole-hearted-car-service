@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
-import { createDashboardApiHandler } from "@/app/api/dashboard/route";
-import { DashboardReadDeniedError } from "@/modules/dashboard/dashboard-service";
+import { createDashboardApiHandler } from "@formal/app/api/dashboard/route";
+import { DashboardReadDeniedError } from "@formal/modules/dashboard/dashboard-service";
 
 describe("GET /api/dashboard", () => {
   it("returns only the formal dashboard projection", async () => {

@@ -1,4 +1,4 @@
-import type { AuthSqlDatabase } from "@/modules/auth/session-repository";
+import type { AuthSqlDatabase } from "@formal/modules/auth/session-repository";
 
 type WorkspaceOrderRow = {
   id: number;

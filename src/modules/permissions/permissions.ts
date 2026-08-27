@@ -1,4 +1,4 @@
-import type { AccountRole } from "@/modules/auth/auth-service";
+import type { AccountRole } from "@formal/modules/auth/auth-service";
 
 export type Permission =
   | "login"

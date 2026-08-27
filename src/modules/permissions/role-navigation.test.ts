@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { getRoleNavigation } from "@/modules/permissions/role-navigation";
+import { getRoleNavigation } from "@formal/modules/permissions/role-navigation";
 
 describe("role navigation", () => {
   it("shows account management only to a super administrator", () => {

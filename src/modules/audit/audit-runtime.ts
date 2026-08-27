@@ -1,6 +1,6 @@
-import { createPostgresAuthSqlDatabase } from "@/db/auth-sql";
-import { createDatabaseClient } from "@/db/client";
-import { AuditService } from "@/modules/audit/audit-service";
+import { createPostgresAuthSqlDatabase } from "@formal/db/auth-sql";
+import { createDatabaseClient } from "@formal/db/client";
+import { AuditService } from "@formal/modules/audit/audit-service";
 
 export function createAuditRuntime(
   source: Record<string, unknown> = process.env,

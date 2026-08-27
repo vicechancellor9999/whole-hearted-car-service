@@ -1,9 +1,9 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
-import { createRequestId } from "@/lib/request-id";
-import { createAuthRuntime } from "@/modules/auth/auth-runtime";
-import type { AuthRequestContext, LoginResult } from "@/modules/auth/auth-service";
-import { getSessionCookieOptions, type RuntimeMode } from "@/modules/auth/session-token";
+import { createRequestId } from "@formal/lib/request-id";
+import { createAuthRuntime } from "@formal/modules/auth/auth-runtime";
+import type { AuthRequestContext, LoginResult } from "@formal/modules/auth/auth-service";
+import { getSessionCookieOptions, type RuntimeMode } from "@formal/modules/auth/session-token";
 
 const loginInputSchema = z.object({
   username: z.string().trim().min(1).max(200),

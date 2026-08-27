@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
-import { createMasterDataApiHandler } from "@/app/api/master-data/route";
-import { MasterDataManagementDeniedError } from "@/modules/master-data/master-data-service";
+import { createMasterDataApiHandler } from "@formal/app/api/master-data/route";
+import { MasterDataManagementDeniedError } from "@formal/modules/master-data/master-data-service";
 
 describe("/api/master-data", () => {
   it.each(["super_admin", "owner"] as const)(

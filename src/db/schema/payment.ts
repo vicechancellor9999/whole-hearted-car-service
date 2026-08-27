@@ -11,13 +11,13 @@ import {
   timestamp,
   uniqueIndex,
 } from "drizzle-orm/pg-core";
-import { staffAccounts } from "@/db/schema/accounts";
+import { staffAccounts } from "@formal/db/schema/accounts";
 import {
   businessOrders,
-} from "@/db/schema/business-order";
-import { identityPrimaryKey } from "@/db/schema/common";
-import { storedFiles } from "@/db/schema/customer-vehicle";
-import { dictionaryItems } from "@/db/schema/master-data";
+} from "@formal/db/schema/business-order";
+import { identityPrimaryKey } from "@formal/db/schema/common";
+import { storedFiles } from "@formal/db/schema/customer-vehicle";
+import { dictionaryItems } from "@formal/db/schema/master-data";
 
 export type ReceiptRenderSnapshot = {
   version: 1;

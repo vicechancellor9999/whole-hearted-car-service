@@ -11,14 +11,14 @@ import {
   timestamp,
   uniqueIndex,
 } from "drizzle-orm/pg-core";
-import { staffAccounts } from "@/db/schema/accounts";
+import { staffAccounts } from "@formal/db/schema/accounts";
 import {
   businessOrderChargeVersions,
   businessOrders,
-} from "@/db/schema/business-order";
-import { identityPrimaryKey } from "@/db/schema/common";
-import { repairTeams } from "@/db/schema/master-data";
-import { repairRounds } from "@/db/schema/repair-round";
+} from "@formal/db/schema/business-order";
+import { identityPrimaryKey } from "@formal/db/schema/common";
+import { repairTeams } from "@formal/db/schema/master-data";
+import { repairRounds } from "@formal/db/schema/repair-round";
 
 export type FormalHandoffChargeSnapshot = {
   totals: {

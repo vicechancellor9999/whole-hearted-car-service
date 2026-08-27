@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { normalizedAccountUsernameSchema } from "@/modules/accounts/account-schemas";
+import { normalizedAccountUsernameSchema } from "@formal/modules/accounts/account-schemas";
 
 export const dictionaryCategorySchema = z.enum([
   "payment_method",

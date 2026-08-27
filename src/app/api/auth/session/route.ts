@@ -1,7 +1,7 @@
 import { cookies } from "next/headers";
 import { NextResponse } from "next/server";
-import { createAuthRuntime } from "@/modules/auth/auth-runtime";
-import type { CurrentSession } from "@/modules/auth/auth-service";
+import { createAuthRuntime } from "@formal/modules/auth/auth-runtime";
+import type { CurrentSession } from "@formal/modules/auth/auth-service";
 
 type SessionApiDependencies = {
   rawToken: string | null;

@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import { createReceiptApiHandler } from "@/app/api/business-orders/[businessOrderId]/receipts/[receiptId]/route";
+import { createReceiptApiHandler } from "@formal/app/api/business-orders/[businessOrderId]/receipts/[receiptId]/route";
 
 describe("GET /api/business-orders/:businessOrderId/receipts/:receiptId", () => {
   it("returns the immutable Receipt snapshot for the matching Business Order", async () => {

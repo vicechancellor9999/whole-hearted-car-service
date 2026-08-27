@@ -4,7 +4,7 @@ import {
   normalizeUsername,
   validateNewPassword,
   verifyPassword,
-} from "@/modules/auth/password";
+} from "@formal/modules/auth/password";
 
 describe("password authentication", () => {
   it("stores an Argon2id hash that verifies only the original password", async () => {

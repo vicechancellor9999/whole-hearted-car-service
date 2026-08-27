@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { normalizeSqlParameters } from "@/db/auth-sql";
+import { normalizeSqlParameters } from "@formal/db/auth-sql";
 
 describe("PostgreSQL auth SQL parameter normalization", () => {
   it("serializes Date parameters before unsafe PostgreSQL queries", () => {

@@ -1,8 +1,8 @@
-import { createPostgresAuthSqlDatabase } from "@/db/auth-sql";
-import { createDatabaseClient } from "@/db/client";
-import { AuthService } from "@/modules/auth/auth-service";
-import { DatabaseAuthRepository } from "@/modules/auth/session-repository";
-import { parseAppEnv } from "@/lib/env";
+import { createPostgresAuthSqlDatabase } from "@formal/db/auth-sql";
+import { createDatabaseClient } from "@formal/db/client";
+import { AuthService } from "@formal/modules/auth/auth-service";
+import { DatabaseAuthRepository } from "@formal/modules/auth/session-repository";
+import { parseAppEnv } from "@formal/lib/env";
 
 const INVALID_PASSWORD_HASH =
   "$argon2id$v=19$m=19456,p=1,t=2$bCwk6NwXn/fw46GcrPOujQ$vKjQNpdddOFM/PM0MyncszdelwftGSV35hbKN3XFpCw";

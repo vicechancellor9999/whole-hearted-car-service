@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import { createPaymentsApiHandler } from "@/app/api/payments/route";
+import { createPaymentsApiHandler } from "@formal/app/api/payments/route";
 
 describe("GET /api/payments", () => {
   it("requires a formal session", async () => {

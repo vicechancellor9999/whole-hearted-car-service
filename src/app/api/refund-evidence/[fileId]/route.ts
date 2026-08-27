@@ -1,9 +1,9 @@
 import { readFile } from "node:fs/promises";
-import { currentSession } from "@/modules/auth/current-session";
-import { createPaymentRuntime } from "@/modules/payment/payment-runtime";
-import { PaymentNotFoundError } from "@/modules/payment/payment-service";
-import { storedRefundUploadPath } from "@/modules/payment/refund-attachment-storage";
-import { requirePermission } from "@/modules/permissions/require-permission";
+import { currentSession } from "@formal/modules/auth/current-session";
+import { createPaymentRuntime } from "@formal/modules/payment/payment-runtime";
+import { PaymentNotFoundError } from "@formal/modules/payment/payment-service";
+import { storedRefundUploadPath } from "@formal/modules/payment/refund-attachment-storage";
+import { requirePermission } from "@formal/modules/permissions/require-permission";
 
 export async function GET(
   _request: Request,

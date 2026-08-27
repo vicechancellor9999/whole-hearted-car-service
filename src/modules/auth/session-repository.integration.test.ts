@@ -6,7 +6,7 @@ import {
   DatabaseAuthRepository,
   type AuthSqlDatabase,
   type AuthSqlExecutor,
-} from "@/modules/auth/session-repository";
+} from "@formal/modules/auth/session-repository";
 
 const migrationPaths = [
   resolve(process.cwd(), "drizzle/0000_foundation.sql"),

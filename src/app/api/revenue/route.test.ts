@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
-import { createRevenueApiHandler } from "@/app/api/revenue/route";
-import { RevenueReadDeniedError } from "@/modules/revenue/revenue-service";
+import { createRevenueApiHandler } from "@formal/app/api/revenue/route";
+import { RevenueReadDeniedError } from "@formal/modules/revenue/revenue-service";
 
 describe("GET /api/revenue", () => {
   it("returns a formal period projection", async () => {

@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
-import { currentSession } from "@/modules/auth/current-session";
-import { createPerformanceRuntime } from "@/modules/performance/performance-runtime";
+import { currentSession } from "@formal/modules/auth/current-session";
+import { createPerformanceRuntime } from "@formal/modules/performance/performance-runtime";
 
 type PerformanceApiDependencies = {
   readSession(): Promise<{ account: { id: number } } | null>;

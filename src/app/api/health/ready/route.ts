@@ -1,5 +1,5 @@
 import { sql } from "drizzle-orm";
-import { createDatabaseClient } from "@/db/client";
+import { createDatabaseClient } from "@formal/db/client";
 
 export function createReadinessHandler(checkDatabase: () => Promise<void>) {
   return async function readinessHandler(): Promise<Response> {

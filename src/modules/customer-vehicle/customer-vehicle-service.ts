@@ -1,6 +1,6 @@
-import { toBusinessMonthKey } from "@/lib/time";
-import type { AuthSqlDatabase, AuthSqlExecutor } from "@/modules/auth/session-repository";
-import { writeAuditEvent } from "@/modules/audit/audit-service";
+import { toBusinessMonthKey } from "@formal/lib/time";
+import type { AuthSqlDatabase, AuthSqlExecutor } from "@formal/modules/auth/session-repository";
+import { writeAuditEvent } from "@formal/modules/audit/audit-service";
 import {
   changeVehicleOwnerSchema,
   companyContactSchema,
@@ -13,7 +13,7 @@ import {
   updateCompanyContactSchema,
   updatePersonalCustomerSchema,
   updateVehicleSchema,
-} from "@/modules/customer-vehicle/customer-vehicle-schemas";
+} from "@formal/modules/customer-vehicle/customer-vehicle-schemas";
 
 export type CustomerVehicleActionContext = {
   actorAccountId: number;

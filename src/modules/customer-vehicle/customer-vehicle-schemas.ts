@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { normalizePhone } from "@/modules/master-data/master-data-schemas";
+import { normalizePhone } from "@formal/modules/master-data/master-data-schemas";
 
 const optionalText = (maximum: number) =>
   z.string().trim().max(maximum).optional().transform((value) => value || null);

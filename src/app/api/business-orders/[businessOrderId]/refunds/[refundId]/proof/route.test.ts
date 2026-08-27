@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import { createRefundProofApiHandler } from "@/app/api/business-orders/[businessOrderId]/refunds/[refundId]/proof/route";
+import { createRefundProofApiHandler } from "@formal/app/api/business-orders/[businessOrderId]/refunds/[refundId]/proof/route";
 
 describe("POST /api/business-orders/:id/refunds/:refundId/proof", () => {
   it("stores and appends the actual non-cash refund proof after refund creation", async () => {

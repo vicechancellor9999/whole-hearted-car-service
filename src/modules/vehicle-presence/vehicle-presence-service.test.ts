@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import { VehiclePresenceService } from "@/modules/vehicle-presence/vehicle-presence-service";
+import { VehiclePresenceService } from "@formal/modules/vehicle-presence/vehicle-presence-service";
 
 describe("VehiclePresenceService", () => {
   it("does not create a pickup notice while the vehicle has another active Business Order", async () => {

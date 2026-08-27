@@ -6,7 +6,7 @@ import {
   primaryKey,
   timestamp,
 } from "drizzle-orm/pg-core";
-import { staffAccounts } from "@/db/schema/accounts";
+import { staffAccounts } from "@formal/db/schema/accounts";
 
 export const delegatedPermission = pgEnum("delegated_permission", [
   "sensitive_operations.execute",

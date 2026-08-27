@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import { createPerformanceApiHandler } from "@/app/api/performance/route";
+import { createPerformanceApiHandler } from "@formal/app/api/performance/route";
 
 describe("GET /api/performance", () => {
   it("passes the requested month and authenticated account to the formal performance service", async () => {

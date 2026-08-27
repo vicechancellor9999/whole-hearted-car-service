@@ -1,5 +1,5 @@
 import { migrate } from "drizzle-orm/postgres-js/migrator";
-import { createDatabaseClient } from "@/db/client";
+import { createDatabaseClient } from "@formal/db/client";
 
 const client = createDatabaseClient();
 

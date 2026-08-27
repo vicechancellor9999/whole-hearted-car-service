@@ -4,8 +4,8 @@ import type {
   AuthSessionRecord,
   LoginAuditRecord,
   NewLoginSession,
-} from "@/modules/auth/auth-service";
-import { writeAuditEvent } from "@/modules/audit/audit-service";
+} from "@formal/modules/auth/auth-service";
+import { writeAuditEvent } from "@formal/modules/audit/audit-service";
 
 export interface AuthSqlExecutor {
   query<Row extends Record<string, unknown>>(

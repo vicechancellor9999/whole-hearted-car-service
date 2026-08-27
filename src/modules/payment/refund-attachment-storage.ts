@@ -1,7 +1,7 @@
 import { createHash, randomUUID } from "node:crypto";
 import { mkdir, unlink, writeFile } from "node:fs/promises";
 import { dirname, isAbsolute, relative, resolve } from "node:path";
-import { parseAppEnv } from "@/lib/env";
+import { parseAppEnv } from "@formal/lib/env";
 
 const MAX_FILE_BYTES = 25 * 1024 * 1024;
 const allowedMediaTypes = new Map([

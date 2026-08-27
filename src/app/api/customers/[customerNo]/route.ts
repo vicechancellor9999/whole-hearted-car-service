@@ -1,12 +1,12 @@
 import { NextResponse } from "next/server";
-import { currentSession } from "@/modules/auth/current-session";
-import { createCustomerVehicleRuntime } from "@/modules/customer-vehicle/customer-vehicle-runtime";
-import { optionalTextField } from "@/app/api/vehicles/vehicle-api-fields";
+import { currentSession } from "@formal/modules/auth/current-session";
+import { createCustomerVehicleRuntime } from "@formal/modules/customer-vehicle/customer-vehicle-runtime";
+import { optionalTextField } from "@formal/app/api/vehicles/vehicle-api-fields";
 import type {
   CompanyAccountRecord,
   CustomerVehicleActionContext,
   PersonalCustomerRecord,
-} from "@/modules/customer-vehicle/customer-vehicle-service";
+} from "@formal/modules/customer-vehicle/customer-vehicle-service";
 
 type CustomerDetailSession = { account: { id: number } };
 type ResolvedCustomer =

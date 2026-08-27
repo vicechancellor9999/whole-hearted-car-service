@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { chargeItemSchema } from "@/modules/business-order/business-order-schemas";
+import { chargeItemSchema } from "@formal/modules/business-order/business-order-schemas";
 
 const baseItem = {
   kind: "labor" as const,

@@ -1,10 +1,10 @@
 import { NextResponse } from "next/server";
-import { currentSession } from "@/modules/auth/current-session";
-import { createRevenueRuntime } from "@/modules/revenue/revenue-runtime";
+import { currentSession } from "@formal/modules/auth/current-session";
+import { createRevenueRuntime } from "@formal/modules/revenue/revenue-runtime";
 import {
   RevenueReadDeniedError,
   type RevenueRange,
-} from "@/modules/revenue/revenue-service";
+} from "@formal/modules/revenue/revenue-service";
 
 const RANGES = new Set<RevenueRange>(["day", "week", "month", "year", "all"]);
 

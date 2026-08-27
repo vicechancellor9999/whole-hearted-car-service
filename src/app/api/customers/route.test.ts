@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import { createCustomerApiHandler } from "@/app/api/customers/route";
+import { createCustomerApiHandler } from "@formal/app/api/customers/route";
 
 describe("POST /api/customers", () => {
   it("creates a personal customer from the formal frontend payload", async () => {

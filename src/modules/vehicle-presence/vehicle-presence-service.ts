@@ -1,5 +1,5 @@
-import { toBusinessDateKey } from "@/lib/time";
-import type { AuthSqlDatabase, AuthSqlExecutor } from "@/modules/auth/session-repository";
+import { toBusinessDateKey } from "@formal/lib/time";
+import type { AuthSqlDatabase, AuthSqlExecutor } from "@formal/modules/auth/session-repository";
 
 const DAILY_RATE_MINOR = 250_000;
 const FREE_DAYS = 2;

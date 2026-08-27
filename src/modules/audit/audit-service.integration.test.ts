@@ -5,12 +5,12 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import type {
   AuthSqlDatabase,
   AuthSqlExecutor,
-} from "@/modules/auth/session-repository";
+} from "@formal/modules/auth/session-repository";
 import {
   AuditReadDeniedError,
   AuditService,
   writeAuditEvent,
-} from "@/modules/audit/audit-service";
+} from "@formal/modules/audit/audit-service";
 
 const migrationPaths = [
   resolve(process.cwd(), "drizzle/0000_foundation.sql"),

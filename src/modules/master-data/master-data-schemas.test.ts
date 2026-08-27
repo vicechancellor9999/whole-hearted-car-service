@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { createMechanicSchema } from "@/modules/master-data/master-data-schemas";
+import { createMechanicSchema } from "@formal/modules/master-data/master-data-schemas";
 
 const baseMechanic = {
   fullName: "宗威生",

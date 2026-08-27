@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
-import type { AuthSqlDatabase } from "@/modules/auth/session-repository";
-import { RevenueService } from "@/modules/revenue/revenue-service";
+import type { AuthSqlDatabase } from "@formal/modules/auth/session-repository";
+import { RevenueService } from "@formal/modules/revenue/revenue-service";
 
 type TransactionRow = {
   id: number;

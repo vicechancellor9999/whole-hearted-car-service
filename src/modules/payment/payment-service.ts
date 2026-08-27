@@ -1,26 +1,26 @@
-import { toBusinessDateKey } from "@/lib/time";
-import type { ReceiptRenderSnapshot } from "@/db/schema/payment";
+import { toBusinessDateKey } from "@formal/lib/time";
+import type { ReceiptRenderSnapshot } from "@formal/db/schema/payment";
 import type {
   AuthSqlDatabase,
   AuthSqlExecutor,
-} from "@/modules/auth/session-repository";
-import { writeAuditEvent } from "@/modules/audit/audit-service";
-import type { BusinessOrderActionContext } from "@/modules/business-order/business-order-service";
+} from "@formal/modules/auth/session-repository";
+import { writeAuditEvent } from "@formal/modules/audit/audit-service";
+import type { BusinessOrderActionContext } from "@formal/modules/business-order/business-order-service";
 import {
   PaymentConflictError,
   PaymentNotFoundError,
   PaymentReadDeniedError,
   PaymentValidationError,
   PaymentWriteDeniedError,
-} from "@/modules/payment/payment-errors";
+} from "@formal/modules/payment/payment-errors";
 import {
   appendRefundProofSchema,
   appendRefundSignedAcknowledgementSchema,
   moneyTextToMinor,
   recordPaymentSchema,
   recordRefundSchema,
-} from "@/modules/payment/payment-schemas";
-import type { StoredRefundUpload } from "@/modules/payment/refund-attachment-storage";
+} from "@formal/modules/payment/payment-schemas";
+import type { StoredRefundUpload } from "@formal/modules/payment/refund-attachment-storage";
 
 export {
   PaymentConflictError,
@@ -28,7 +28,7 @@ export {
   PaymentReadDeniedError,
   PaymentValidationError,
   PaymentWriteDeniedError,
-} from "@/modules/payment/payment-errors";
+} from "@formal/modules/payment/payment-errors";
 
 type PaymentRow = {
   id: number;

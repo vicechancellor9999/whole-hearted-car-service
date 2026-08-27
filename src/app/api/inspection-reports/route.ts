@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
-import { currentSession } from "@/modules/auth/current-session";
-import { createBusinessOrderRuntime } from "@/modules/business-order/business-order-runtime";
+import { currentSession } from "@formal/modules/auth/current-session";
+import { createBusinessOrderRuntime } from "@formal/modules/business-order/business-order-runtime";
 
 type InspectionReportsApiDependencies = {
   readSession(): Promise<{ account: { id: number } } | null>;

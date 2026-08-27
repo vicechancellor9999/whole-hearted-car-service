@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import type { BusinessOrderActionContext } from "@/modules/business-order/business-order-service";
+import type { BusinessOrderActionContext } from "@formal/modules/business-order/business-order-service";
 
 export function positiveRouteId(value: string): number | null {
   const parsed = Number(value);

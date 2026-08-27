@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
-import { currentSession } from "@/modules/auth/current-session";
-import { createVehiclePresenceRuntime } from "@/modules/vehicle-presence/vehicle-presence-runtime";
+import { currentSession } from "@formal/modules/auth/current-session";
+import { createVehiclePresenceRuntime } from "@formal/modules/vehicle-presence/vehicle-presence-runtime";
 
 type Dependencies = {
   readSession(): Promise<{ account: { id: number } } | null>;

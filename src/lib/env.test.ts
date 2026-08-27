@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { parseAppEnv } from "@/lib/env";
+import { parseAppEnv } from "@formal/lib/env";
 
 const validProductionEnv = {
   NODE_ENV: "production",

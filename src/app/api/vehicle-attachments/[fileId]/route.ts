@@ -1,9 +1,9 @@
 import { readFile } from "node:fs/promises";
-import { currentSession } from "@/modules/auth/current-session";
-import { requirePermission } from "@/modules/permissions/require-permission";
-import { createCustomerVehicleRuntime } from "@/modules/customer-vehicle/customer-vehicle-runtime";
-import { CustomerVehicleNotFoundError } from "@/modules/customer-vehicle/customer-vehicle-service";
-import { storedVehicleUploadPath } from "@/modules/customer-vehicle/attachment-storage";
+import { currentSession } from "@formal/modules/auth/current-session";
+import { requirePermission } from "@formal/modules/permissions/require-permission";
+import { createCustomerVehicleRuntime } from "@formal/modules/customer-vehicle/customer-vehicle-runtime";
+import { CustomerVehicleNotFoundError } from "@formal/modules/customer-vehicle/customer-vehicle-service";
+import { storedVehicleUploadPath } from "@formal/modules/customer-vehicle/attachment-storage";
 
 export async function GET(
   _request: Request,

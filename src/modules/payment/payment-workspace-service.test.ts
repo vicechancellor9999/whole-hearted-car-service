@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { projectPaymentWorkspace } from "@/modules/payment/payment-workspace-service";
+import { projectPaymentWorkspace } from "@formal/modules/payment/payment-workspace-service";
 
 describe("projectPaymentWorkspace", () => {
   it("keeps formal payment, refund, Receipt and balance facts bound to their Business Order", () => {

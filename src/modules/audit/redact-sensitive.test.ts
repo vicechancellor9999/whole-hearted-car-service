@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { redactSensitive } from "@/modules/audit/redact-sensitive";
+import { redactSensitive } from "@formal/modules/audit/redact-sensitive";
 
 describe("redactSensitive", () => {
   it("redacts secrets recursively without mutating the source audit state", () => {

@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import { createBusinessOrderDetailApiHandler } from "@/app/api/business-orders/[businessOrderId]/route";
+import { createBusinessOrderDetailApiHandler } from "@formal/app/api/business-orders/[businessOrderId]/route";
 
 describe("GET /api/business-orders/:id", () => {
   it("rejects an invalid Business Order id", async () => {

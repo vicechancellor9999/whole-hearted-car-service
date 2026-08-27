@@ -1,5 +1,5 @@
-import type { AccountRole } from "@/modules/auth/auth-service";
-import { hasPermission } from "@/modules/permissions/permissions";
+import type { AccountRole } from "@formal/modules/auth/auth-service";
+import { hasPermission } from "@formal/modules/permissions/permissions";
 
 export type NavigationItem = Readonly<{
   label: string;

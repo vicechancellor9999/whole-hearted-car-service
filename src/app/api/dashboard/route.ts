@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
-import { currentSession } from "@/modules/auth/current-session";
-import { createDashboardRuntime } from "@/modules/dashboard/dashboard-runtime";
-import { DashboardReadDeniedError } from "@/modules/dashboard/dashboard-service";
+import { currentSession } from "@formal/modules/auth/current-session";
+import { createDashboardRuntime } from "@formal/modules/dashboard/dashboard-runtime";
+import { DashboardReadDeniedError } from "@formal/modules/dashboard/dashboard-service";
 
 type DashboardApiDependencies = {
   readSession(): Promise<{ account: { id: number } } | null>;

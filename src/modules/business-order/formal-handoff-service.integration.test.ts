@@ -5,17 +5,17 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import type {
   AuthSqlDatabase,
   AuthSqlExecutor,
-} from "@/modules/auth/session-repository";
-import { BusinessOrderService } from "@/modules/business-order/business-order-service";
+} from "@formal/modules/auth/session-repository";
+import { BusinessOrderService } from "@formal/modules/business-order/business-order-service";
 import {
   FormalHandoffService,
   FormalHandoffValidationError,
   FormalHandoffWriteDeniedError,
-} from "@/modules/business-order/formal-handoff-service";
+} from "@formal/modules/business-order/formal-handoff-service";
 import {
   RepairRoundService,
   RepairRoundValidationError,
-} from "@/modules/business-order/repair-round-service";
+} from "@formal/modules/business-order/repair-round-service";
 
 const migrationPaths = [
   "0000_foundation.sql",

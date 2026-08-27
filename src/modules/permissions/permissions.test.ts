@@ -3,8 +3,8 @@ import {
   hasPermission,
   permissionMatrix,
   type Permission,
-} from "@/modules/permissions/permissions";
-import type { AccountRole } from "@/modules/auth/auth-service";
+} from "@formal/modules/permissions/permissions";
+import type { AccountRole } from "@formal/modules/auth/auth-service";
 
 const expected: Record<AccountRole, Record<Permission, boolean>> = {
   super_admin: {

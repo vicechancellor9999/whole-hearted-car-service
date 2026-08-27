@@ -11,15 +11,15 @@ import {
   timestamp,
   uniqueIndex,
 } from "drizzle-orm/pg-core";
-import { staffAccounts } from "@/db/schema/accounts";
-import { identityPrimaryKey } from "@/db/schema/common";
+import { staffAccounts } from "@formal/db/schema/accounts";
+import { identityPrimaryKey } from "@formal/db/schema/common";
 import {
   companyAccounts,
   companyContacts,
   personalCustomers,
   vehicles,
-} from "@/db/schema/customer-vehicle";
-import { dictionaryItems } from "@/db/schema/master-data";
+} from "@formal/db/schema/customer-vehicle";
+import { dictionaryItems } from "@formal/db/schema/master-data";
 
 export const businessOrderStatus = pgEnum("business_order_status", [
   "waiting_assignment",

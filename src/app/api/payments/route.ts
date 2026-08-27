@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
-import { currentSession } from "@/modules/auth/current-session";
-import { createPaymentWorkspaceRuntime } from "@/modules/payment/payment-workspace-runtime";
+import { currentSession } from "@formal/modules/auth/current-session";
+import { createPaymentWorkspaceRuntime } from "@formal/modules/payment/payment-workspace-runtime";
 
 type PaymentsApiDependencies = {
   readSession(): Promise<{ account: { id: number } } | null>;

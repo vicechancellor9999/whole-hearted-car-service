@@ -2,12 +2,12 @@ import { readFile } from "node:fs/promises";
 import { resolve } from "node:path";
 import { PGlite, type Transaction } from "@electric-sql/pglite";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import type { AuthSqlDatabase, AuthSqlExecutor } from "@/modules/auth/session-repository";
+import type { AuthSqlDatabase, AuthSqlExecutor } from "@formal/modules/auth/session-repository";
 import {
   CustomerVehicleConflictError,
   CustomerVehicleService,
   CustomerVehicleWriteDeniedError,
-} from "@/modules/customer-vehicle/customer-vehicle-service";
+} from "@formal/modules/customer-vehicle/customer-vehicle-service";
 
 const migrationPaths = [
   "0000_foundation.sql",

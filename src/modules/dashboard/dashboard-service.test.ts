@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
-import type { AuthSqlDatabase } from "@/modules/auth/session-repository";
-import { DashboardService } from "@/modules/dashboard/dashboard-service";
+import type { AuthSqlDatabase } from "@formal/modules/auth/session-repository";
+import { DashboardService } from "@formal/modules/dashboard/dashboard-service";
 
 type OrderRow = {
   id: number;

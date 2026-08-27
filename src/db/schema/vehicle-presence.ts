@@ -1,9 +1,9 @@
 import { sql } from "drizzle-orm";
 import { bigint, check, index, integer, pgTable, timestamp, uniqueIndex } from "drizzle-orm/pg-core";
-import { staffAccounts } from "@/db/schema/accounts";
-import { businessOrders } from "@/db/schema/business-order";
-import { identityPrimaryKey } from "@/db/schema/common";
-import { vehicles } from "@/db/schema/customer-vehicle";
+import { staffAccounts } from "@formal/db/schema/accounts";
+import { businessOrders } from "@formal/db/schema/business-order";
+import { identityPrimaryKey } from "@formal/db/schema/common";
+import { vehicles } from "@formal/db/schema/customer-vehicle";
 
 export const vehiclePickupNotices = pgTable("vehicle_pickup_notices", {
   id: identityPrimaryKey(), vehicleId: bigint("vehicle_id", { mode: "number" }).notNull().references(() => vehicles.id, { onDelete: "restrict" }),

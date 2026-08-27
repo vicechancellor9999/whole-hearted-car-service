@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import { createLogoutApiHandler } from "@/app/api/auth/logout/route";
+import { createLogoutApiHandler } from "@formal/app/api/auth/logout/route";
 
 describe("POST /api/auth/logout", () => {
   it("revokes the database session and expires the host cookie", async () => {

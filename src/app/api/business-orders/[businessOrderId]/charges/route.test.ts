@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import { createBusinessOrderChargesApiHandler } from "@/app/api/business-orders/[businessOrderId]/charges/route";
+import { createBusinessOrderChargesApiHandler } from "@formal/app/api/business-orders/[businessOrderId]/charges/route";
 
 describe("POST /api/business-orders/:id/charges", () => {
   it("replaces the editable charge draft with a new immutable version", async () => {

@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   resolveCurrentSession,
   type CurrentSessionReader,
-} from "@/modules/auth/current-session";
+} from "@formal/modules/auth/current-session";
 
 describe("resolveCurrentSession", () => {
   it("does not query the database when the browser has no session cookie", async () => {

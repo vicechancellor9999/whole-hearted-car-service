@@ -1,9 +1,9 @@
 import type {
   AuthSqlDatabase,
   AuthSqlExecutor,
-} from "@/modules/auth/session-repository";
-import { writeAuditEvent } from "@/modules/audit/audit-service";
-import type { BusinessOrderActionContext } from "@/modules/business-order/business-order-service";
+} from "@formal/modules/auth/session-repository";
+import { writeAuditEvent } from "@formal/modules/audit/audit-service";
+import type { BusinessOrderActionContext } from "@formal/modules/business-order/business-order-service";
 
 type RepairRoundStatus =
   | "waiting_assignment"

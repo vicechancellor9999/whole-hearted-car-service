@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { GET } from "@/app/api/health/live/route";
+import { GET } from "@formal/app/api/health/live/route";
 
 describe("GET /api/health/live", () => {
   it("reports that the web process is alive without exposing internals", async () => {

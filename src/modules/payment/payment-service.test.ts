@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
-import type { AuthSqlDatabase } from "@/modules/auth/session-repository";
-import { PaymentService } from "@/modules/payment/payment-service";
+import type { AuthSqlDatabase } from "@formal/modules/auth/session-repository";
+import { PaymentService } from "@formal/modules/payment/payment-service";
 
 describe("PaymentService refund eligibility", () => {
   it("rejects a refund for a voided Business Order before writing a refund fact", async () => {

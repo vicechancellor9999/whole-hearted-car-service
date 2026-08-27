@@ -1,9 +1,9 @@
 import { NextResponse } from "next/server";
 import { ZodError } from "zod";
-import { currentSession } from "@/modules/auth/current-session";
-import type { AccountRole } from "@/modules/auth/auth-service";
-import { createMasterDataRuntime } from "@/modules/master-data/master-data-runtime";
-import type { MasterDataActionContext, MasterDataService } from "@/modules/master-data/master-data-service";
+import { currentSession } from "@formal/modules/auth/current-session";
+import type { AccountRole } from "@formal/modules/auth/auth-service";
+import { createMasterDataRuntime } from "@formal/modules/master-data/master-data-runtime";
+import type { MasterDataActionContext, MasterDataService } from "@formal/modules/master-data/master-data-service";
 
 type Session = { account: { id: number; role: AccountRole } };
 type ServiceMethods = Pick<MasterDataService,

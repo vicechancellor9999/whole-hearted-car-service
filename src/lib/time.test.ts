@@ -4,7 +4,7 @@ import {
   nextBusinessDateStart,
   toBusinessDateKey,
   toBusinessMonthKey,
-} from "@/lib/time";
+} from "@formal/lib/time";
 
 describe("Jamaica business calendar", () => {
   it("keeps a UTC September timestamp in the Jamaica August business day", () => {

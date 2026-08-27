@@ -1,6 +1,6 @@
-import { createPostgresAuthSqlDatabase } from "@/db/auth-sql";
-import { createDatabaseClient } from "@/db/client";
-import { RevenueService } from "@/modules/revenue/revenue-service";
+import { createPostgresAuthSqlDatabase } from "@formal/db/auth-sql";
+import { createDatabaseClient } from "@formal/db/client";
+import { RevenueService } from "@formal/modules/revenue/revenue-service";
 
 export function createRevenueRuntime(source: Record<string, unknown> = process.env) {
   const client = createDatabaseClient(source);

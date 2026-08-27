@@ -1,8 +1,8 @@
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { PGlite } from "@electric-sql/pglite";
-import type { AuthSqlDatabase } from "@/modules/auth/session-repository";
-import { DashboardService } from "@/modules/dashboard/dashboard-service";
-import { RevenueService } from "@/modules/revenue/revenue-service";
+import type { AuthSqlDatabase } from "@formal/modules/auth/session-repository";
+import { DashboardService } from "@formal/modules/dashboard/dashboard-service";
+import { RevenueService } from "@formal/modules/revenue/revenue-service";
 
 let source: PGlite | undefined;
 let database: AuthSqlDatabase;

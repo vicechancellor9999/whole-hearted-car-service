@@ -2,7 +2,7 @@ import postgres from "postgres";
 import type {
   AuthSqlDatabase,
   AuthSqlExecutor,
-} from "@/modules/auth/session-repository";
+} from "@formal/modules/auth/session-repository";
 
 type PostgresClient = ReturnType<typeof postgres>;
 type QueryRunner = (

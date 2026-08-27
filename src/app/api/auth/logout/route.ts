@@ -1,8 +1,8 @@
 import { cookies } from "next/headers";
 import { NextResponse } from "next/server";
-import { createRequestId } from "@/lib/request-id";
-import { createAuthRuntime } from "@/modules/auth/auth-runtime";
-import type { AuthRequestContext } from "@/modules/auth/auth-service";
+import { createRequestId } from "@formal/lib/request-id";
+import { createAuthRuntime } from "@formal/modules/auth/auth-runtime";
+import type { AuthRequestContext } from "@formal/modules/auth/auth-service";
 
 type LogoutApiDependencies = {
   rawToken: string | null;

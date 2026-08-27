@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { formatMinorAmount, parseMajorAmountToMinor } from "@/lib/money";
+import { formatMinorAmount, parseMajorAmountToMinor } from "@formal/lib/money";
 
 describe("exact money conversion", () => {
   it("converts a typed major-unit amount without floating point arithmetic", () => {

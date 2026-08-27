@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import { createSessionApiHandler } from "@/app/api/auth/session/route";
+import { createSessionApiHandler } from "@formal/app/api/auth/session/route";
 
 describe("GET /api/auth/session", () => {
   it("returns the database-validated account", async () => {

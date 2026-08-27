@@ -1,6 +1,6 @@
-import { createPostgresAuthSqlDatabase } from "@/db/auth-sql";
-import { createDatabaseClient } from "@/db/client";
-import { MasterDataService } from "@/modules/master-data/master-data-service";
+import { createPostgresAuthSqlDatabase } from "@formal/db/auth-sql";
+import { createDatabaseClient } from "@formal/db/client";
+import { MasterDataService } from "@formal/modules/master-data/master-data-service";
 
 export function createMasterDataRuntime(
   source: Record<string, unknown> = process.env,

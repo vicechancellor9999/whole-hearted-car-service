@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import { createLoginApiHandler } from "@/app/api/auth/login/route";
+import { createLoginApiHandler } from "@formal/app/api/auth/login/route";
 
 describe("POST /api/auth/login", () => {
   it("creates a host-wide session cookie without exposing the raw token", async () => {

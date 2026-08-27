@@ -10,8 +10,8 @@ import {
   timestamp,
   uniqueIndex,
 } from "drizzle-orm/pg-core";
-import { staffAccounts } from "@/db/schema/accounts";
-import { identityPrimaryKey } from "@/db/schema/common";
+import { staffAccounts } from "@formal/db/schema/accounts";
+import { identityPrimaryKey } from "@formal/db/schema/common";
 
 export const authSessions = pgTable(
   "auth_sessions",

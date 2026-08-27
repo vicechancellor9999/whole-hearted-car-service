@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { normalizeUsername } from "@/modules/auth/password";
+import { normalizeUsername } from "@formal/modules/auth/password";
 
 export const accountRoleSchema = z.enum([
   "super_admin",

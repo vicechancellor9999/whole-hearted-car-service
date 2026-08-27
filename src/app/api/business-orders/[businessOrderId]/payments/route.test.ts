@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import { createBusinessOrderPaymentApiHandler } from "@/app/api/business-orders/[businessOrderId]/payments/route";
+import { createBusinessOrderPaymentApiHandler } from "@formal/app/api/business-orders/[businessOrderId]/payments/route";
 
 describe("POST /api/business-orders/:id/payments", () => {
   it("records one payment and returns its unique Receipt", async () => {

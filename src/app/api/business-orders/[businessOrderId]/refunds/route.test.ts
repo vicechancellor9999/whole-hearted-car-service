@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import { createBusinessOrderRefundApiHandler } from "@/app/api/business-orders/[businessOrderId]/refunds/route";
+import { createBusinessOrderRefundApiHandler } from "@formal/app/api/business-orders/[businessOrderId]/refunds/route";
 
 describe("POST /api/business-orders/:id/refunds", () => {
   it("creates a non-cash refund before any payment proof exists", async () => {

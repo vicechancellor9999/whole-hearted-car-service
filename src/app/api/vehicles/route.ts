@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
-import { currentSession } from "@/modules/auth/current-session";
-import { createCustomerVehicleRuntime } from "@/modules/customer-vehicle/customer-vehicle-runtime";
-import { optionalIntegerField, optionalTextField } from "@/app/api/vehicles/vehicle-api-fields";
+import { currentSession } from "@formal/modules/auth/current-session";
+import { createCustomerVehicleRuntime } from "@formal/modules/customer-vehicle/customer-vehicle-runtime";
+import { optionalIntegerField, optionalTextField } from "@formal/app/api/vehicles/vehicle-api-fields";
 
 type VehicleApiSession = { account: { id: number } };
 type VehicleOwner = { type: "person" | "company"; id: number };

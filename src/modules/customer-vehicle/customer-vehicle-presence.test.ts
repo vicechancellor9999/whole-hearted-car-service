@@ -1,7 +1,7 @@
 import { PGlite, type Transaction } from "@electric-sql/pglite";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import type { AuthSqlDatabase, AuthSqlExecutor } from "@/modules/auth/session-repository";
-import { CustomerVehicleService } from "@/modules/customer-vehicle/customer-vehicle-service";
+import type { AuthSqlDatabase, AuthSqlExecutor } from "@formal/modules/auth/session-repository";
+import { CustomerVehicleService } from "@formal/modules/customer-vehicle/customer-vehicle-service";
 
 let database: PGlite;
 let service: CustomerVehicleService;

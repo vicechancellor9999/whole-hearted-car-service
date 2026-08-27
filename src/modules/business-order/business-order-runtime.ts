@@ -1,11 +1,11 @@
-import { createPostgresAuthSqlDatabase } from "@/db/auth-sql";
-import { createDatabaseClient } from "@/db/client";
-import { BusinessOrderService } from "@/modules/business-order/business-order-service";
-import { RepairRoundService } from "@/modules/business-order/repair-round-service";
-import { FormalHandoffService } from "@/modules/business-order/formal-handoff-service";
-import { InspectionReportService } from "@/modules/inspection-report/inspection-report-service";
-import { PaymentService } from "@/modules/payment/payment-service";
-import { BusinessOrderDocumentService } from "@/modules/business-order/business-order-document-service";
+import { createPostgresAuthSqlDatabase } from "@formal/db/auth-sql";
+import { createDatabaseClient } from "@formal/db/client";
+import { BusinessOrderService } from "@formal/modules/business-order/business-order-service";
+import { RepairRoundService } from "@formal/modules/business-order/repair-round-service";
+import { FormalHandoffService } from "@formal/modules/business-order/formal-handoff-service";
+import { InspectionReportService } from "@formal/modules/inspection-report/inspection-report-service";
+import { PaymentService } from "@formal/modules/payment/payment-service";
+import { BusinessOrderDocumentService } from "@formal/modules/business-order/business-order-document-service";
 
 export function createBusinessOrderRuntime(
   source: Record<string, unknown> = process.env,

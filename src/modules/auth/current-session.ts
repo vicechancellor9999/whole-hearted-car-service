@@ -1,7 +1,7 @@
 import { cookies } from "next/headers";
-import { parseAppEnv } from "@/lib/env";
-import type { CurrentSession } from "@/modules/auth/auth-service";
-import { createAuthRuntime } from "@/modules/auth/auth-runtime";
+import { parseAppEnv } from "@formal/lib/env";
+import type { CurrentSession } from "@formal/modules/auth/auth-service";
+import { createAuthRuntime } from "@formal/modules/auth/auth-runtime";
 
 export interface CurrentSessionReader {
   getCurrentSession(rawToken: string): Promise<CurrentSession | null>;

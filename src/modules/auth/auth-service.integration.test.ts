@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it } from "vitest";
-import { hashPassword } from "@/modules/auth/password";
+import { hashPassword } from "@formal/modules/auth/password";
 import {
   AuthService,
   type AuthAccountRecord,
@@ -7,8 +7,8 @@ import {
   type AuthSessionRecord,
   type LoginAuditRecord,
   type NewLoginSession,
-} from "@/modules/auth/auth-service";
-import { hashSessionToken } from "@/modules/auth/session-token";
+} from "@formal/modules/auth/auth-service";
+import { hashSessionToken } from "@formal/modules/auth/session-token";
 
 const pepper = "0123456789abcdef0123456789abcdef";
 const requestContext = {

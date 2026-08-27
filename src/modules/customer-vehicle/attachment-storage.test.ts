@@ -8,7 +8,7 @@ import {
   removeStoredVehicleUpload,
   storeVehicleUpload,
   storedVehicleUploadPath,
-} from "@/modules/customer-vehicle/attachment-storage";
+} from "@formal/modules/customer-vehicle/attachment-storage";
 
 let root: string | null = null;
 
