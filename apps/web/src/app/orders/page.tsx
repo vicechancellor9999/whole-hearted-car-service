@@ -1,7 +1,14 @@
 import { redirect } from "next/navigation";
 
-export default function OrdersPage({ searchParams }: { searchParams?: { tab?: string } }) {
-  if (searchParams?.tab === "business") redirect("/orders/business");
-  if (searchParams?.tab === "inspection") redirect("/orders/inspections");
+export default async function OrdersPage({
+  searchParams,
+}: {
+  searchParams?: Promise<{ tab?: string }>;
+}) {
+  const resolvedSearchParams = await (
+    searchParams ?? Promise.resolve<{ tab?: string }>({})
+  );
+  if (resolvedSearchParams.tab === "business") redirect("/orders/business");
+  if (resolvedSearchParams.tab === "inspection") redirect("/orders/inspections");
   redirect("/orders/business");
 }

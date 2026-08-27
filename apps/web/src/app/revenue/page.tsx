@@ -4,13 +4,16 @@ import { RevenueWorkspace } from "@/components/revenue/revenue-workspace";
 import { isRevenueViewRange } from "@/lib/revenue/types";
 
 interface RevenuePageProps {
-  searchParams?: { range?: string | string[] };
+  searchParams?: Promise<{ range?: string | string[] }>;
 }
 
-export default function RevenuePage({ searchParams }: RevenuePageProps) {
-  const requestedRange = Array.isArray(searchParams?.range)
-    ? searchParams?.range[0]
-    : searchParams?.range;
+export default async function RevenuePage({ searchParams }: RevenuePageProps) {
+  const resolvedSearchParams = await (
+    searchParams ?? Promise.resolve<{ range?: string | string[] }>({})
+  );
+  const requestedRange = Array.isArray(resolvedSearchParams.range)
+    ? resolvedSearchParams.range[0]
+    : resolvedSearchParams.range;
   if (!isRevenueViewRange(requestedRange)) {
     redirect("/revenue?range=day");
   }

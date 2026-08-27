@@ -3,18 +3,23 @@ import { redirect } from "next/navigation";
 import { PaymentsWorkspace } from "@/components/payments/payments-workspace";
 
 interface PaymentsPageProps {
-  searchParams?: {
+  searchParams?: Promise<{
     view?: string | string[];
     range?: string | string[];
-  };
+  }>;
 }
 
-export default function PaymentsPage({ searchParams }: PaymentsPageProps) {
-  const view = Array.isArray(searchParams?.view) ? searchParams?.view[0] : searchParams?.view;
+export default async function PaymentsPage({ searchParams }: PaymentsPageProps) {
+  const resolvedSearchParams = await (
+    searchParams ?? Promise.resolve<{ view?: string | string[]; range?: string | string[] }>({})
+  );
+  const view = Array.isArray(resolvedSearchParams.view)
+    ? resolvedSearchParams.view[0]
+    : resolvedSearchParams.view;
   if (view === "revenue") {
-    const requestedRange = Array.isArray(searchParams?.range)
-      ? searchParams?.range[0]
-      : searchParams?.range;
+    const requestedRange = Array.isArray(resolvedSearchParams.range)
+      ? resolvedSearchParams.range[0]
+      : resolvedSearchParams.range;
     const range = ["day", "week", "month", "year", "all"].includes(requestedRange ?? "")
       ? requestedRange
       : "day";
