@@ -152,13 +152,14 @@ function intersectCrop(
   height: number,
 ) {
   const values = [crop.x, crop.y, crop.width, crop.height];
-  if (values.some((value) => !Number.isFinite(value)) || crop.width <= 0 || crop.height <= 0) {
+  if (values.some((value) => !Number.isFinite(value) || value < 0 || value > 1) ||
+      crop.width <= 0 || crop.height <= 0 || crop.x + crop.width > 1 || crop.y + crop.height > 1) {
     throw invalidImage();
   }
-  const left = Math.max(0, Math.floor(crop.x));
-  const top = Math.max(0, Math.floor(crop.y));
-  const right = Math.min(width, Math.ceil(crop.x + crop.width));
-  const bottom = Math.min(height, Math.ceil(crop.y + crop.height));
+  const left = Math.max(0, Math.floor(crop.x * width));
+  const top = Math.max(0, Math.floor(crop.y * height));
+  const right = Math.min(width, Math.ceil((crop.x + crop.width) * width));
+  const bottom = Math.min(height, Math.ceil((crop.y + crop.height) * height));
   if (left >= right || top >= bottom) throw invalidImage();
   return { left, top, width: right - left, height: bottom - top };
 }

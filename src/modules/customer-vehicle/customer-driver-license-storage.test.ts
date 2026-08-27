@@ -90,7 +90,7 @@ describe("customer driver-license storage", () => {
     root = await mkdtemp(join(tmpdir(), "wh-license-upload-"));
     const cropped = await storeCustomerDriverLicenseUpload(
       new File([blobPart(await fixture(3000, 1000))], "crop.jpg", { type: "image/jpeg" }),
-      { rotation: 90, crop: { x: 0, y: 0, width: 1000, height: 1500 } },
+      { rotation: 90, crop: { x: 0, y: 0, width: 1, height: 0.5 } },
       { root, uuid: "crop" },
     );
     await expect(sharp(storedCustomerDriverLicenseUploadPath(cropped.storageKey, root)).metadata())

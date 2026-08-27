@@ -110,27 +110,13 @@ export class CustomerDriverLicenseService {
 
   async record(input: WriteInput): Promise<CustomerDriverLicenseRecord> {
     const fields = customerDriverLicenseWriteSchema.parse(input);
-    const now = input.context.now ?? new Date();
     try {
-      return await this.database.transaction(async (transaction) => {
-        await requireLicenseWriter(transaction, input.context.actorAccountId);
-        await requireSubject(transaction, fields.subject);
-        const fileId = await insertStoredFile(transaction, fields.file, input.context.actorAccountId, now);
-        await applyLicenseProfile(transaction, fields.subject, fields.profile, now);
-        const record = await insertLicenseRecord(
+      return await this.database.transaction((transaction) =>
+        recordCustomerDriverLicenseInTransaction(
           transaction,
           { ...fields, context: input.context },
-          fileId,
-          now,
-        );
-        await auditLicense(transaction, input.context, now, {
-          eventType: fields.verified
-            ? "customer.driver_license_verified"
-            : "customer.driver_license_recorded",
-          record,
-        });
-        return record;
-      });
+          "record",
+        ));
     } catch (error) {
       rethrowLicenseConflict(error);
     }
@@ -138,43 +124,76 @@ export class CustomerDriverLicenseService {
 
   async replace(input: WriteInput): Promise<CustomerDriverLicenseRecord> {
     const fields = customerDriverLicenseWriteSchema.parse(input);
-    const now = input.context.now ?? new Date();
+    try {
+      return await this.database.transaction((transaction) =>
+        recordCustomerDriverLicenseInTransaction(
+          transaction,
+          { ...fields, context: input.context },
+          "replace",
+        ));
+    } catch (error) {
+      rethrowLicenseConflict(error);
+    }
+  }
+
+  async recordOrReplace(input: WriteInput): Promise<CustomerDriverLicenseRecord> {
+    const fields = customerDriverLicenseWriteSchema.parse(input);
     try {
       return await this.database.transaction(async (transaction) => {
         await requireLicenseWriter(transaction, input.context.actorAccountId);
         await requireSubject(transaction, fields.subject);
         const current = await selectCurrentRecord(transaction, fields.subject, true);
-        if (!current) throw new CustomerDriverLicenseNotFoundError("当前驾驶证记录不存在");
-        await transaction.query(
-          `update customer_driver_license_records
-           set superseded_at = $2, superseded_by = $3
-           where id = $1`,
-          [current.id, now, input.context.actorAccountId],
-        );
-        await auditLicense(transaction, input.context, now, {
-          eventType: "customer.driver_license_superseded",
-          record: { ...current, supersededAt: now, supersededBy: input.context.actorAccountId },
-        });
-
-        const fileId = await insertStoredFile(transaction, fields.file, input.context.actorAccountId, now);
-        await applyLicenseProfile(transaction, fields.subject, fields.profile, now);
-        const replacement = await insertLicenseRecord(
+        return recordCustomerDriverLicenseInTransaction(
           transaction,
           { ...fields, context: input.context },
-          fileId,
-          now,
+          current ? "replace" : "record",
         );
-        await auditLicense(transaction, input.context, now, {
-          eventType: fields.verified
-            ? "customer.driver_license_verified"
-            : "customer.driver_license_recorded",
-          record: replacement,
-        });
-        return replacement;
       });
     } catch (error) {
       rethrowLicenseConflict(error);
     }
+  }
+
+  async resolveSubjectByCustomerNo(input: {
+    viewerAccountId: number;
+    customerNo: string;
+  }): Promise<LicenseSubject> {
+    await requireLicenseReader(this.database, input.viewerAccountId);
+    if (input.customerNo.startsWith("CUST-")) {
+      const rows = await this.database.query<{ id: number }>(
+        "select id from personal_customers where customer_no = $1 and is_active = true limit 1",
+        [input.customerNo],
+      );
+      if (!rows[0]) throw new CustomerDriverLicenseNotFoundError("个人客户不存在或已停用");
+      return { type: "individual_customer", personalCustomerId: Number(rows[0].id) };
+    }
+    if (input.customerNo.startsWith("COMP-")) {
+      const rows = await this.database.query<{
+        company_id: number;
+        contact_id: number | null;
+        personal_customer_id: number | null;
+      }>(
+        `select company.id as company_id, contact.id as contact_id,
+                contact.personal_customer_id
+         from company_accounts as company
+         left join company_contacts as contact
+           on contact.company_id = company.id and contact.is_primary = true and contact.is_active = true
+         where company.company_no = $1 and company.is_active = true
+         limit 1`,
+        [input.customerNo],
+      );
+      if (!rows[0]) throw new CustomerDriverLicenseNotFoundError("公司客户不存在或已停用");
+      if (!rows[0].contact_id || !rows[0].personal_customer_id) {
+        throw new CustomerDriverLicenseNotFoundError("公司尚未设置主要联系人");
+      }
+      return {
+        type: "organization_primary_contact",
+        companyAccountId: Number(rows[0].company_id),
+        companyContactId: Number(rows[0].contact_id),
+        personalCustomerId: Number(rows[0].personal_customer_id),
+      };
+    }
+    throw new CustomerDriverLicenseNotFoundError("客户编号不存在");
   }
 
   async history(input: {
@@ -236,6 +255,46 @@ export class CustomerDriverLicenseService {
       sha256Hex: rows[0].sha256_hex,
     };
   }
+}
+
+export async function recordCustomerDriverLicenseInTransaction(
+  executor: AuthSqlExecutor,
+  input: WriteInput,
+  mode: "record" | "replace",
+): Promise<CustomerDriverLicenseRecord> {
+  const fields = customerDriverLicenseWriteSchema.parse(input);
+  const now = input.context.now ?? new Date();
+  await requireLicenseWriter(executor, input.context.actorAccountId);
+  await requireSubject(executor, fields.subject);
+  if (mode === "replace") {
+    const current = await selectCurrentRecord(executor, fields.subject, true);
+    if (!current) throw new CustomerDriverLicenseNotFoundError("当前驾驶证记录不存在");
+    await executor.query(
+      `update customer_driver_license_records
+       set superseded_at = $2, superseded_by = $3
+       where id = $1`,
+      [current.id, now, input.context.actorAccountId],
+    );
+    await auditLicense(executor, input.context, now, {
+      eventType: "customer.driver_license_superseded",
+      record: { ...current, supersededAt: now, supersededBy: input.context.actorAccountId },
+    });
+  }
+  const fileId = await insertStoredFile(executor, fields.file, input.context.actorAccountId, now);
+  await applyLicenseProfile(executor, fields.subject, fields.profile, now);
+  const record = await insertLicenseRecord(
+    executor,
+    { ...fields, context: input.context },
+    fileId,
+    now,
+  );
+  await auditLicense(executor, input.context, now, {
+    eventType: fields.verified
+      ? "customer.driver_license_verified"
+      : "customer.driver_license_recorded",
+    record,
+  });
+  return record;
 }
 
 export async function markPersonalDriverLicenseNeedsReverification(

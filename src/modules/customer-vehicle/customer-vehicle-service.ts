@@ -7,7 +7,13 @@ import {
   syncCustomerPhoneOwnership,
   type CustomerPhoneOwner,
 } from "@formal/modules/customer-vehicle/customer-phone-registry";
-import { markPersonalDriverLicenseNeedsReverification } from "@formal/modules/customer-vehicle/customer-driver-license-service";
+import {
+  markPersonalDriverLicenseNeedsReverification,
+  recordCustomerDriverLicenseInTransaction,
+  type CustomerDriverLicenseRecord,
+} from "@formal/modules/customer-vehicle/customer-driver-license-service";
+import type { CustomerDriverLicenseProfile } from "@formal/modules/customer-vehicle/customer-driver-license-schemas";
+import type { StoredCustomerDriverLicenseUpload } from "@formal/modules/customer-vehicle/customer-driver-license-storage";
 import {
   changeVehicleOwnerSchema,
   companyContactSchema,
@@ -29,6 +35,27 @@ export type CustomerVehicleActionContext = {
   ipAddress?: string | null;
   userAgent?: string | null;
 };
+
+export type CustomerLicenseWrite = {
+  file: StoredCustomerDriverLicenseUpload;
+  profile: CustomerDriverLicenseProfile;
+  verified: boolean;
+};
+
+export type CompanyPrimaryContactInput =
+  | { existingPersonalCustomerNo: string; newPrimaryContact?: never }
+  | {
+      existingPersonalCustomerNo?: never;
+      newPrimaryContact: {
+        fullName: string;
+        phone?: string;
+        whatsapp?: string;
+        email?: string;
+        address?: string;
+        trn?: string;
+        jobTitle?: string;
+      };
+    };
 
 export type PersonalCustomerRecord = {
   id: number;
@@ -575,6 +602,217 @@ export class CustomerVehicleService {
       });
     } catch (error) {
       return rethrowCustomerWriteConflict(this.database, error, [fields.phone], null);
+    }
+  }
+
+  async createPersonalCustomerWithLicense(input: {
+    fullName: string; phone?: string; whatsapp?: string; email?: string;
+    address?: string; trn?: string; license?: CustomerLicenseWrite;
+    context: CustomerVehicleActionContext;
+  }): Promise<{ record: PersonalCustomerRecord; driverLicense: CustomerDriverLicenseRecord | null }> {
+    const fields = createPersonalCustomerSchema.parse(input);
+    const now = input.context.now ?? new Date();
+    try {
+      return await this.database.transaction(async (transaction) => {
+        await requireWriter(transaction, input.context.actorAccountId);
+        await requirePhonesAvailable(transaction, [fields.phone, fields.whatsapp], null);
+        await transaction.query("lock table personal_customers in share row exclusive mode");
+        const customerNo = await nextFormalNumber(
+          transaction, "personal_customers", "customer_no", "CUST", now,
+        );
+        const rows = await transaction.query<PersonalRow>(
+          `insert into personal_customers
+            (customer_no, full_name, normalized_phone, whatsapp, email, address,
+             trn, created_at, updated_at, created_by)
+           values ($1, $2, $3, $4, $5, $6, $7, $8, $8, $9)
+           returning id, customer_no, full_name, normalized_phone, whatsapp,
+                     email, address, trn, is_active, version, created_at, updated_at`,
+          [customerNo, fields.fullName, fields.phone, fields.whatsapp, fields.email,
+            fields.address, fields.trn, now, input.context.actorAccountId],
+        );
+        let record = mapPersonal(rows[0]);
+        await syncCustomerPhoneOwnership(transaction, {
+          ownerKind: "person", ownerId: record.id,
+          phones: [fields.phone, fields.whatsapp],
+        });
+        await audit(transaction, input.context, now, {
+          eventType: "customer.created", objectType: "personal_customer",
+          objectId: String(record.id), after: record,
+        });
+        const driverLicense = input.license
+          ? await recordCustomerDriverLicenseInTransaction(transaction, {
+              subject: { type: "individual_customer", personalCustomerId: record.id },
+              ...input.license,
+              context: input.context,
+            }, "record")
+          : null;
+        if (!driverLicense) {
+          await auditMissingLicense(transaction, input.context, now, {
+            type: "individual_customer", personalCustomerId: record.id,
+          });
+        } else {
+          const refreshed = await transaction.query<PersonalRow>(
+            `select id, customer_no, full_name, normalized_phone, whatsapp, email,
+                    address, trn, is_active, version, created_at, updated_at
+             from personal_customers where id = $1`,
+            [record.id],
+          );
+          record = mapPersonal(refreshed[0]);
+        }
+        return { record, driverLicense };
+      });
+    } catch (error) {
+      return rethrowCustomerWriteConflict(
+        this.database, error, [fields.phone, fields.whatsapp], null,
+      );
+    }
+  }
+
+  async createCompanyWithPrimaryContact(input: {
+    legalName: string; trn?: string; phone?: string; email?: string; address?: string;
+    primaryContact?: CompanyPrimaryContactInput;
+    license?: CustomerLicenseWrite;
+    context: CustomerVehicleActionContext;
+  }): Promise<{
+    record: CompanyAccountRecord;
+    primaryContact: CompanyContactRecord | null;
+    driverLicense: CustomerDriverLicenseRecord | null;
+  }> {
+    const fields = createCompanyAccountSchema.parse(input);
+    const newContactFields = input.primaryContact && "newPrimaryContact" in input.primaryContact
+      ? createPersonalCustomerSchema.parse(input.primaryContact.newPrimaryContact)
+      : null;
+    if (input.license && !input.primaryContact) {
+      throw new CustomerVehicleConflictError("保存主要联系人驾驶证前必须先建立主要联系人");
+    }
+    const now = input.context.now ?? new Date();
+    try {
+      return await this.database.transaction(async (transaction) => {
+        await requireWriter(transaction, input.context.actorAccountId);
+        await requirePhonesAvailable(transaction, [fields.phone], null);
+        if (newContactFields) {
+          await requirePhonesAvailable(
+            transaction,
+            [newContactFields.phone, newContactFields.whatsapp],
+            null,
+          );
+        }
+        await transaction.query("lock table company_accounts in share row exclusive mode");
+        const companyNo = await nextFormalNumber(
+          transaction, "company_accounts", "company_no", "COMP", now,
+        );
+        const companyRows = await transaction.query<CompanyRow>(
+          `insert into company_accounts
+            (company_no, legal_name, normalized_name, trn, phone, email, address,
+             created_at, updated_at, created_by)
+           values ($1, $2, $3, $4, $5, $6, $7, $8, $8, $9)
+           returning id, company_no, legal_name, trn, phone, email, address,
+                     is_active, version, created_at, updated_at`,
+          [companyNo, fields.legalName, normalizeName(fields.legalName), fields.trn,
+            fields.phone, fields.email, fields.address, now, input.context.actorAccountId],
+        );
+        const record = mapCompany(companyRows[0]);
+        await syncCustomerPhoneOwnership(transaction, {
+          ownerKind: "company", ownerId: record.id, phones: [fields.phone],
+        });
+        await audit(transaction, input.context, now, {
+          eventType: "company.created", objectType: "company_account",
+          objectId: String(record.id), after: record,
+        });
+
+        let personalCustomerId: number | null = null;
+        let contactId: number | null = null;
+        if (input.primaryContact) {
+          if ("existingPersonalCustomerNo" in input.primaryContact) {
+            const existing = await transaction.query<{ id: number }>(
+              `select id from personal_customers
+               where customer_no = $1 and is_active = true
+               for update`,
+              [input.primaryContact.existingPersonalCustomerNo],
+            );
+            if (!existing[0]) throw new CustomerVehicleNotFoundError("确认复用的个人客户不存在或已停用");
+            personalCustomerId = Number(existing[0].id);
+          } else if (newContactFields) {
+            await transaction.query("lock table personal_customers in share row exclusive mode");
+            const customerNo = await nextFormalNumber(
+              transaction, "personal_customers", "customer_no", "CUST", now,
+            );
+            const created = await transaction.query<PersonalRow>(
+              `insert into personal_customers
+                (customer_no, full_name, normalized_phone, whatsapp, email, address,
+                 trn, created_at, updated_at, created_by)
+               values ($1, $2, $3, $4, $5, $6, $7, $8, $8, $9)
+               returning id, customer_no, full_name, normalized_phone, whatsapp,
+                         email, address, trn, is_active, version, created_at, updated_at`,
+              [customerNo, newContactFields.fullName, newContactFields.phone,
+                newContactFields.whatsapp, newContactFields.email, newContactFields.address,
+                newContactFields.trn, now, input.context.actorAccountId],
+            );
+            const person = mapPersonal(created[0]);
+            personalCustomerId = person.id;
+            await syncCustomerPhoneOwnership(transaction, {
+              ownerKind: "person", ownerId: person.id,
+              phones: [newContactFields.phone, newContactFields.whatsapp],
+            });
+            await audit(transaction, input.context, now, {
+              eventType: "customer.created", objectType: "personal_customer",
+              objectId: String(person.id), after: person,
+            });
+          }
+          const contactRows = await transaction.query<{ id: number }>(
+            `insert into company_contacts
+              (company_id, personal_customer_id, job_title, is_primary,
+               created_at, updated_at, created_by)
+             values ($1, $2, $3, true, $4, $4, $5)
+             returning id`,
+            [record.id, personalCustomerId,
+              newContactFields && "newPrimaryContact" in input.primaryContact
+                ? input.primaryContact.newPrimaryContact?.jobTitle?.trim() || null
+                : null,
+              now, input.context.actorAccountId],
+          );
+          contactId = Number(contactRows[0].id);
+          await audit(transaction, input.context, now, {
+            eventType: "company.primary_contact_created", objectType: "company_contact",
+            objectId: String(contactId), after: {
+              companyId: record.id, personalCustomerId, isPrimary: true,
+            },
+          });
+        }
+
+        const driverLicense = input.license && personalCustomerId && contactId
+          ? await recordCustomerDriverLicenseInTransaction(transaction, {
+              subject: {
+                type: "organization_primary_contact",
+                companyAccountId: record.id,
+                companyContactId: contactId,
+                personalCustomerId,
+              },
+              ...input.license,
+              context: input.context,
+            }, "record")
+          : null;
+        if (!driverLicense) {
+          await auditMissingLicense(transaction, input.context, now, {
+            type: "organization_primary_contact", companyAccountId: record.id,
+          });
+        }
+        const contacts = await selectCompanyContacts(transaction, record.id);
+        return {
+          record,
+          primaryContact: contactId
+            ? contacts.find((contact) => contact.id === contactId) ?? null
+            : null,
+          driverLicense,
+        };
+      });
+    } catch (error) {
+      return rethrowCustomerWriteConflict(
+        this.database,
+        error,
+        [fields.phone, newContactFields?.phone ?? null, newContactFields?.whatsapp ?? null],
+        null,
+      );
     }
   }
 
@@ -1400,6 +1638,29 @@ async function audit(
     eventType: event.eventType, objectType: event.objectType, objectId: event.objectId,
     reason: event.reason, before: event.before, after: event.after,
     requestId: context.requestId, ipAddress: context.ipAddress ?? null,
+    userAgent: context.userAgent ?? null,
+  });
+}
+
+async function auditMissingLicense(
+  executor: AuthSqlExecutor,
+  context: CustomerVehicleActionContext,
+  now: Date,
+  subject:
+    | { type: "individual_customer"; personalCustomerId: number }
+    | { type: "organization_primary_contact"; companyAccountId: number },
+): Promise<void> {
+  await writeAuditEvent(executor, {
+    occurredAt: now,
+    actorAccountId: context.actorAccountId,
+    eventType: "customer.driver_license_missing_acknowledged",
+    objectType: subject.type === "individual_customer" ? "personal_customer" : "company_account",
+    objectId: String(subject.type === "individual_customer"
+      ? subject.personalCustomerId
+      : subject.companyAccountId),
+    after: subject,
+    requestId: context.requestId,
+    ipAddress: context.ipAddress ?? null,
     userAgent: context.userAgent ?? null,
   });
 }
