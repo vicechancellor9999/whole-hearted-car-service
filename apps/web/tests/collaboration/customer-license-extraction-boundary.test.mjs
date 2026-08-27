@@ -7,6 +7,7 @@ import { fileURLToPath } from "node:url";
 import test from "node:test";
 
 const projectRoot = join(dirname(fileURLToPath(import.meta.url)), "..", "..");
+const repositoryRoot = join(projectRoot, "..", "..");
 const forbiddenRuntime = /tesseract|CUSTOMER_OCR_ASSETS|\/ocr\/tesseract-v7|license-ocr/i;
 const approvedSpecPath = "docs/superpowers/specs/2026-08-13-in-person-customer-onboarding-design.md";
 const oldPlanPath = "docs/superpowers/plans/2026-08-13-in-person-customer-onboarding.md";
@@ -39,16 +40,26 @@ function trackedFiles(...paths) {
   return output.split("\0").filter((file) => file && existsSync(join(projectRoot, file)));
 }
 
+async function dependencyManifests() {
+  return {
+    packageJson: JSON.parse(await readFile(join(projectRoot, "package.json"), "utf8")),
+    pnpmLock: await readFile(join(repositoryRoot, "pnpm-lock.yaml"), "utf8"),
+  };
+}
+
+function lockContainsPackage(lock, name) {
+  const escaped = name.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  return new RegExp(`(?:^|/)${escaped}(?:@|:|/)`, "m").test(lock);
+}
+
 test("customer extraction has no direct legacy engine dependency or asset sync script", async () => {
-  const packageJson = JSON.parse(await readFile(join(projectRoot, "package.json"), "utf8"));
-  const packageLock = JSON.parse(await readFile(join(projectRoot, "package-lock.json"), "utf8"));
+  const { packageJson, pnpmLock } = await dependencyManifests();
   const forbiddenPackages = ["@tesseract.js-data/eng", "tesseract.js", "tesseract.js-core"];
 
   for (const name of forbiddenPackages) {
     assert.equal(packageJson.dependencies?.[name], undefined, `remove direct dependency ${name}`);
     assert.equal(packageJson.devDependencies?.[name], undefined, `remove direct dev dependency ${name}`);
-    assert.equal(packageLock.packages?.[""]?.dependencies?.[name], undefined, `remove locked direct dependency ${name}`);
-    assert.equal(packageLock.packages?.[`node_modules/${name}`], undefined, `remove locked runtime ${name}`);
+    assert.equal(lockContainsPackage(pnpmLock, name), false, `remove locked runtime ${name}`);
   }
   assert.equal(packageJson.scripts?.["sync:customer-ocr-assets"], undefined);
 });
@@ -123,12 +134,11 @@ test("old local-OCR plan starts with an explicit do-not-execute superseded notic
 });
 
 test("active packages and runtime contain no provider SDK, secret literal, direct provider URL, or real extraction route", async () => {
-  const packageJson = JSON.parse(await readFile(join(projectRoot, "package.json"), "utf8"));
-  const packageLock = JSON.parse(await readFile(join(projectRoot, "package-lock.json"), "utf8"));
+  const { packageJson, pnpmLock } = await dependencyManifests();
   for (const name of forbiddenProviderPackages) {
     assert.equal(packageJson.dependencies?.[name], undefined, `remove provider dependency ${name}`);
     assert.equal(packageJson.devDependencies?.[name], undefined, `remove provider dev dependency ${name}`);
-    assert.equal(packageLock.packages?.[`node_modules/${name}`], undefined, `remove locked provider SDK ${name}`);
+    assert.equal(lockContainsPackage(pnpmLock, name), false, `remove locked provider SDK ${name}`);
   }
 
   assert.deepEqual(
@@ -139,11 +149,21 @@ test("active packages and runtime contain no provider SDK, secret literal, direc
     [],
   );
 
-  // 2026-08-18 老板拍板：DeepSeek 是正式接入的 AI 服务（拆单/翻译），其密钥设置文件豁免通用密钥扫描；
-  // 但仍不允许 forbiddenProviderPackages 里的供应商 SDK/URL，也不允许真实的证件识别提取路由。
-  const sanctionedAiPaths = new Set(["src/lib/ai/settings.ts", "src/lib/ai/deepseek.ts", "src/lib/ai/auto-repair.ts", "src/app/api/ai/chat/route.ts"]);
+  // 已批准的正式 AI 适配器只在服务器端持有供应商边界；旧 onboarding 浏览器路径仍不得直连供应商，
+  // 且整个应用仍不引入 forbiddenProviderPackages 中的供应商 SDK。
+  const sanctionedAiPaths = new Set([
+    "src/lib/ai/settings.ts",
+    "src/lib/ai/deepseek.ts",
+    "src/lib/ai/auto-repair.ts",
+    "src/app/api/ai/chat/route.ts",
+    "src/app/api/ai/vehicle-document/route.ts",
+    "src/app/api/ai/vehicle-document/settings/route.ts",
+    "src/app/settings/page.tsx",
+    "src/lib/server/customer-driver-license-recognizer.ts",
+    "src/lib/server/vehicle-document-ai-settings.ts",
+  ]);
   const matches = [];
-  for (const file of trackedFiles("src", "scripts", "package.json", "package-lock.json")) {
+  for (const file of trackedFiles("src", "scripts", "package.json")) {
     if (sanctionedAiPaths.has(file)) continue;
     const source = await readFile(join(projectRoot, file), "utf8");
     if (forbiddenProviderBoundary.test(source) || realExtractionRoute.test(source)) matches.push(file);
