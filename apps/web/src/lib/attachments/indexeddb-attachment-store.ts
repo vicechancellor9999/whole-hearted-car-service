@@ -371,7 +371,7 @@ function detectImage(bytes: Uint8Array): { mediaType: ReportPhotoMediaType; widt
 }
 
 async function sha256(bytes: Uint8Array): Promise<ReportPhotoSha256> {
-  const digest = await globalThis.crypto.subtle.digest("SHA-256", bytes);
+  const digest = await globalThis.crypto.subtle.digest("SHA-256", new Uint8Array(bytes));
   const hex = [...new Uint8Array(digest)].map((value) => value.toString(16).padStart(2, "0")).join("");
   return `sha256-bytes-v1:${hex}`;
 }
@@ -389,7 +389,7 @@ export async function inspectReportPhotoFile(file: File): Promise<InspectedRepor
     heightPx: detected.height,
     byteLength: bytes.byteLength,
     sha256: await sha256(bytes),
-    blob: new Blob([bytes], { type: detected.mediaType }),
+    blob: new Blob([new Uint8Array(bytes)], { type: detected.mediaType }),
   };
 }
 

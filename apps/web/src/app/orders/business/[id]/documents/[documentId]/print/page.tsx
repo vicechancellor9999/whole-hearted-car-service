@@ -3,10 +3,11 @@ import { FormalBusinessOrderDocumentPrintSheet } from "@/components/orders/forma
 
 export const dynamic = "force-dynamic";
 
-export default function BusinessOrderDocumentPrintPage({
+export default async function BusinessOrderDocumentPrintPage({
   params,
 }: {
-  params: { id: string; documentId: string };
+  params: Promise<{ id: string; documentId: string }>;
 }) {
-  return <Suspense fallback={<div className="p-8 text-sm">加载打印文档…</div>}><FormalBusinessOrderDocumentPrintSheet orderId={Number(params.id)} documentId={Number(params.documentId)} /></Suspense>;
+  const { id, documentId } = await params;
+  return <Suspense fallback={<div className="p-8 text-sm">加载打印文档…</div>}><FormalBusinessOrderDocumentPrintSheet orderId={Number(id)} documentId={Number(documentId)} /></Suspense>;
 }

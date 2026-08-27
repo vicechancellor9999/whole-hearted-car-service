@@ -92,7 +92,7 @@ const WEBP_ANIMATED_1X1 = new Uint8Array([
 ]);
 
 function asFile(bytes: Uint8Array, name: string, type: string): File {
-  return new File([bytes], name, { type });
+  return new File([new Uint8Array(bytes)], name, { type });
 }
 
 function record(

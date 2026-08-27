@@ -216,7 +216,7 @@ export function DiscardConfirmation({
   onDiscard,
   testIdPrefix = "",
 }: {
-  continueButtonRef: RefObject<HTMLButtonElement>;
+  continueButtonRef: RefObject<HTMLButtonElement | null>;
   onContinue: () => void;
   onDiscard: () => void;
   testIdPrefix?: string;

@@ -1,7 +1,7 @@
 import { Logo } from "@/components/ui/logo";
 
 type LoginPageProps = {
-  searchParams: { error?: string };
+  searchParams: Promise<{ error?: string }>;
 };
 
 const errorMessages: Record<string, string> = {
@@ -9,8 +9,9 @@ const errorMessages: Record<string, string> = {
   rate_limited: "登录尝试过多，请稍后再试",
 };
 
-export default function LoginPage({ searchParams }: LoginPageProps) {
-  const message = searchParams.error ? errorMessages[searchParams.error] : null;
+export default async function LoginPage({ searchParams }: LoginPageProps) {
+  const resolvedSearchParams = await searchParams;
+  const message = resolvedSearchParams.error ? errorMessages[resolvedSearchParams.error] : null;
   return (
     <main className="flex min-h-screen items-center justify-center bg-[var(--wh-page-bg)] px-4 py-10">
       <section className="w-full max-w-[420px] rounded-[28px] border border-white/70 bg-white/90 p-7 shadow-card-hover backdrop-blur-xl dark:border-slate-700 dark:bg-slate-900/90 sm:p-9" aria-labelledby="login-title">

@@ -32,7 +32,7 @@ export function RevenueChart({ detail }: { detail: RevenueDetailResponse }) {
             <CartesianGrid stroke="var(--wh-border)" strokeOpacity={0.7} vertical={false} />
             <XAxis dataKey="label" tick={{ fontSize: 10, fill: "var(--wh-text-soft)" }} tickLine={false} axisLine={false} />
             <YAxis width={58} tick={{ fontSize: 10, fill: "var(--wh-text-soft)" }} tickLine={false} axisLine={false} tickFormatter={(value: number) => Math.abs(value) >= 1_000 ? `${Math.round(value / 1_000)}K` : String(Math.round(value))} />
-            <Tooltip formatter={(value: number) => formatJMDFull(Number(value))} contentStyle={{ borderRadius: 10, borderColor: "var(--wh-border)", background: "var(--wh-card-bg)", color: "var(--wh-text)", fontSize: 11 }} />
+            <Tooltip formatter={(value) => formatJMDFull(Number(value ?? 0))} contentStyle={{ borderRadius: 10, borderColor: "var(--wh-border)", background: "var(--wh-card-bg)", color: "var(--wh-text)", fontSize: 11 }} />
             <Line type="monotone" dataKey="netPaidJmd" name="净收款" stroke="#465fff" strokeWidth={3} dot={{ r: 3 }} isAnimationActive={false} />
             <Line type="monotone" dataKey="grossPaidJmd" name="收款总额" stroke="#10b981" strokeWidth={2} dot={false} isAnimationActive={false} />
             <Line type="monotone" dataKey="cashRefundedJmd" name="退款" stroke="#f43f5e" strokeWidth={2} dot={false} isAnimationActive={false} />

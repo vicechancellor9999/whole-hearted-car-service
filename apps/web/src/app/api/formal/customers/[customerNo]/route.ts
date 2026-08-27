@@ -27,14 +27,16 @@ async function forward(
 
 export async function GET(
   request: Request,
-  context: { params: { customerNo: string } },
+  context: { params: Promise<{ customerNo: string }> },
 ): Promise<Response> {
-  return forward(request, context.params.customerNo, "GET");
+  const { customerNo } = await context.params;
+  return forward(request, customerNo, "GET");
 }
 
 export async function PATCH(
   request: Request,
-  context: { params: { customerNo: string } },
+  context: { params: Promise<{ customerNo: string }> },
 ): Promise<Response> {
-  return forward(request, context.params.customerNo, "PATCH");
+  const { customerNo } = await context.params;
+  return forward(request, customerNo, "PATCH");
 }

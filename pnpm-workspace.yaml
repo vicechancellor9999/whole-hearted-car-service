@@ -1,5 +1,6 @@
 packages:
   - .
+  - apps/web
 allowBuilds:
   '@embedded-postgres/darwin-arm64': true
   argon2: true

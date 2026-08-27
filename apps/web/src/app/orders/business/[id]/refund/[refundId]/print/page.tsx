@@ -3,14 +3,15 @@ import { FormalRefundAcknowledgementPrintSheet } from "@/components/orders/forma
 
 export const dynamic = "force-dynamic";
 
-export default function RefundReceiptPrintPage({
+export default async function RefundReceiptPrintPage({
   params,
 }: {
-  params: { id: string; refundId: string };
+  params: Promise<{ id: string; refundId: string }>;
 }) {
+  const { id, refundId } = await params;
   return (
     <Suspense fallback={<div className="p-8 text-sm text-ink-soft">加载退款单…</div>}>
-      <FormalRefundAcknowledgementPrintSheet orderId={Number(params.id)} refundId={Number(params.refundId)} />
+      <FormalRefundAcknowledgementPrintSheet orderId={Number(id)} refundId={Number(refundId)} />
     </Suspense>
   );
 }

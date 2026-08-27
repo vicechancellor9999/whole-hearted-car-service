@@ -79,7 +79,7 @@ function dataUrl(mimeType: EvidenceMimeType, bytes: Uint8Array): string {
   return `data:${mimeType};base64,${bytesToBase64(bytes)}`;
 }
 
-async function compressImageFile(file: File): Promise<Uint8Array> {
+async function compressImageFile(file: File): Promise<Uint8Array<ArrayBuffer>> {
   if (typeof document === "undefined" || typeof Image === "undefined" || typeof URL.createObjectURL !== "function") {
     invalidEvidence();
   }
@@ -104,7 +104,7 @@ async function compressImageFile(file: File): Promise<Uint8Array> {
       const qualities = file.type === "image/jpeg" ? [0.85, 0.7, 0.55, 0.4] : [undefined];
       for (const quality of qualities) {
         const candidate = readDataUrl(canvas.toDataURL(file.type, quality));
-        if (candidate.bytes.byteLength <= MAX_EVIDENCE_ASSET_BYTES) return candidate.bytes;
+        if (candidate.bytes.byteLength <= MAX_EVIDENCE_ASSET_BYTES) return new Uint8Array(candidate.bytes);
       }
       width = Math.max(1, Math.floor(width * 0.7));
       height = Math.max(1, Math.floor(height * 0.7));

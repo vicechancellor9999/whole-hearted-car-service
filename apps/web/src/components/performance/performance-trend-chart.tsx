@@ -161,7 +161,7 @@ export function PerformanceTrendChart({ currentSnapshot, history, selected }: Pe
                 : value >= 1_000 ? `${Math.round(value / 1_000)}K` : String(Math.round(value))}
             />
             <Tooltip
-              formatter={(value: number) => formatMetric(value, metric)}
+              formatter={(value) => formatMetric(Number(value ?? 0), metric)}
               labelFormatter={(label) => String(label)}
               contentStyle={{
                 borderRadius: 10,

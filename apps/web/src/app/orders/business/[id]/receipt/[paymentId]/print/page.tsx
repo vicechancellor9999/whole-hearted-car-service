@@ -3,17 +3,21 @@ import { FormalReceiptPrintSheet } from "@/components/orders/formal-business-ord
 
 export const dynamic = "force-dynamic";
 
-export default function PaymentReceiptPrintPage({
+export default async function PaymentReceiptPrintPage({
   params,
   searchParams,
 }: {
-  params: { id: string; paymentId: string };
-  searchParams?: { copy?: string };
+  params: Promise<{ id: string; paymentId: string }>;
+  searchParams?: Promise<{ copy?: string }>;
 }) {
-  const copy = searchParams?.copy === "en" ? "en" : "zh";
+  const [{ id, paymentId }, resolvedSearchParams] = await Promise.all([
+    params,
+    searchParams ?? Promise.resolve<{ copy?: string }>({}),
+  ]);
+  const copy = resolvedSearchParams.copy === "en" ? "en" : "zh";
   return (
     <Suspense fallback={<div className="p-8 text-sm text-ink-soft">加载 Receipt…</div>}>
-      <FormalReceiptPrintSheet orderId={Number(params.id)} receiptId={Number(params.paymentId)} copy={copy} />
+      <FormalReceiptPrintSheet orderId={Number(id)} receiptId={Number(paymentId)} copy={copy} />
     </Suspense>
   );
 }
