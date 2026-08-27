@@ -44,6 +44,7 @@ import { VerificationRiskSections } from "./verification-risk-sections";
 import { VerificationEvidenceSection } from "./verification-evidence-section";
 import { CustomerAuditHistory } from "./customer-audit-history";
 import { CreditEligibilityDialog } from "./credit-eligibility-dialog";
+import { FormalCustomerLicenseCard } from "./formal-customer-license-card";
 import { loadFormalSafeLinkedOperations } from "@/lib/customers/formal-customer-vehicle-consumer";
 
 interface CustomerDetailPageProps {
@@ -186,6 +187,10 @@ export function CustomerDetailPage({ customerId }: CustomerDetailPageProps) {
     : customer.transliterationStatus === "needs_transliteration_review"
       ? "待补中文音译"
       : "待补主要联系人";
+  const primaryContact = organization
+    ? companyContacts.find((contact) => contact.isActive && contact.isPrimary) ?? null
+    : null;
+  const hasPrimaryContact = !organization || Boolean(primaryContact);
 
   return (
     <div data-testid="customer-detail-page" className="min-h-full min-w-0 bg-[var(--wh-page-bg)] p-3 sm:p-6">
@@ -335,6 +340,14 @@ export function CustomerDetailPage({ customerId }: CustomerDetailPageProps) {
               </div>
             </div>
           </DetailSection>
+          {isFormalCustomerVehicleApiEnabled ? (
+            <FormalCustomerLicenseCard
+              customerNo={customer.id}
+              organization={organization}
+              primaryContactName={primaryContact?.personalCustomerName ?? null}
+              hasPrimaryContact={hasPrimaryContact}
+            />
+          ) : null}
           {!isFormalCustomerVehicleApiEnabled ? <VerificationRiskSections customer={customer} onChanged={() => setReloadSequence((value) => value + 1)} /> : null}
 
 
