@@ -1,0 +1,23 @@
+"use client";
+
+import { useEffect, useState } from "react";
+import { X } from "lucide-react";
+import { createFormalInspectionReport } from "@/lib/api/formal-inspections";
+import { fetchFormalMasterData, type FormalStaffMember } from "@/lib/api/formal-master-data";
+import { fetchFormalCustomerVehicleWorkspace, type FormalVehicle } from "@/lib/customers/formal-customer-vehicle-adapter";
+
+export function FormalInspectionCreateDialog({ vehicleId, sourceBusinessOrderId, onClose, onCreated }: { vehicleId?: number; sourceBusinessOrderId?: number; onClose(): void; onCreated(): void }) {
+  const [staff, setStaff] = useState<FormalStaffMember[]>([]);
+  const [inspectorId, setInspectorId] = useState("");
+  const [summaryZh, setSummaryZh] = useState("");
+  const [findingZh, setFindingZh] = useState("");
+  const [recommendationZh, setRecommendationZh] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [vehicles, setVehicles] = useState<FormalVehicle[]>([]);
+  const [selectedVehicleId, setSelectedVehicleId] = useState(vehicleId ? String(vehicleId) : "");
+  useEffect(() => { void fetchFormalMasterData().then((data) => setStaff(data.staff.filter((item) => item.status === "active"))).catch((caught) => setError(caught instanceof Error ? caught.message : "无法读取检查人员")); }, []);
+  useEffect(() => { if (vehicleId) return; void fetchFormalCustomerVehicleWorkspace().then((data) => setVehicles(data.vehicles.filter((item) => item.isActive))).catch((caught) => setError(caught instanceof Error ? caught.message : "无法读取车辆")); }, [vehicleId]);
+  const submit = async (event: React.FormEvent) => { event.preventDefault(); setBusy(true); setError(null); try { await createFormalInspectionReport({ vehicleId: Number(selectedVehicleId), ...(sourceBusinessOrderId ? { sourceBusinessOrderId } : {}), actualInspectorStaffMemberId: Number(inspectorId), summaryZh, findings: [{ findingZh, ...(recommendationZh ? { recommendationZh } : {}) }] }); onCreated(); } catch (caught) { setError(caught instanceof Error ? caught.message : "创建失败"); } finally { setBusy(false); } };
+  return <div role="dialog" aria-modal="true" aria-label="新建检查结果" className="fixed inset-0 z-50 flex items-center justify-center bg-black/45 p-3"><form onSubmit={submit} className="w-full max-w-xl rounded-[22px] bg-white p-5 shadow-card dark:bg-slate-800"><div className="flex justify-between"><div><h2 className="font-bold">新建正式检查结果</h2><p className="mt-1 text-xs text-ink-soft">归属车辆；Business Order 仅可选作为来源。</p></div><button type="button" onClick={onClose} className="rounded-lg border p-2"><X size={15} /></button></div>{!vehicleId ? <label className="mt-4 block text-xs font-semibold">车辆<select required value={selectedVehicleId} onChange={(event) => setSelectedVehicleId(event.target.value)} className="mt-1 min-h-10 w-full rounded-lg border border-line px-3"><option value="">选择车辆</option>{vehicles.map((item) => <option key={item.id} value={item.id}>{item.plateDisplay ?? item.vehicleNo} · {item.makeZh ?? item.make} {item.modelZh ?? item.model}</option>)}</select></label> : null}<label className="mt-4 block text-xs font-semibold">实际检查人<select required value={inspectorId} onChange={(event) => setInspectorId(event.target.value)} className="mt-1 min-h-10 w-full rounded-lg border border-line px-3"><option value="">选择检查人</option>{staff.map((item) => <option key={item.id} value={item.id}>{item.fullName}</option>)}</select></label><label className="mt-3 block text-xs font-semibold">检查总结<textarea required value={summaryZh} onChange={(event) => setSummaryZh(event.target.value)} className="mt-1 min-h-20 w-full rounded-lg border border-line p-3" /></label><label className="mt-3 block text-xs font-semibold">检查结果<textarea required value={findingZh} onChange={(event) => setFindingZh(event.target.value)} className="mt-1 min-h-16 w-full rounded-lg border border-line p-3" /></label><label className="mt-3 block text-xs font-semibold">建议（可选）<textarea value={recommendationZh} onChange={(event) => setRecommendationZh(event.target.value)} className="mt-1 min-h-16 w-full rounded-lg border border-line p-3" /></label>{error ? <p className="mt-3 text-xs font-semibold text-rose-600">{error}</p> : null}<div className="mt-4 flex justify-end gap-2"><button type="button" onClick={onClose} className="min-h-10 rounded-lg border px-4 text-xs font-bold">取消</button><button disabled={busy || !inspectorId || !selectedVehicleId} className="min-h-10 rounded-lg bg-primary px-4 text-xs font-bold text-white disabled:opacity-50">{busy ? "创建中…" : vehicleId ? "创建并留在本单" : "创建检查结果"}</button></div></form></div>;
+}

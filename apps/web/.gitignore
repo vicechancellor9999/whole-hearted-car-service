@@ -1,0 +1,13 @@
+node_modules
+.next
+.next.bak-*
+out
+build
+.DS_Store
+*.pem
+npm-debug.log*
+.env*.local
+*.tsbuildinfo
+.superpowers/
+test-results/
+playwright-results/
