@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { currentSession } from "@formal/modules/auth/current-session";
 import {
   getPublicVehicleDocumentAiSettings,
   saveVehicleDocumentAiSettings,
@@ -9,21 +10,11 @@ import {
 
 export const runtime = "nodejs";
 
-const FORMAL_BACKEND_ORIGIN = process.env.FORMAL_BACKEND_ORIGIN ?? "http://127.0.0.1:3211";
-
-async function requireSuperAdministrator(request: Request): Promise<Response | null> {
+async function requireSuperAdministrator(): Promise<Response | null> {
   try {
-    const response = await fetch(`${FORMAL_BACKEND_ORIGIN}/api/auth/session`, {
-      headers: {
-        cookie: request.headers.get("cookie") ?? "",
-        "user-agent": request.headers.get("user-agent") ?? "Whole Hearted Web",
-        "x-request-id": request.headers.get("x-request-id") ?? crypto.randomUUID(),
-      },
-      cache: "no-store",
-    });
-    if (!response.ok) return NextResponse.json({ error: "请先登录" }, { status: 401 });
-    const payload = await response.json() as { account?: { role?: string } };
-    if (payload.account?.role !== "super_admin") {
+    const session = await currentSession();
+    if (!session) return NextResponse.json({ error: "请先登录" }, { status: 401 });
+    if (session.account.role !== "super_admin") {
       return NextResponse.json({ error: "只有超级管理员可以维护识别服务" }, { status: 403 });
     }
     return null;
@@ -33,7 +24,8 @@ async function requireSuperAdministrator(request: Request): Promise<Response | n
 }
 
 export async function GET(request: Request) {
-  const denied = await requireSuperAdministrator(request);
+  void request;
+  const denied = await requireSuperAdministrator();
   if (denied) return denied;
   try {
     return NextResponse.json(await getPublicVehicleDocumentAiSettings());
@@ -43,7 +35,7 @@ export async function GET(request: Request) {
 }
 
 export async function PUT(request: Request) {
-  const denied = await requireSuperAdministrator(request);
+  const denied = await requireSuperAdministrator();
   if (denied) return denied;
   try {
     const body = await request.json() as Record<string, unknown>;
@@ -67,7 +59,8 @@ export async function PUT(request: Request) {
 }
 
 export async function POST(request: Request) {
-  const denied = await requireSuperAdministrator(request);
+  void request;
+  const denied = await requireSuperAdministrator();
   if (denied) return denied;
   try {
     const result = await testVehicleDocumentAiConnection();

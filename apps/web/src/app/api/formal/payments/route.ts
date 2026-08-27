@@ -1,5 +1,1 @@
-import { forwardFormalBackend } from "@/lib/api/formal-backend-proxy";
-
-export async function GET(request: Request): Promise<Response> {
-  return forwardFormalBackend(request, "/api/payments", "none");
-}
+export { GET } from "@formal/app/api/payments/route";

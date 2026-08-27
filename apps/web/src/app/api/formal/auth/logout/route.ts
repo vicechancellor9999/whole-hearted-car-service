@@ -1,20 +1,16 @@
 import { NextResponse } from "next/server";
+import { POST as formalLogout } from "@formal/app/api/auth/logout/route";
 
-const FORMAL_BACKEND_ORIGIN = process.env.FORMAL_BACKEND_ORIGIN ?? "http://127.0.0.1:3211";
+type FormalLogoutHandler = (request: Request) => Promise<Response>;
 
-export async function POST(request: Request): Promise<Response> {
-  const backendResponse = await fetch(`${FORMAL_BACKEND_ORIGIN}/api/auth/logout`, {
-    method: "POST",
-    headers: {
-      cookie: request.headers.get("cookie") ?? "",
-      "user-agent": request.headers.get("user-agent") ?? "Whole Hearted Web",
-      "x-forwarded-for": request.headers.get("x-forwarded-for") ?? "127.0.0.1",
-      "x-request-id": request.headers.get("x-request-id") ?? crypto.randomUUID(),
-    },
-    cache: "no-store",
-  });
-  const response = NextResponse.redirect(new URL("/login", request.url), 303);
-  const expiredCookie = backendResponse.headers.get("set-cookie");
-  if (expiredCookie) response.headers.set("set-cookie", expiredCookie);
-  return response;
+export function createFormalLogoutAdapter(handler: FormalLogoutHandler) {
+  return async function formalLogoutAdapter(request: Request): Promise<Response> {
+    const formalResponse = await handler(request);
+    const response = NextResponse.redirect(new URL("/login", request.url), 303);
+    const expiredCookie = formalResponse.headers.get("set-cookie");
+    if (expiredCookie) response.headers.set("set-cookie", expiredCookie);
+    return response;
+  };
 }
+
+export const POST = createFormalLogoutAdapter(formalLogout);
