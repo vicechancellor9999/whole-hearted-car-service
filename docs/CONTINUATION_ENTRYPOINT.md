@@ -1,12 +1,12 @@
 # Whole Hearted 正式系统续接入口
 
-**最后更新：** 2026-08-26（Jamaica）\
+**最后更新：** 2026-08-27（Jamaica）\
 **正式仓库：** `/Volumes/公司文件/Whole Hearted Car Service 正式系统`
 
 每次继续开发时，按以下顺序读取：
 
-1. `docs/superpowers/specs/2026-08-25-single-formal-repository-rescue-design.md`：已批准的救援设计与权威来源顺序。
-2. `docs/superpowers/specs/2026-08-27-single-application-consolidation-design.md`：已批准的单应用设计。
+1. `docs/superpowers/specs/2026-08-27-3210-canonical-single-app-design.md`：当前 3210 单体应用设计。
+2. `docs/superpowers/specs/2026-08-25-single-formal-repository-rescue-design.md`：正式数据、权限和业务来源顺序。
 3. `docs/architecture/FORMAL_SYSTEM_BUSINESS_BASELINE.md`：候选业务基线（未批准），仅用于保留候选条款来源。
 4. `docs/acceptance/FORMAL_SYSTEM_END_TO_END_ACCEPTANCE.md`：候选端到端验收清单（未批准），不构成最终验收判定依据。
 
@@ -14,7 +14,7 @@
 
 ## 当前目标
 
-把现有 PC 正式系统接到统一正式后端，形成可以由用户实际操作和复算的单店业务闭环：
+以当前 3210 PC 系统为唯一应用界面，把正式服务与 PostgreSQL 能力并入同一个 Next.js 16 进程，形成可以由用户实际操作和复算的单店业务闭环：
 
 ```text
 客户与车辆
@@ -47,6 +47,7 @@
 
 ## 当前状态
 
+- 当前 3210 界面已确定为唯一应用界面；候选版本在隔离工作区和 3220 端口开发与验收。
+- 现有 3210、3211 和当前数据库在候选通过前保持不变。
 - 已记录候选业务基线与候选端到端验收清单；二者尚未获得业务批准。
-- 正在修复经营概览、收入区间、客户和车辆正式数据链路。
-- 后续必须补齐 Business Order 全链路、Inspection Report、设置与字典、性能和浏览器验收。
+- 正在把现有正式接口改为单进程调用，并恢复经营概览与绩效目标计算。
