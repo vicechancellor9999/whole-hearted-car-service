@@ -16,6 +16,14 @@ function dashboardDatabase(input: {
   transactions?: Array<{ kind: "payment" | "refund"; amount_minor: number; occurred_at: Date }>;
   handoffs?: Array<{ handed_off_at: Date }>;
   teams?: Array<{ id: number; name: string; performance_minor: number }>;
+  payrollParameters?: Array<{ commission_rate: string; cny_to_jmd_rate: string }>;
+  targetMembers?: Array<{
+    team_id: number;
+    team_name: string;
+    member_id: number;
+    member_name: string;
+    salary_cny_minor: number | null;
+  }>;
   queries?: string[];
 }): AuthSqlDatabase {
   return {
@@ -24,6 +32,12 @@ function dashboardDatabase(input: {
       if (text.includes("set transaction isolation level")) return [] as Row[];
       if (text.includes("from staff_accounts")) return [{ id: 1 }] as unknown as Row[];
       if (text.includes("from repair_teams as team")) return (input.teams ?? []) as unknown as Row[];
+      if (text.includes("from payroll_parameter_versions")) {
+        return (input.payrollParameters ?? []) as unknown as Row[];
+      }
+      if (text.includes("from staff_members as member") && text.includes("join lateral")) {
+        return (input.targetMembers ?? []) as unknown as Row[];
+      }
       if (text.includes("from business_orders as business_order") && text.includes("left join business_order_charge_versions")) {
         return input.orders as unknown as Row[];
       }
@@ -91,7 +105,7 @@ describe("DashboardService", () => {
     });
   });
 
-  it("returns an explicit unconfigured target state instead of a false zero-percent target", async () => {
+  it("returns the exact missing target reason instead of a false zero-percent target", async () => {
     const service = new DashboardService(dashboardDatabase({
       orders: [],
       teams: [{ id: 7, name: "机修一组", performance_minor: 320_000 }],
@@ -107,6 +121,7 @@ describe("DashboardService", () => {
       targetCompletionRate: null,
       targetCompletedAmount: 3200,
       targetTotalAmount: null,
+      targetMissingReasons: ["缺少 2026-08 绩效参数"],
     });
     expect(summary.teamPerformance.teams).toEqual([expect.objectContaining({
       id: "7",
@@ -114,6 +129,43 @@ describe("DashboardService", () => {
       targetStatus: "not_configured",
       completionRate: null,
       targetAmount: null,
+      targetMissingReasons: ["缺少 2026-08 绩效参数"],
+    })]);
+  });
+
+  it("calculates the dashboard shop and team target from effective salary parameters", async () => {
+    const service = new DashboardService(dashboardDatabase({
+      orders: [],
+      teams: [{ id: 7, name: "机修一组", performance_minor: 8_800_000 }],
+      payrollParameters: [{ commission_rate: "0.25", cny_to_jmd_rate: "22" }],
+      targetMembers: [{
+        team_id: 7,
+        team_name: "机修一组",
+        member_id: 3,
+        member_name: "张三",
+        salary_cny_minor: 200_000,
+      }],
+    }));
+
+    const summary = await service.getSummary({
+      viewerAccountId: 1,
+      now: new Date("2026-08-26T15:00:00Z"),
+    });
+
+    expect(summary.header).toMatchObject({
+      targetStatus: "configured",
+      targetCompletionRate: 50,
+      targetCompletedAmount: 88_000,
+      targetTotalAmount: 176_000,
+      targetMissingReasons: [],
+    });
+    expect(summary.teamPerformance.teams).toEqual([expect.objectContaining({
+      id: "7",
+      currentAmount: 88_000,
+      targetStatus: "configured",
+      completionRate: 50,
+      targetAmount: 176_000,
+      targetMissingReasons: [],
     })]);
   });
 

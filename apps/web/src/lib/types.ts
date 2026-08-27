@@ -74,6 +74,7 @@ export interface DashboardHeader {
   targetCompletionRate: number | null;
   targetCompletedAmount: number;
   targetTotalAmount: number | null;
+  targetMissingReasons: string[];
 }
 
 export interface TeamPerformance {
@@ -91,6 +92,7 @@ export interface TeamPerformanceItem {
   completionRate: number | null;
   currentAmount: number;
   targetAmount: number | null;
+  targetMissingReasons: string[];
   color: string;
 }
 

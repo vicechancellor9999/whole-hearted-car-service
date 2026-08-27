@@ -348,7 +348,7 @@ describe("PerformanceService", () => {
       targetStatus: "not_configured",
       targetPerformanceMinor: null,
       completionRate: null,
-      teams: expect.arrayContaining([{
+      teams: expect.arrayContaining([expect.objectContaining({
         teamId: teamOneId,
         teamName: "维修一组",
         handoffCount: 1,
@@ -357,7 +357,8 @@ describe("PerformanceService", () => {
         targetStatus: "not_configured",
         targetPerformanceMinor: null,
         completionRate: null,
-      }, {
+        targetMissingReasons: ["缺少 2026-08 绩效参数"],
+      }), expect.objectContaining({
         teamId: teamTwoId,
         teamName: "维修二组",
         handoffCount: 0,
@@ -366,7 +367,8 @@ describe("PerformanceService", () => {
         targetStatus: "not_configured",
         targetPerformanceMinor: null,
         completionRate: null,
-      }]),
+        targetMissingReasons: ["缺少 2026-08 绩效参数"],
+      })]),
     });
     const september = await performance.getMonthlyPerformance({
       month: "2026-09",
@@ -408,5 +410,83 @@ describe("PerformanceService", () => {
       month: "2026-08",
       viewerAccountId: mechanicOneAccountId,
     })).rejects.toBeInstanceOf(PerformanceReadDeniedError);
+  });
+
+  it("uses the latest effective payroll, salary and team versions to calculate monthly targets", async () => {
+    await database.query(
+      `insert into staff_team_assignment_versions
+        (staff_member_id, effective_month, team_id, set_by)
+       values ($1, date '2026-08-01', $3, $5),
+              ($2, date '2026-08-01', $4, $5)`,
+      [mechanicOneStaffId, mechanicTwoStaffId, teamOneId, teamTwoId, adminId],
+    );
+    await database.query(
+      `insert into employee_salary_versions
+        (staff_member_id, effective_month, base_salary_cny_minor, set_by)
+       values ($1, date '2026-08-01', 200000, $3),
+              ($2, date '2026-08-01', 100000, $3)`,
+      [mechanicOneStaffId, mechanicTwoStaffId, adminId],
+    );
+    await database.query(
+      `insert into payroll_parameter_versions
+        (effective_month, commission_rate, cny_to_jmd_rate, set_by)
+       values (date '2026-07-01', 0.25, 22, $1)`,
+      [adminId],
+    );
+
+    const august = await performance.getMonthlyPerformance({
+      month: "2026-08",
+      viewerAccountId: ownerId,
+    });
+
+    expect(august).toMatchObject({
+      targetStatus: "configured",
+      targetPerformanceMinor: 26_400_000,
+      completionRate: 0,
+      targetMissingReasons: [],
+      teams: expect.arrayContaining([expect.objectContaining({
+        teamId: teamOneId,
+        targetStatus: "configured",
+        targetPerformanceMinor: 17_600_000,
+        completionRate: 0,
+        targetMissingReasons: [],
+      }), expect.objectContaining({
+        teamId: teamTwoId,
+        targetStatus: "configured",
+        targetPerformanceMinor: 8_800_000,
+        completionRate: 0,
+        targetMissingReasons: [],
+      })]),
+    });
+  });
+
+  it("returns the named member when an effective salary is missing", async () => {
+    await database.query(
+      `insert into staff_team_assignment_versions
+        (staff_member_id, effective_month, team_id, set_by)
+       values ($1, date '2026-08-01', $2, $3)`,
+      [mechanicOneStaffId, teamOneId, adminId],
+    );
+    await database.query(
+      `insert into payroll_parameter_versions
+        (effective_month, commission_rate, cny_to_jmd_rate, set_by)
+       values (date '2026-08-01', 0.25, 22, $1)`,
+      [adminId],
+    );
+
+    await expect(performance.getMonthlyPerformance({
+      month: "2026-08",
+      viewerAccountId: ownerId,
+    })).resolves.toMatchObject({
+      targetStatus: "not_configured",
+      targetPerformanceMinor: null,
+      completionRate: null,
+      targetMissingReasons: ["维修一组：维修一组成员缺少月标准工资"],
+      teams: expect.arrayContaining([expect.objectContaining({
+        teamId: teamOneId,
+        targetStatus: "not_configured",
+        targetMissingReasons: ["维修一组：维修一组成员缺少月标准工资"],
+      })]),
+    });
   });
 });

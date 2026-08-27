@@ -11,13 +11,15 @@ test("performance bypasses the Mock dispatcher and reads the formal monthly proj
       targetStatus: "not_configured",
       targetPerformanceMinor: null,
       completionRate: null,
+      targetMissingReasons: ["缺少 2026-08 绩效参数"],
       teams: [],
       handoffs: [],
     }), { status: 200, headers: { "content-type": "application/json" } });
   }) as typeof fetch;
   try {
-    await fetchFormalPerformance("2026-08");
+    const result = await fetchFormalPerformance("2026-08");
     expect(requested).toBe("/api/formal/performance?month=2026-08");
+    expect(result.targetMissingReasons).toEqual(["缺少 2026-08 绩效参数"]);
   } finally {
     globalThis.fetch = originalFetch;
   }

@@ -31,6 +31,9 @@ export function PerformanceWorkspace() {
   const teamHandoffs = selectedTeam
     ? (summary?.handoffs.filter((handoff) => handoff.teamId === selectedTeam.teamId) ?? [])
     : [];
+  const targetConfigured = selectedTeam?.targetStatus === "configured"
+    && selectedTeam.targetPerformanceMinor !== null;
+  const targetMissingReason = selectedTeam?.targetMissingReasons[0] ?? "目标资料不完整";
 
   useEffect(() => {
     let cancelled = false;
@@ -55,7 +58,16 @@ export function PerformanceWorkspace() {
                 <p className="text-[11px] text-ink-soft dark:text-slate-400">{month.replace("-", "年")}月 · 正式业务事实</p>
                 <h2 data-testid="performance-team-name" className="mt-1 text-xl font-bold text-ink dark:text-slate-100">{selectedTeam?.teamName ?? "维修班组"}</h2>
               </div>
-              <span className="rounded-lg border border-amber-300 bg-amber-50 px-3 py-2 text-xs font-semibold text-amber-800 dark:border-amber-500/40 dark:bg-amber-500/10 dark:text-amber-200">绩效目标：未设置目标</span>
+              <span className={cn(
+                "rounded-lg border px-3 py-2 text-xs font-semibold",
+                targetConfigured
+                  ? "border-emerald-300 bg-emerald-50 text-emerald-800 dark:border-emerald-500/40 dark:bg-emerald-500/10 dark:text-emerald-200"
+                  : "border-amber-300 bg-amber-50 text-amber-800 dark:border-amber-500/40 dark:bg-amber-500/10 dark:text-amber-200",
+              )}>
+                {targetConfigured
+                  ? `绩效目标：${formatPerformance(selectedTeam.targetPerformanceMinor!)}`
+                  : targetMissingReason}
+              </span>
             </div>
             {teams.length > 0 ? (
               <nav aria-label="切换班组" data-testid="performance-team-switcher" className="mt-4 flex flex-wrap gap-2">
@@ -87,7 +99,24 @@ export function PerformanceWorkspace() {
               <div className="grid gap-3 sm:grid-cols-3">
                 <div className="rounded-xl border border-line p-4 dark:border-slate-700"><p className="text-[11px] text-ink-soft">本月正式交单绩效</p><p data-testid="performance-counted-value" className="mt-2 text-xl font-bold tabular-nums">{formatPerformance(selectedTeam.performanceMinor)}</p><p className="mt-1 text-[11px] text-ink-soft">{selectedTeam.handoffCount} 次有效正式交单</p></div>
                 <div className="rounded-xl border border-line p-4 dark:border-slate-700"><p className="text-[11px] text-ink-soft">本班组当月已取消交单</p><p data-testid="performance-cancelled-count" className="mt-2 text-xl font-bold tabular-nums">{selectedTeam.cancelledHandoffCount} 次</p><p className="mt-1 text-[11px] text-ink-soft">取消事实已从有效绩效中排除</p></div>
-                <div className="rounded-xl border border-amber-200 bg-amber-50/60 p-4 dark:border-amber-500/30 dark:bg-amber-500/5"><p className="text-[11px] text-ink-soft">绩效目标 / 完成率</p><p data-testid="performance-target-status" className="mt-2 text-xl font-bold">未设置目标</p><p className="mt-1 text-[11px] text-ink-soft">尚无正式目标配置，不能计算完成率</p></div>
+                <div className={cn("rounded-xl border p-4", targetConfigured ? "border-emerald-200 bg-emerald-50/60 dark:border-emerald-500/30 dark:bg-emerald-500/5" : "border-amber-200 bg-amber-50/60 dark:border-amber-500/30 dark:bg-amber-500/5")}>
+                  <p className="text-[11px] text-ink-soft">绩效目标 / 完成率</p>
+                  <p data-testid="performance-target-status" className="mt-2 text-xl font-bold">
+                    {targetConfigured
+                      ? selectedTeam.completionRate === null
+                        ? "完成率不适用"
+                        : `${selectedTeam.completionRate}%`
+                      : targetMissingReason}
+                  </p>
+                  <p className="mt-1 text-[11px] text-ink-soft">
+                    {targetConfigured
+                      ? `已完成 ${formatPerformance(selectedTeam.performanceMinor)} / 目标 ${formatPerformance(selectedTeam.targetPerformanceMinor!)}`
+                      : "请在员工与工资参数中补齐上述月度资料"}
+                  </p>
+                  {!targetConfigured && selectedTeam.targetMissingReasons.length > 1 ? (
+                    <p className="sr-only">{selectedTeam.targetMissingReasons.slice(1).join("；")}</p>
+                  ) : null}
+                </div>
               </div>
 
               <div className="rounded-xl border border-line dark:border-slate-700">

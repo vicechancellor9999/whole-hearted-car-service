@@ -280,6 +280,7 @@ export function selectMockLiveDashboard(
       targetCompletionRate: null,
       targetCompletedAmount: 0,
       targetTotalAmount: null,
+      targetMissingReasons: ["Mock 数据没有正式月度工资参数"],
     },
     teamPerformance: {
       title: "维修班组与绩效",
@@ -293,6 +294,7 @@ export function selectMockLiveDashboard(
         completionRate: null,
         currentAmount: 0,
         targetAmount: null,
+        targetMissingReasons: ["Mock 数据没有正式月度工资参数"],
         color: ["#465fff", "#10b981", "#f59e0b", "#8b5cf6"][index % 4]!,
       })),
     },

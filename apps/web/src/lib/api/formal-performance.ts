@@ -14,18 +14,20 @@ export type FormalMonthlyPerformance = {
   month: string;
   totalPerformanceMinor: number;
   cancelledHandoffCount: number;
-  targetStatus: "not_configured";
-  targetPerformanceMinor: null;
-  completionRate: null;
+  targetStatus: "configured" | "not_configured";
+  targetPerformanceMinor: number | null;
+  completionRate: number | null;
+  targetMissingReasons: string[];
   teams: Array<{
     teamId: number;
     teamName: string;
     handoffCount: number;
     cancelledHandoffCount: number;
     performanceMinor: number;
-    targetStatus: "not_configured";
-    targetPerformanceMinor: null;
-    completionRate: null;
+    targetStatus: "configured" | "not_configured";
+    targetPerformanceMinor: number | null;
+    completionRate: number | null;
+    targetMissingReasons: string[];
   }>;
   handoffs: FormalPerformanceHandoff[];
 };

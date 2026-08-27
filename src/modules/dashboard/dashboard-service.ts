@@ -2,6 +2,11 @@ import type {
   AuthSqlDatabase,
   AuthSqlExecutor,
 } from "@formal/modules/auth/session-repository";
+import {
+  calculateCompletionRate,
+  readPerformanceTargets,
+  type PerformanceTargetResult,
+} from "@formal/modules/performance/performance-target";
 
 type OrderLedgerRow = {
   id: number;
@@ -32,7 +37,7 @@ export class DashboardService {
     return this.database.transaction(async (snapshot) => {
       await snapshot.query("set transaction isolation level repeatable read read only");
       await requireReader(snapshot, input.viewerAccountId);
-      const [orders, transactions, handoffs, teams] = await Promise.all([
+      const [orders, transactions, handoffs, teams, targets] = await Promise.all([
         snapshot.query<OrderLedgerRow>(
         `select business_order.id, business_order.status, business_order.created_at,
                 coalesce(charge.total_due_minor, 0)::bigint as total_due_minor,
@@ -108,8 +113,9 @@ export class DashboardService {
          order by team.name, team.id`,
           [`${month}-01`, now],
         ),
+        readPerformanceTargets(snapshot, month),
       ]);
-      return projectDashboard({ now, orders, transactions, handoffs, teams });
+      return projectDashboard({ now, orders, transactions, handoffs, teams, targets });
     });
   }
 }
@@ -120,7 +126,9 @@ function projectDashboard(input: {
   transactions: TransactionRow[];
   handoffs: HandoffRow[];
   teams: TeamRow[];
+  targets: PerformanceTargetResult;
 }) {
+  const month = jamaicaMonth(input.now);
   const periods = (["day", "week", "month"] as const).map((range) => {
     const start = periodStart(input.now, range);
     const transactionRows = input.transactions.filter((row) => (
@@ -180,27 +188,42 @@ function projectDashboard(input: {
       subtitle: "每日、每周、每月汇总正式 Business Order、逐笔收款、逐笔退款与绩效事实；新增或修改后立即重算。",
       dateLabel: date.dateLabel,
       dateTime: date.dateTime,
-      // Existing payroll versions contain compensation parameters, not performance targets.
-      // Do not convert salary or commission data into a fabricated target.
-      targetStatus: "not_configured" as const,
-      targetCompletionRate: null,
+      targetStatus: input.targets.targetStatus,
+      targetCompletionRate: input.targets.targetStatus === "configured"
+        ? calculateCompletionRate(
+          currentMonthPerformanceMinor,
+          input.targets.targetPerformanceMinor ?? 0,
+        )
+        : null,
       targetCompletedAmount: toJmd(currentMonthPerformanceMinor),
-      targetTotalAmount: null,
+      targetTotalAmount: input.targets.targetPerformanceMinor === null
+        ? null
+        : toJmd(input.targets.targetPerformanceMinor),
+      targetMissingReasons: input.targets.targetMissingReasons,
     },
     teamPerformance: {
       title: "维修班组与绩效",
       dateRange: date.monthLabel,
-      hint: "班组和员工由超级管理员维护，正式交单后这里显示绩效。",
+      hint: "目标按员工月标准工资、工时费提成比例和汇率自动计算。",
       actionText: "查看绩效",
-      teams: input.teams.map((team, index) => ({
-        id: String(team.id),
-        name: team.name,
-        targetStatus: "not_configured" as const,
-        completionRate: null,
-        currentAmount: toJmd(Number(team.performance_minor)),
-        targetAmount: null,
-        color: ["#465fff", "#10b981", "#f59e0b", "#8b5cf6"][index % 4]!,
-      })),
+      teams: input.teams.map((team, index) => {
+        const target = dashboardTeamTarget(input.targets, month, Number(team.id));
+        const performanceMinor = Number(team.performance_minor);
+        return {
+          id: String(team.id),
+          name: team.name,
+          targetStatus: target.targetStatus,
+          completionRate: target.targetStatus === "configured"
+            ? calculateCompletionRate(performanceMinor, target.targetPerformanceMinor ?? 0)
+            : null,
+          currentAmount: toJmd(performanceMinor),
+          targetAmount: target.targetPerformanceMinor === null
+            ? null
+            : toJmd(target.targetPerformanceMinor),
+          targetMissingReasons: target.targetMissingReasons,
+          color: ["#465fff", "#10b981", "#f59e0b", "#8b5cf6"][index % 4]!,
+        };
+      }),
     },
     periods,
   };
@@ -264,6 +287,24 @@ function projectDashboard(input: {
         { label: "多收款 Business Order", value: `${overpaidOrders.length} 项` },
       ], size: "small", icon: "ShieldAlert", iconColor: "#ef4444", iconBg: "#fef2f2", tone: "rose",
     }],
+  };
+}
+
+function dashboardTeamTarget(
+  targets: PerformanceTargetResult,
+  month: string,
+  teamId: number,
+) {
+  const target = targets.teams.find((item) => item.teamId === teamId);
+  if (target) return target;
+  const parameterReason = `缺少 ${month} 绩效参数`;
+  const parameterMissing = targets.targetMissingReasons.includes(parameterReason);
+  return {
+    teamId,
+    teamName: "",
+    targetStatus: parameterMissing ? "not_configured" as const : "configured" as const,
+    targetPerformanceMinor: parameterMissing ? null : 0,
+    targetMissingReasons: parameterMissing ? [parameterReason] : [],
   };
 }
 

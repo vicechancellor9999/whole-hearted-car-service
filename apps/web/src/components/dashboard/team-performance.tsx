@@ -12,8 +12,8 @@ interface TeamPerformanceSectionProps {
 
 export function TeamPerformanceSection({ data, header }: TeamPerformanceSectionProps) {
   const shopTargetConfigured = header?.targetStatus === "configured"
-    && header.targetCompletionRate !== null
     && header.targetTotalAmount !== null;
+  const shopMissingReason = header?.targetMissingReasons[0] ?? "目标资料不完整";
 
   return (
     <div
@@ -49,9 +49,16 @@ export function TeamPerformanceSection({ data, header }: TeamPerformanceSectionP
             </div>
             <span
               data-testid="team-performance-rate"
-              className="text-lg font-bold text-primary dark:text-primary-400"
+              className={shopTargetConfigured
+                ? "text-lg font-bold text-primary dark:text-primary-400"
+                : "max-w-56 text-right text-[11px] font-semibold leading-4 text-amber-700 dark:text-amber-300"}
             >
-              {shopTargetConfigured ? `${header.targetCompletionRate}%` : "未设置目标"}
+              {shopTargetConfigured
+                ? header.targetCompletionRate === null ? "完成率不适用" : `${header.targetCompletionRate}%`
+                : shopMissingReason}
+              {!shopTargetConfigured && header.targetMissingReasons.length > 1 ? (
+                <span className="sr-only">；{header.targetMissingReasons.slice(1).join("；")}</span>
+              ) : null}
             </span>
           </div>
         ) : (
@@ -80,8 +87,8 @@ export function TeamPerformanceSection({ data, header }: TeamPerformanceSectionP
           </div>
         ) : data.teams.map((team) => {
           const targetConfigured = team.targetStatus === "configured"
-            && team.completionRate !== null
             && team.targetAmount !== null;
+          const missingReason = team.targetMissingReasons[0] ?? "目标资料不完整";
           return (
             <Link
               key={team.id}
@@ -92,7 +99,9 @@ export function TeamPerformanceSection({ data, header }: TeamPerformanceSectionP
               <div className="flex items-center justify-between gap-2">
                 <span className="text-xs font-medium text-ink dark:text-slate-100">{team.name}</span>
                 <span className="text-xs font-bold text-ink dark:text-slate-100">
-                  {targetConfigured ? `${team.completionRate}%` : "未设置目标"}
+                  {targetConfigured
+                    ? team.completionRate === null ? "完成率不适用" : `${team.completionRate}%`
+                    : "暂未计算"}
                 </span>
               </div>
               {targetConfigured ? (
@@ -111,7 +120,10 @@ export function TeamPerformanceSection({ data, header }: TeamPerformanceSectionP
               <div className="mt-2 flex items-center justify-between gap-2 text-[10px]">
                 <span className="text-ink-soft dark:text-slate-400">已完成 {formatJMDFull(team.currentAmount)}</span>
                 <span className="text-ink-faint dark:text-slate-400">
-                  {targetConfigured ? `目标 ${formatJMDFull(team.targetAmount!)}` : "目标 未设置"}
+                  {targetConfigured ? `目标 ${formatJMDFull(team.targetAmount!)}` : missingReason}
+                  {!targetConfigured && team.targetMissingReasons.length > 1 ? (
+                    <span className="sr-only">；{team.targetMissingReasons.slice(1).join("；")}</span>
+                  ) : null}
                 </span>
               </div>
             </Link>

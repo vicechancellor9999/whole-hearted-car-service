@@ -1,4 +1,9 @@
 import type { AuthSqlDatabase } from "@formal/modules/auth/session-repository";
+import {
+  calculateCompletionRate,
+  readPerformanceTargets,
+  type PerformanceTargetResult,
+} from "@formal/modules/performance/performance-target";
 
 export type MonthlyPerformanceHandoff = {
   id: number;
@@ -18,18 +23,20 @@ export type MonthlyTeamPerformance = {
   handoffCount: number;
   cancelledHandoffCount: number;
   performanceMinor: number;
-  targetStatus: "not_configured";
-  targetPerformanceMinor: null;
-  completionRate: null;
+  targetStatus: "configured" | "not_configured";
+  targetPerformanceMinor: number | null;
+  completionRate: number | null;
+  targetMissingReasons: string[];
 };
 
 export type MonthlyPerformanceResult = {
   month: string;
   totalPerformanceMinor: number;
   cancelledHandoffCount: number;
-  targetStatus: "not_configured";
-  targetPerformanceMinor: null;
-  completionRate: null;
+  targetStatus: "configured" | "not_configured";
+  targetPerformanceMinor: number | null;
+  completionRate: number | null;
+  targetMissingReasons: string[];
   teams: MonthlyTeamPerformance[];
   handoffs: MonthlyPerformanceHandoff[];
 };
@@ -85,7 +92,7 @@ export class PerformanceService {
   }): Promise<MonthlyPerformanceResult> {
     const month = normalizeMonth(input.month);
     await requirePcReader(this.database, input.viewerAccountId);
-    const [rows, teamRows, cancellationRows] = await Promise.all([
+    const [rows, teamRows, cancellationRows, targets] = await Promise.all([
       this.database.query<PerformanceHandoffRow>(
       `select handoff.id, handoff.business_order_id, business_order.order_no,
               handoff.repair_round_no, handoff.team_id,
@@ -117,6 +124,7 @@ export class PerformanceService {
          group by handoff.team_id`,
         [`${month}-01`],
       ),
+      readPerformanceTargets(this.database, month),
     ]);
     const handoffs = rows.map((row) => ({
       id: Number(row.id),
@@ -129,33 +137,32 @@ export class PerformanceService {
       handedOffAt: new Date(row.handed_off_at),
       plateDisplay: row.plate_display,
     }));
-    const byTeam = new Map<number, MonthlyTeamPerformance>(teamRows.map((team) => [
-      Number(team.id),
-      {
+    const byTeam = new Map<number, MonthlyTeamPerformance>(teamRows.map((team) => {
+      const target = targetForTeam(targets, month, Number(team.id));
+      return [Number(team.id), {
         teamId: Number(team.id),
         teamName: team.name,
         handoffCount: 0,
         cancelledHandoffCount: 0,
         performanceMinor: 0,
-        targetStatus: "not_configured",
-        targetPerformanceMinor: null,
+        ...target,
         completionRate: null,
-      },
-    ]));
+      }];
+    }));
     for (const handoff of handoffs) {
       const current = byTeam.get(handoff.teamId);
       if (current) {
         current.handoffCount += 1;
         current.performanceMinor += handoff.performanceMinor;
       } else {
+        const target = targetForTeam(targets, month, handoff.teamId);
         byTeam.set(handoff.teamId, {
           teamId: handoff.teamId,
           teamName: handoff.teamName,
           handoffCount: 1,
           cancelledHandoffCount: 0,
           performanceMinor: handoff.performanceMinor,
-          targetStatus: "not_configured",
-          targetPerformanceMinor: null,
+          ...target,
           completionRate: null,
         });
       }
@@ -166,20 +173,51 @@ export class PerformanceService {
       const team = byTeam.get(Number(row.team_id));
       if (team) team.cancelledHandoffCount = Number(row.count);
     }
+    for (const team of teams) {
+      team.completionRate = team.targetStatus === "configured"
+        ? calculateCompletionRate(team.performanceMinor, team.targetPerformanceMinor ?? 0)
+        : null;
+    }
+    const totalPerformanceMinor = handoffs.reduce(
+      (total, handoff) => total + handoff.performanceMinor,
+      0,
+    );
     return {
       month,
-      totalPerformanceMinor: handoffs.reduce(
-        (total, handoff) => total + handoff.performanceMinor,
-        0,
-      ),
+      totalPerformanceMinor,
       cancelledHandoffCount: cancellationRows.reduce((total, row) => total + Number(row.count), 0),
-      targetStatus: "not_configured",
-      targetPerformanceMinor: null,
-      completionRate: null,
+      targetStatus: targets.targetStatus,
+      targetPerformanceMinor: targets.targetPerformanceMinor,
+      completionRate: targets.targetStatus === "configured"
+        ? calculateCompletionRate(totalPerformanceMinor, targets.targetPerformanceMinor ?? 0)
+        : null,
+      targetMissingReasons: targets.targetMissingReasons,
       teams,
       handoffs,
     };
   }
+}
+
+function targetForTeam(
+  targets: PerformanceTargetResult,
+  month: string,
+  teamId: number,
+) {
+  const target = targets.teams.find((item) => item.teamId === teamId);
+  if (target) {
+    return {
+      targetStatus: target.targetStatus,
+      targetPerformanceMinor: target.targetPerformanceMinor,
+      targetMissingReasons: target.targetMissingReasons,
+    };
+  }
+  const parameterReason = `缺少 ${month} 绩效参数`;
+  const parameterMissing = targets.targetMissingReasons.includes(parameterReason);
+  return {
+    targetStatus: parameterMissing ? "not_configured" as const : "configured" as const,
+    targetPerformanceMinor: parameterMissing ? null : 0,
+    targetMissingReasons: parameterMissing ? [parameterReason] : [],
+  };
 }
 
 function normalizeMonth(value: string) {

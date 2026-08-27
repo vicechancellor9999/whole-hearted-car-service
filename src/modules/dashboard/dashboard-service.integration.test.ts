@@ -60,6 +60,27 @@ async function dashboardDatabase(): Promise<AuthSqlDatabase> {
       label_en text
     );
     create table repair_teams (id bigint primary key, name text not null, is_active boolean not null);
+    create table staff_members (
+      id bigint primary key,
+      full_name text not null,
+      hired_on date not null,
+      left_on date
+    );
+    create table staff_team_assignment_versions (
+      staff_member_id bigint not null,
+      effective_month date not null,
+      team_id bigint not null
+    );
+    create table employee_salary_versions (
+      staff_member_id bigint not null,
+      effective_month date not null,
+      base_salary_cny_minor bigint not null
+    );
+    create table payroll_parameter_versions (
+      effective_month date not null,
+      commission_rate numeric not null,
+      cny_to_jmd_rate numeric not null
+    );
     create table formal_handoffs (
       id bigint primary key,
       business_order_id bigint not null,
