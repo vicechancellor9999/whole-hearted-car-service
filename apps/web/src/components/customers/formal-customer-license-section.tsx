@@ -142,7 +142,7 @@ export function FormalCustomerLicenseSection({
   };
 
   const complete = Boolean(
-    value.file && value.fields.name.trim() && value.fields.birthDate &&
+    value.file && value.fields.name.trim() && validIsoBirthDate(value.fields.birthDate) &&
     value.fields.sex && value.fields.address.trim(),
   );
   const status = !value.file ? "待补" : value.attested && complete ? "已核验" : "待核验";
@@ -189,7 +189,7 @@ export function FormalCustomerLicenseSection({
         {value.file ? (
           <div className="grid gap-3 sm:grid-cols-2">
             <Field label="姓名" manual={value.status.name === "manual_required"}><input value={value.fields.name} onChange={(event) => update({ ...value, fields: { ...value.fields, name: event.target.value }, attested: false })} className={fieldClass} /></Field>
-            <Field label="出生日期" manual={value.status.birthDate === "manual_required"}><input type="date" value={value.fields.birthDate} onChange={(event) => update({ ...value, fields: { ...value.fields, birthDate: event.target.value }, attested: false })} className={fieldClass} /></Field>
+            <Field label="出生日期" manual={value.status.birthDate === "manual_required"}><input inputMode="numeric" placeholder="YYYY-MM-DD" maxLength={10} value={value.fields.birthDate} onChange={(event) => update({ ...value, fields: { ...value.fields, birthDate: event.target.value }, attested: false })} className={fieldClass} /></Field>
             <Field label="性别" manual={value.status.sex === "manual_required"}><select value={value.fields.sex} onChange={(event) => update({ ...value, fields: { ...value.fields, sex: event.target.value as "" | "M" | "F" }, attested: false })} className={fieldClass}><option value="">请选择</option><option value="M">M / 男</option><option value="F">F / 女</option></select></Field>
             <Field label="证件地址" manual={value.status.address === "manual_required"} wide><textarea rows={3} value={value.fields.address} onChange={(event) => update({ ...value, fields: { ...value.fields, address: event.target.value }, attested: false })} className={cn(fieldClass, "py-2.5")} /></Field>
           </div>
@@ -214,4 +214,12 @@ function Field({ label, manual, wide = false, children }: {
   children: React.ReactNode;
 }) {
   return <label className={cn("text-[13px] font-semibold text-ink dark:text-slate-200", wide && "sm:col-span-2")}>{label} <span className="text-rose-600">*</span>{manual ? <span className="ml-2 text-[10px] text-amber-700">请人工填写</span> : null}{children}</label>;
+}
+
+function validIsoBirthDate(value: string): boolean {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(value)) return false;
+  const [year, month, day] = value.split("-").map(Number);
+  const date = new Date(Date.UTC(year, month - 1, day));
+  return date.getUTCFullYear() === year && date.getUTCMonth() === month - 1 &&
+    date.getUTCDate() === day && date <= new Date();
 }

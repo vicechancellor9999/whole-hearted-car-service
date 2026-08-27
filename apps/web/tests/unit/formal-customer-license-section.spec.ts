@@ -13,6 +13,8 @@ test("formal customer license section keeps scan, manual, cancellation, and clea
   expect(section).toContain("revisionRef.current");
   expect(section).toContain("URL.revokeObjectURL");
   expect(section).toContain('capture="environment"');
+  expect(section).toContain('placeholder="YYYY-MM-DD"');
+  expect(section).toContain("validIsoBirthDate");
 });
 
 test("formal customer dialog allows missing identities and separates company contact address", () => {
