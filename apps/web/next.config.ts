@@ -6,7 +6,6 @@ const appRoot = fileURLToPath(new URL(".", import.meta.url));
 const repositoryRoot = path.resolve(appRoot, "../..");
 
 const nextConfig: NextConfig = {
-  output: "standalone",
   outputFileTracingRoot: repositoryRoot,
   reactStrictMode: true,
   turbopack: {
