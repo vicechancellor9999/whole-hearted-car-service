@@ -40,19 +40,10 @@ export const createPersonalCustomerSchema = z
   .object({
     fullName: z.string().trim().min(1, "客户姓名不能为空").max(160),
     phone: optionalPhone,
-    whatsapp: optionalText(40),
+    whatsapp: optionalPhone,
     email: optionalText(254),
     address: optionalText(500),
     trn: optionalTrn,
-  })
-  .superRefine((value, context) => {
-    if (!value.trn && !value.phone) {
-      context.addIssue({
-        code: "custom",
-        path: ["phone"],
-        message: "没有 TRN 时必须填写手机号",
-      });
-    }
   });
 
 export const updatePersonalCustomerSchema = createPersonalCustomerSchema.extend({

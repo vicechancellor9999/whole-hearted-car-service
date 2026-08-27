@@ -2,6 +2,12 @@ import { toBusinessMonthKey } from "@formal/lib/time";
 import type { AuthSqlDatabase, AuthSqlExecutor } from "@formal/modules/auth/session-repository";
 import { writeAuditEvent } from "@formal/modules/audit/audit-service";
 import {
+  CustomerPhoneOwnershipConflictError,
+  findPhoneOwner,
+  syncCustomerPhoneOwnership,
+  type CustomerPhoneOwner,
+} from "@formal/modules/customer-vehicle/customer-phone-registry";
+import {
   changeVehicleOwnerSchema,
   companyContactSchema,
   createCompanyAccountSchema,
@@ -497,6 +503,7 @@ export class CustomerVehicleService {
     try {
       return await this.database.transaction(async (transaction) => {
         await requireWriter(transaction, input.context.actorAccountId);
+        await requirePhonesAvailable(transaction, [fields.phone, fields.whatsapp], null);
         await transaction.query("lock table personal_customers in share row exclusive mode");
         const customerNo = await nextFormalNumber(transaction, "personal_customers", "customer_no", "CUST", now);
         const rows = await transaction.query<PersonalRow>(
@@ -510,6 +517,11 @@ export class CustomerVehicleService {
             fields.address, fields.trn, now, input.context.actorAccountId],
         );
         const customer = mapPersonal(rows[0]);
+        await syncCustomerPhoneOwnership(transaction, {
+          ownerKind: "person",
+          ownerId: customer.id,
+          phones: [fields.phone, fields.whatsapp],
+        });
         await audit(transaction, input.context, now, {
           eventType: "customer.created", objectType: "personal_customer",
           objectId: String(customer.id), after: customer,
@@ -517,7 +529,12 @@ export class CustomerVehicleService {
         return customer;
       });
     } catch (error) {
-      rethrowConflict(error);
+      return rethrowCustomerWriteConflict(
+        this.database,
+        error,
+        [fields.phone, fields.whatsapp],
+        null,
+      );
     }
   }
 
@@ -530,6 +547,7 @@ export class CustomerVehicleService {
     try {
       return await this.database.transaction(async (transaction) => {
         await requireWriter(transaction, input.context.actorAccountId);
+        await requirePhonesAvailable(transaction, [fields.phone], null);
         await transaction.query("lock table company_accounts in share row exclusive mode");
         const companyNo = await nextFormalNumber(transaction, "company_accounts", "company_no", "COMP", now);
         const rows = await transaction.query<CompanyRow>(
@@ -543,6 +561,11 @@ export class CustomerVehicleService {
             fields.phone, fields.email, fields.address, now, input.context.actorAccountId],
         );
         const company = mapCompany(rows[0]);
+        await syncCustomerPhoneOwnership(transaction, {
+          ownerKind: "company",
+          ownerId: company.id,
+          phones: [fields.phone],
+        });
         await audit(transaction, input.context, now, {
           eventType: "company.created", objectType: "company_account",
           objectId: String(company.id), after: company,
@@ -550,7 +573,7 @@ export class CustomerVehicleService {
         return company;
       });
     } catch (error) {
-      rethrowConflict(error);
+      return rethrowCustomerWriteConflict(this.database, error, [fields.phone], null);
     }
   }
 
@@ -564,6 +587,10 @@ export class CustomerVehicleService {
     try {
       return await this.database.transaction(async (transaction) => {
         await requireWriter(transaction, input.context.actorAccountId);
+        await requirePhonesAvailable(transaction, [fields.phone, fields.whatsapp], {
+          ownerKind: "person",
+          ownerId: input.customerId,
+        });
         const existing = await transaction.query<PersonalRow>(
           `select id, customer_no, full_name, normalized_phone, whatsapp, email,
                   address, trn, is_active, version, created_at, updated_at
@@ -584,6 +611,11 @@ export class CustomerVehicleService {
         );
         if (!rows[0]) throw new CustomerVehicleConflictError("客户资料已被其他操作修改，请刷新后重试");
         const after = mapPersonal(rows[0]);
+        await syncCustomerPhoneOwnership(transaction, {
+          ownerKind: "person",
+          ownerId: after.id,
+          phones: [fields.phone, fields.whatsapp],
+        });
         await audit(transaction, input.context, now, {
           eventType: "customer.updated", objectType: "personal_customer",
           objectId: String(input.customerId), before, after,
@@ -591,7 +623,12 @@ export class CustomerVehicleService {
         return after;
       });
     } catch (error) {
-      rethrowConflict(error);
+      return rethrowCustomerWriteConflict(
+        this.database,
+        error,
+        [fields.phone, fields.whatsapp],
+        { ownerKind: "person", ownerId: input.customerId },
+      );
     }
   }
 
@@ -605,6 +642,10 @@ export class CustomerVehicleService {
     try {
       return await this.database.transaction(async (transaction) => {
         await requireWriter(transaction, input.context.actorAccountId);
+        await requirePhonesAvailable(transaction, [fields.phone], {
+          ownerKind: "company",
+          ownerId: input.companyId,
+        });
         const existing = await transaction.query<CompanyRow>(
           `select id, company_no, legal_name, trn, phone, email, address,
                   is_active, version, created_at, updated_at
@@ -626,6 +667,11 @@ export class CustomerVehicleService {
         );
         if (!rows[0]) throw new CustomerVehicleConflictError("公司资料已被其他操作修改，请刷新后重试");
         const after = mapCompany(rows[0]);
+        await syncCustomerPhoneOwnership(transaction, {
+          ownerKind: "company",
+          ownerId: after.id,
+          phones: [fields.phone],
+        });
         await audit(transaction, input.context, now, {
           eventType: "company.updated", objectType: "company_account",
           objectId: String(input.companyId), before, after,
@@ -633,7 +679,10 @@ export class CustomerVehicleService {
         return after;
       });
     } catch (error) {
-      rethrowConflict(error);
+      return rethrowCustomerWriteConflict(this.database, error, [fields.phone], {
+        ownerKind: "company",
+        ownerId: input.companyId,
+      });
     }
   }
 
@@ -1346,13 +1395,85 @@ async function audit(
   });
 }
 
+async function requirePhonesAvailable(
+  executor: AuthSqlExecutor,
+  phones: Array<string | null>,
+  intendedOwner: CustomerPhoneOwner | null,
+): Promise<void> {
+  for (const phone of [...new Set(phones.filter((value): value is string => Boolean(value)))].sort()) {
+    const owner = await findPhoneOwner(executor, phone);
+    if (!owner) continue;
+    if (intendedOwner && owner.ownerKind === intendedOwner.ownerKind && owner.ownerId === intendedOwner.ownerId) {
+      continue;
+    }
+    throw new CustomerPhoneOwnershipConflictError(phone, owner);
+  }
+}
+
+async function rethrowCustomerWriteConflict(
+  executor: AuthSqlExecutor,
+  error: unknown,
+  phones: Array<string | null>,
+  intendedOwner: CustomerPhoneOwner | null,
+): Promise<never> {
+  if (error instanceof CustomerVehicleConflictError ||
+      error instanceof CustomerVehicleNotFoundError ||
+      error instanceof CustomerVehicleWriteDeniedError ||
+      error instanceof CustomerVehicleReadDeniedError) throw error;
+
+  let conflictingOwner = error instanceof CustomerPhoneOwnershipConflictError
+    ? error.owner
+    : null;
+  if (!conflictingOwner && isConstraintConflict(error)) {
+    for (const phone of [...new Set(phones.filter((value): value is string => Boolean(value)))].sort()) {
+      const owner = await findPhoneOwner(executor, phone);
+      if (!owner) continue;
+      if (intendedOwner && owner.ownerKind === intendedOwner.ownerKind && owner.ownerId === intendedOwner.ownerId) {
+        continue;
+      }
+      conflictingOwner = owner;
+      break;
+    }
+  }
+  if (conflictingOwner) {
+    const number = await resolveCustomerNumber(executor, conflictingOwner);
+    const label = conflictingOwner.ownerKind === "person" ? "客户" : "公司";
+    throw new CustomerVehicleConflictError(
+      number ? `该号码已属于${label} ${number}` : "该号码已属于其他客户档案",
+    );
+  }
+  rethrowConflict(error);
+}
+
+async function resolveCustomerNumber(
+  executor: AuthSqlExecutor,
+  owner: CustomerPhoneOwner,
+): Promise<string | null> {
+  if (owner.ownerKind === "person") {
+    const rows = await executor.query<{ customer_no: string }>(
+      "select customer_no from personal_customers where id = $1 limit 1",
+      [owner.ownerId],
+    );
+    return rows[0]?.customer_no ?? null;
+  }
+  const rows = await executor.query<{ company_no: string }>(
+    "select company_no from company_accounts where id = $1 limit 1",
+    [owner.ownerId],
+  );
+  return rows[0]?.company_no ?? null;
+}
+
+function isConstraintConflict(error: unknown): boolean {
+  return typeof error === "object" && error !== null && "code" in error &&
+    (error.code === "23505" || error.code === "23514");
+}
+
 function rethrowConflict(error: unknown, message?: string): never {
   if (error instanceof CustomerVehicleConflictError ||
       error instanceof CustomerVehicleNotFoundError ||
       error instanceof CustomerVehicleWriteDeniedError ||
       error instanceof CustomerVehicleReadDeniedError) throw error;
-  if (typeof error === "object" && error !== null && "code" in error &&
-      (error.code === "23505" || error.code === "23514")) {
+  if (isConstraintConflict(error)) {
     throw new CustomerVehicleConflictError(message);
   }
   throw error;

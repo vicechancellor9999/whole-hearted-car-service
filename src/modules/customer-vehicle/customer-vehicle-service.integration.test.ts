@@ -21,6 +21,7 @@ const migrationPaths = [
   "0008_customer_trn_registry_sync.sql",
   "0016_vehicle_profile_fields.sql",
   "0017_optional_vehicle_plate.sql",
+  "0025_fantastic_dakota_north.sql",
 ].map((name) => resolve(process.cwd(), "drizzle", name));
 
 let database: PGlite;
@@ -106,6 +107,117 @@ describe("CustomerVehicleService", () => {
     await expect(
       service.listPersonalCustomers({ viewerAccountId: ownerId, page: 1, pageSize: 20 }),
     ).resolves.toMatchObject({ total: 1, items: [expect.objectContaining({ id: first.id })] });
+  });
+
+  it("owns one normalized number once when person phone and WhatsApp match", async () => {
+    const person = await service.createPersonalCustomer({
+      fullName: "同号客户",
+      phone: "+1 876 555 0170",
+      whatsapp: "0018765550170",
+      context: context(frontDeskId, "req-same-owner-phone"),
+    });
+
+    const registry = await database.query<{
+      normalized_phone: string;
+      owner_kind: string;
+      owner_id: number;
+    }>(
+      `select normalized_phone, owner_kind, owner_id
+       from customer_phone_registry
+       where owner_kind = 'person' and owner_id = $1`,
+      [person.id],
+    );
+    expect(registry.rows).toEqual([{
+      normalized_phone: "+18765550170",
+      owner_kind: "person",
+      owner_id: person.id,
+    }]);
+  });
+
+  it("rejects a number reused by another person's WhatsApp or a company", async () => {
+    const first = await service.createPersonalCustomer({
+      fullName: "号码原客户",
+      phone: "+18765550171",
+      context: context(frontDeskId, "req-phone-owner"),
+    });
+
+    await expect(service.createPersonalCustomer({
+      fullName: "WhatsApp 冲突客户",
+      whatsapp: "+1 (876) 555-0171",
+      context: context(frontDeskId, "req-whatsapp-conflict"),
+    })).rejects.toMatchObject({
+      name: "CustomerVehicleConflictError",
+      message: expect.stringContaining(first.customerNo),
+    });
+
+    await expect(service.createCompanyAccount({
+      legalName: "Phone Conflict Company",
+      phone: "0018765550171",
+      context: context(frontDeskId, "req-company-phone-conflict"),
+    })).rejects.toMatchObject({
+      name: "CustomerVehicleConflictError",
+      message: expect.stringContaining(first.customerNo),
+    });
+  });
+
+  it("releases only phone numbers no longer used by the same owner", async () => {
+    const person = await service.createPersonalCustomer({
+      fullName: "号码变更客户",
+      phone: "+18765550172",
+      whatsapp: "+18765550172",
+      context: context(frontDeskId, "req-phone-release-create"),
+    });
+
+    const keepsWhatsApp = await service.updatePersonalCustomer({
+      customerId: person.id,
+      fullName: person.fullName,
+      phone: "",
+      whatsapp: "+18765550172",
+      isActive: true,
+      version: person.version,
+      context: context(frontDeskId, "req-phone-release-keep"),
+    });
+    await expect(service.createCompanyAccount({
+      legalName: "Still Conflicts Company",
+      phone: "+18765550172",
+      context: context(frontDeskId, "req-phone-still-owned"),
+    })).rejects.toBeInstanceOf(CustomerVehicleConflictError);
+
+    await service.updatePersonalCustomer({
+      customerId: person.id,
+      fullName: person.fullName,
+      phone: "",
+      whatsapp: "",
+      isActive: true,
+      version: keepsWhatsApp.version,
+      context: context(frontDeskId, "req-phone-release-all"),
+    });
+    await expect(service.createCompanyAccount({
+      legalName: "Released Number Company",
+      phone: "+18765550172",
+      context: context(frontDeskId, "req-phone-reclaimed"),
+    })).resolves.toMatchObject({ phone: "+18765550172" });
+  });
+
+  it("allows exactly one owner to win a concurrent phone claim", async () => {
+    const claims = await Promise.allSettled([
+      service.createPersonalCustomer({
+        fullName: "并发客户",
+        phone: "+18765550173",
+        context: context(frontDeskId, "req-concurrent-person"),
+      }),
+      service.createCompanyAccount({
+        legalName: "Concurrent Claim Company",
+        phone: "+18765550173",
+        context: context(frontDeskId, "req-concurrent-company"),
+      }),
+    ]);
+
+    expect(claims.filter((claim) => claim.status === "fulfilled")).toHaveLength(1);
+    expect(claims.filter((claim) => claim.status === "rejected")).toHaveLength(1);
+    expect(claims.find((claim) => claim.status === "rejected")).toMatchObject({
+      reason: expect.any(CustomerVehicleConflictError),
+    });
   });
 
   it("keeps company contacts as personal customers and switches the active primary contact", async () => {
