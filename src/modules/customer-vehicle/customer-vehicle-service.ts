@@ -7,6 +7,7 @@ import {
   syncCustomerPhoneOwnership,
   type CustomerPhoneOwner,
 } from "@formal/modules/customer-vehicle/customer-phone-registry";
+import { markPersonalDriverLicenseNeedsReverification } from "@formal/modules/customer-vehicle/customer-driver-license-service";
 import {
   changeVehicleOwnerSchema,
   companyContactSchema,
@@ -616,6 +617,14 @@ export class CustomerVehicleService {
           ownerId: after.id,
           phones: [fields.phone, fields.whatsapp],
         });
+        if (before.fullName !== after.fullName) {
+          await markPersonalDriverLicenseNeedsReverification(transaction, {
+            personalCustomerId: after.id,
+            newFormalName: after.fullName,
+            context: input.context,
+            now,
+          });
+        }
         await audit(transaction, input.context, now, {
           eventType: "customer.updated", objectType: "personal_customer",
           objectId: String(input.customerId), before, after,
