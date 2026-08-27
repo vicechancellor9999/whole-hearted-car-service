@@ -75,7 +75,7 @@ export async function businessOrderAction(formData: FormData): Promise<never> {
           laborDiscount: String(formData.get("laborDiscount") ?? "0"),
           partDiscount: String(formData.get("partDiscount") ?? "0"),
           otherDiscount: String(formData.get("otherDiscount") ?? "0"),
-          wholeOrderDiscount: String(formData.get("wholeOrderDiscount") ?? "0"),
+          wholeOrderDiscount: "0",
           items: jsonArray(formData.get("itemsJson")) as Parameters<typeof runtime.service.replaceChargeVersion>[0]["items"],
           notes: jsonArray(formData.get("notesJson")) as Parameters<typeof runtime.service.replaceChargeVersion>[0]["notes"],
           context,
@@ -143,11 +143,22 @@ export async function businessOrderAction(formData: FormData): Promise<never> {
         message = "本轮已正式交单，绩效事实已经落地";
       } else if (operation === "cancel_formal_handoff") {
         await runtime.formalHandoffs.cancelFormalHandoffInSameMonth({
+          businessOrderId,
           formalHandoffId: positiveId.parse(formData.get("formalHandoffId")),
           reason: String(formData.get("reason") ?? ""),
           context,
         });
         message = "本次正式交单已在同月取消，原事实仍保留";
+      } else if (operation === "start_after_sales_round") {
+        await runtime.repairRounds.startAfterSalesRound({
+          businessOrderId,
+          expectedBusinessOrderVersion: positiveVersion.parse(
+            formData.get("expectedBusinessOrderVersion"),
+          ),
+          issue: String(formData.get("issue") ?? ""),
+          context,
+        });
+        message = "售后维修轮次已创建，等待派单";
       } else {
         throw new Error("未知 Business Order 操作");
       }

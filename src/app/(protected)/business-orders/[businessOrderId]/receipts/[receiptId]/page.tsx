@@ -79,7 +79,6 @@ export default async function ReceiptPage({ params, searchParams }: {
             <span>{english ? "Labor discount" : "工时折扣"}<strong>{money(snapshot.charges.totals.laborDiscountMinor)}</strong></span>
             <span>{english ? "Parts discount" : "配件折扣"}<strong>{money(snapshot.charges.totals.partDiscountMinor)}</strong></span>
             <span>{english ? "Other discount" : "其他费用折扣"}<strong>{money(snapshot.charges.totals.otherDiscountMinor)}</strong></span>
-            <span>{english ? "Whole-order discount" : "整单折扣"}<strong>{money(snapshot.charges.totals.wholeOrderDiscountMinor)}</strong></span>
             <span>{english ? "Total due (tax included)" : "折后应收（含税）"}<strong>{money(snapshot.charges.totals.totalDueMinor)}</strong></span>
             <span>{english ? "Included 15% GCT" : "其中含 15% GCT"}<strong>{money(snapshot.charges.totals.includedGctMinor)}</strong></span>
           </div>

@@ -60,7 +60,7 @@ export function FinancePanel({
             </form>
           ) : null}
           {canRefund ? (
-            <form action={action} className="bo-finance-form bo-refund-form" encType="multipart/form-data">
+            <form action={action} className="bo-finance-form bo-refund-form">
               <input name="operation" type="hidden" value="record_refund" />
               <input name="businessOrderId" type="hidden" value={businessOrderId} />
               <h3>登记一笔退款</h3>
@@ -69,9 +69,8 @@ export function FinancePanel({
               <label>退款原因<textarea name="reason" required /></label>
               <label>原客户单据<select name="originalDocumentStatus" required><option value="returned">原单已交回</option><option value="unavailable">原单无法交回</option></select></label>
               <label>原单无法交回说明<textarea name="originalDocumentNote" /></label>
-              <label>退款凭证<input accept="image/jpeg,image/png,image/webp,application/pdf" aria-label="退款凭证" name="proof" required type="file" /></label>
-              <label>现金退款客户签字<input accept="image/jpeg,image/png,image/webp,application/pdf" aria-label="现金退款客户签字" name="customerSignature" type="file" /><small>现金退款必须上传；其他方式可留空。</small></label>
-              <button type="submit">登记退款</button>
+              <p>先登记退款并生成可打印的退款签收单。客户在纸上签字后，工作人员可保存纸质原件，也可稍后把签字件上传归档。</p>
+              <button type="submit">登记退款并生成签收单</button>
             </form>
           ) : null}
         </div>
@@ -83,7 +82,7 @@ export function FinancePanel({
             <div><strong>{transaction.type === "payment" ? "收款" : "退款"} · {transaction.referenceNo}</strong><small>{transaction.occurredAt.toLocaleString("zh-CN", { timeZone: "America/Jamaica", hour12: false })} · {transaction.methodLabelZh}{transaction.methodLabelEn ? ` / ${transaction.methodLabelEn}` : ""}</small></div>
             <span className={transaction.type === "refund" ? "refund-amount" : "payment-amount"}>{transaction.type === "refund" ? "−" : "+"}{money(transaction.amountMinor)}</span>
             <span>{transaction.note ?? "无备注"}</span>
-            <span>{transaction.type === "payment" && transaction.receiptId ? <Link href={`/business-orders/${businessOrderId}/receipts/${transaction.receiptId}?copy=zh`}>打开 Receipt</Link> : transaction.type === "refund" ? <Link href={`/business-orders/${businessOrderId}/refunds/${transaction.id}`}>打开退款说明与签收单</Link> : "Receipt 生成中"}</span>
+            <span>{transaction.type === "payment" && transaction.receiptId ? <Link href={`/business-orders/${businessOrderId}/receipts/${transaction.receiptId}?copy=zh`}>打开 Receipt</Link> : transaction.type === "refund" ? <Link href={`/business-orders/${businessOrderId}/refunds/${transaction.id}`}>打印退款签收单</Link> : "Receipt 生成中"}</span>
           </article>
         ))}
       </section>

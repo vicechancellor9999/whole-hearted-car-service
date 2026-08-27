@@ -19,6 +19,8 @@ const migrationPaths = [
   "0006_customer_identity_rule.sql",
   "0007_customer_trn_registry.sql",
   "0008_customer_trn_registry_sync.sql",
+  "0016_vehicle_profile_fields.sql",
+  "0017_optional_vehicle_plate.sql",
 ].map((name) => resolve(process.cwd(), "drizzle", name));
 
 let database: PGlite;
@@ -91,6 +93,8 @@ describe("CustomerVehicleService", () => {
       fullName: "艾丽西亚·贝内特",
       normalizedPhone: "+18765550101",
       trn: null,
+      createdAt: new Date("2026-08-24T14:00:00Z"),
+      updatedAt: new Date("2026-08-24T14:00:00Z"),
     });
     await expect(
       service.createPersonalCustomer({
@@ -204,6 +208,8 @@ describe("CustomerVehicleService", () => {
       vehicleNo: "VEH-202608-0001",
       normalizedPlate: "4321AB",
       currentOwner: { type: "person", id: person.id },
+      createdAt: new Date("2026-08-24T14:00:00Z"),
+      updatedAt: new Date("2026-08-24T14:00:00Z"),
     });
     await service.changeVehicleOwner({
       vehicleId: vehicle.id,
@@ -221,6 +227,90 @@ describe("CustomerVehicleService", () => {
       expect.objectContaining({ person_customer_id: person.id, company_account_id: null, ended_at: expect.any(Date) }),
       expect.objectContaining({ person_customer_id: null, company_account_id: company.id, ended_at: null }),
     ]);
+  });
+
+  it("rolls back the profile update when an atomic owner change cannot complete", async () => {
+    const person = await service.createPersonalCustomer({
+      fullName: "原车主",
+      phone: "+18765550123",
+      context: context(frontDeskId, "req-atomic-owner-person"),
+    });
+    const company = await service.createCompanyAccount({
+      legalName: "Atomic Fleet Ltd",
+      context: context(frontDeskId, "req-atomic-owner-company"),
+    });
+    const vehicle = await service.createVehicle({
+      plate: "A 123",
+      make: "Nissan",
+      model: "X-Trail",
+      color: "Silver",
+      ownerType: "person",
+      ownerId: person.id,
+      context: context(frontDeskId, "req-atomic-owner-vehicle"),
+    });
+    await database.query(
+      "update vehicle_owner_history set ended_at = '2026-08-24T14:01:00Z' where vehicle_id = $1",
+      [vehicle.id],
+    );
+
+    await expect(service.updateVehicleWithOwner({
+      vehicleId: vehicle.id,
+      plate: "A 123",
+      make: "Nissan",
+      model: "X-Trail",
+      color: "Black",
+      isActive: true,
+      version: vehicle.version,
+      ownerType: "company",
+      ownerId: company.id,
+      reason: "转入车队",
+      context: context(frontDeskId, "req-atomic-owner-change"),
+    })).rejects.toBeInstanceOf(CustomerVehicleConflictError);
+
+    const persisted = await database.query<{
+      color: string | null;
+      version: number;
+      current_person_customer_id: number | null;
+      current_company_account_id: number | null;
+    }>(
+      `select color, version, current_person_customer_id, current_company_account_id
+       from vehicles where id = $1`,
+      [vehicle.id],
+    );
+    expect(persisted.rows[0]).toEqual({
+      color: "Silver",
+      version: 1,
+      current_person_customer_id: person.id,
+      current_company_account_id: null,
+    });
+    const audit = await database.query<{ count: number }>(
+      "select count(*)::integer as count from audit_events where request_id = 'req-atomic-owner-change'",
+    );
+    expect(audit.rows[0]?.count).toBe(0);
+  });
+
+  it("creates a vehicle before a plate is available and keeps the supplied plate unique", async () => {
+    const person = await service.createPersonalCustomer({
+      fullName: "待上牌车辆客户",
+      phone: "+18765550121",
+      context: context(frontDeskId, "req-no-plate-owner"),
+    });
+    const vehicle = await service.createVehicle({
+      make: "Toyota",
+      makeZh: "丰田",
+      model: "Hiace",
+      modelZh: "海狮",
+      modelYear: 2022,
+      ownerType: "person",
+      ownerId: person.id,
+      context: context(frontDeskId, "req-no-plate"),
+    });
+    expect(vehicle).toMatchObject({
+      plateDisplay: null,
+      normalizedPlate: null,
+      make: "Toyota",
+      model: "Hiace",
+    });
   });
 
   it("opens and resolves one vehicle dispute with immutable audit entries", async () => {
@@ -335,7 +425,13 @@ describe("CustomerVehicleService", () => {
       version: person.version,
       context: context(frontDeskId, "req-person-update"),
     });
-    expect(updatedPerson).toMatchObject({ fullName: "新客户名", trn: "123456789", version: 2 });
+    expect(updatedPerson).toMatchObject({
+      fullName: "新客户名",
+      trn: "123456789",
+      version: 2,
+      createdAt: new Date("2026-08-24T14:00:00Z"),
+      updatedAt: new Date("2026-08-24T14:00:00Z"),
+    });
     await expect(
       service.updatePersonalCustomer({
         customerId: person.id,
@@ -365,23 +461,68 @@ describe("CustomerVehicleService", () => {
 
     const vehicle = await service.createVehicle({
       plate: "Q 100",
+      vin: "1HGBH41JXMN109186",
+      engineNumber: "L15A-1234567",
       make: "Honda",
+      makeZh: "本田",
       model: "Fit",
+      modelZh: "飞度",
+      modelYear: 2019,
+      color: "银色",
+      bodyType: "掀背车",
+      fuelType: "汽油",
+      engineCc: 1497,
+      seating: 5,
+      usage: "个人用途",
+      specialNotes: "客户自带儿童座椅套，施工时注意保护。",
       ownerType: "person",
       ownerId: person.id,
       context: context(frontDeskId, "req-vehicle"),
+    });
+    expect(vehicle).toMatchObject({
+      engineNumber: "L15A-1234567",
+      makeZh: "本田",
+      modelZh: "飞度",
+      bodyType: "掀背车",
+      fuelType: "汽油",
+      engineCc: 1497,
+      seating: 5,
+      usage: "个人用途",
+      specialNotes: "客户自带儿童座椅套，施工时注意保护。",
+      createdAt: new Date("2026-08-24T14:00:00Z"),
+      updatedAt: new Date("2026-08-24T14:00:00Z"),
     });
     await expect(
       service.updateVehicle({
         vehicleId: vehicle.id,
         plate: "Q-101",
+        vin: "1HGBH41JXMN109186",
+        engineNumber: "L15A-1234567",
         make: "Honda",
+        makeZh: "本田",
         model: "Fit",
+        modelZh: "飞度",
         modelYear: 2020,
+        color: "白色",
+        bodyType: "掀背车",
+        fuelType: "汽油",
+        engineCc: 1497,
+        seating: 5,
+        usage: "公司通勤",
+        specialNotes: "已核对车架号。",
         isActive: true,
         version: vehicle.version,
         context: context(frontDeskId, "req-vehicle-update"),
       }),
-    ).resolves.toMatchObject({ normalizedPlate: "Q101", modelYear: 2020, version: 2 });
+    ).resolves.toMatchObject({
+      normalizedPlate: "Q101",
+      modelYear: 2020,
+      color: "白色",
+      usage: "公司通勤",
+      specialNotes: "已核对车架号。",
+      version: 2,
+      createdAt: new Date("2026-08-24T14:00:00Z"),
+      updatedAt: new Date("2026-08-24T14:00:00Z"),
+    });
   });
 });

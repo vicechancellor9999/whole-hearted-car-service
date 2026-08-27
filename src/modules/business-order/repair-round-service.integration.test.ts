@@ -7,6 +7,7 @@ import { BusinessOrderService } from "@/modules/business-order/business-order-se
 import {
   RepairRoundService,
   RepairRoundValidationError,
+  RepairRoundWriteDeniedError,
 } from "@/modules/business-order/repair-round-service";
 import { MasterDataService } from "@/modules/master-data/master-data-service";
 
@@ -23,6 +24,12 @@ const migrationPaths = [
   "0009_business_order_core.sql",
   "0010_business_order_facts_append_only.sql",
   "0011_repair_rounds.sql",
+  "0012_inspection_reports.sql",
+  "0013_formal_handoffs.sql",
+  "0018_business_order_number_format.sql",
+  "0019_repair_assignment_withdrawal.sql",
+  "0021_optional_work_return_details.sql",
+  "0020_repair_assignment_withdrawal_projection.sql",
 ].map((name) => resolve(process.cwd(), "drizzle", name));
 
 let database: PGlite;
@@ -200,6 +207,52 @@ describe("RepairRoundService", () => {
     expect(mileage.rows).toEqual([]);
   });
 
+  it("lets the front desk record a paper acceptance for a mechanic in the assigned team", async () => {
+    const order = await businessOrders.createBusinessOrder({
+      vehicleId,
+      context: context(frontDeskId, "req-create-before-paper-acceptance", 0),
+    });
+    await repairRounds.assignRound({
+      businessOrderId: order.id,
+      expectedBusinessOrderVersion: order.version,
+      teamId,
+      customerConfirmedWithoutPayment: true,
+      context: context(frontDeskId, "req-assign-before-paper-acceptance", 1),
+    });
+
+    await repairRounds.recordAcceptanceOnBehalf({
+      businessOrderId: order.id,
+      expectedRepairRoundVersion: await currentRoundVersion(order.id),
+      actualStaffMemberId: mechanicStaffId,
+      context: context(frontDeskId, "req-paper-acceptance", 2),
+    });
+
+    await expect(repairRounds.getCurrentRound({
+      businessOrderId: order.id,
+      viewerAccountId: adminId,
+    })).resolves.toMatchObject({ status: "in_repair", assignedTeamId: teamId });
+    const events = await database.query<{
+      event_type: string;
+      actor_account_id: number;
+      note: string;
+    }>(
+      `select event_type, actor_account_id, note
+       from repair_round_events
+       where repair_round_id = (select id from repair_rounds where business_order_id = $1)
+       order by id`,
+      [order.id],
+    );
+    expect(events.rows.at(-1)).toEqual({
+      event_type: "accepted",
+      actor_account_id: frontDeskId,
+      note: `纸质接单，实际维修工 staff:${mechanicStaffId}`,
+    });
+    const audits = await database.query<{ after_state: { actualStaffMemberId: number } }>(
+      "select after_state from audit_events where request_id = 'req-paper-acceptance'",
+    );
+    expect(audits.rows[0]?.after_state.actualStaffMemberId).toBe(mechanicStaffId);
+  });
+
   it("rejects a stale repair-round version before writing a new fact", async () => {
     const order = await businessOrders.createBusinessOrder({
       vehicleId,
@@ -285,6 +338,97 @@ describe("RepairRoundService", () => {
        )`,
       [order.id, adminId, context(adminId, "req-invalid-transfer", 1).now],
     )).rejects.toThrow();
+  });
+
+  it("withdraws an accepted assignment without erasing intake facts and allows reassignment", async () => {
+    const order = await businessOrders.createBusinessOrder({
+      vehicleId,
+      context: context(frontDeskId, "req-create-before-withdraw", 0),
+    });
+    await repairRounds.assignRound({
+      businessOrderId: order.id,
+      expectedBusinessOrderVersion: order.version,
+      teamId,
+      customerConfirmedWithoutPayment: true,
+      context: context(frontDeskId, "req-assign-before-withdraw", 1),
+    });
+    await repairRounds.acceptRound({
+      businessOrderId: order.id,
+      expectedRepairRoundVersion: await currentRoundVersion(order.id),
+      context: context(mechanicAccountId, "req-accept-before-withdraw", 2),
+    });
+    await repairRounds.recordIntakeMileage({
+      businessOrderId: order.id,
+      expectedRepairRoundVersion: await currentRoundVersion(order.id),
+      odometerKm: 84_200,
+      context: context(adminId, "req-mileage-before-withdraw", 3),
+    });
+
+    await repairRounds.withdrawAssignment({
+      businessOrderId: order.id,
+      expectedRepairRoundVersion: await currentRoundVersion(order.id),
+      context: context(adminId, "req-withdraw-assignment", 4),
+    });
+
+    await expect(repairRounds.getCurrentRound({
+      businessOrderId: order.id,
+      viewerAccountId: adminId,
+    })).resolves.toMatchObject({
+      status: "waiting_assignment",
+      assignedTeamId: null,
+      intakeMileageKm: 84_200,
+    });
+    const beforeReassignment = await businessOrders.getBusinessOrder({
+      businessOrderId: order.id,
+      viewerAccountId: adminId,
+    });
+    expect(beforeReassignment.status).toBe("waiting_assignment");
+    const history = await repairRounds.listRepairRounds({
+      businessOrderId: order.id,
+      viewerAccountId: adminId,
+    });
+    expect(history[0].events.map((event) => [event.eventType, event.teamId])).toEqual([
+      ["assigned", teamId],
+      ["accepted", teamId],
+      ["intake_mileage_recorded", null],
+      ["assignment_withdrawn", teamId],
+    ]);
+
+    await repairRounds.assignRound({
+      businessOrderId: order.id,
+      expectedBusinessOrderVersion: beforeReassignment.version,
+      teamId: otherTeamId,
+      customerConfirmedWithoutPayment: true,
+      context: context(frontDeskId, "req-reassign-after-withdraw", 5),
+    });
+    await expect(repairRounds.getCurrentRound({
+      businessOrderId: order.id,
+      viewerAccountId: adminId,
+    })).resolves.toMatchObject({
+      status: "assigned",
+      assignedTeamId: otherTeamId,
+      intakeMileageKm: 84_200,
+    });
+  });
+
+  it("does not allow front desk to withdraw an accepted assignment", async () => {
+    const order = await businessOrders.createBusinessOrder({
+      vehicleId,
+      context: context(frontDeskId, "req-create-before-denied-withdraw", 0),
+    });
+    await repairRounds.assignRound({
+      businessOrderId: order.id,
+      expectedBusinessOrderVersion: order.version,
+      teamId,
+      customerConfirmedWithoutPayment: true,
+      context: context(frontDeskId, "req-assign-before-denied-withdraw", 1),
+    });
+
+    await expect(repairRounds.withdrawAssignment({
+      businessOrderId: order.id,
+      expectedRepairRoundVersion: await currentRoundVersion(order.id),
+      context: context(frontDeskId, "req-denied-withdraw", 2),
+    })).rejects.toBeInstanceOf(RepairRoundWriteDeniedError);
   });
 
   it("rejects direct repair-round status updates that have no event fact", async () => {
@@ -398,8 +542,6 @@ describe("RepairRoundService", () => {
     const firstReturn = await repairRounds.submitWorkReturn({
       businessOrderId: order.id,
       expectedRepairRoundVersion: await currentRoundVersion(order.id),
-      workSummary: "已完成诊断并更换支架",
-      actualStaffMemberId: mechanicStaffId,
       context: context(frontDeskId, "req-return-1", 6),
     });
     await repairRounds.returnWorkReturn({

@@ -40,6 +40,20 @@ type InspectionReportRow = {
   version: number;
 };
 
+type InspectionReportListRow = InspectionReportRow & {
+  vehicle_plate_display: string | null;
+  vehicle_make: string;
+  vehicle_make_zh: string | null;
+  vehicle_model: string;
+  vehicle_model_zh: string | null;
+  customer_name: string | null;
+  customer_phone: string | null;
+  customer_whatsapp: string | null;
+  customer_email: string | null;
+  inspector_name: string | null;
+  source_business_order_no: string | null;
+};
+
 export type InspectionReportRecord = {
   id: number;
   reportNo: string;
@@ -59,6 +73,36 @@ export type InspectionReportRecord = {
   submittedBy: number | null;
   version: number;
   findings: Array<ParsedFinding & { id: number; sortOrder: number }>;
+};
+
+export type InspectionReportListItem = {
+  report: InspectionReportRecord;
+  vehicle: {
+    id: number;
+    plate: string;
+    description: string;
+  };
+  customer: {
+    name: string | null;
+    phone: string | null;
+    whatsapp: string | null;
+    email: string | null;
+  };
+  inspectorName: string | null;
+  sourceBusinessOrder: { id: number; orderNo: string } | null;
+};
+
+export type InspectionReportCommunicationRecord = {
+  id: number;
+  inspectionReportId: number;
+  vehicleId: number;
+  sourceBusinessOrderId: number | null;
+  channel: "sms" | "email" | "whatsapp";
+  targetContact: string;
+  initiatedAt: Date;
+  initiatedBy: number;
+  status: "initiated" | "confirmed" | "not_delivered";
+  noteOrReply: string | null;
 };
 
 export class InspectionReportValidationError extends Error {
@@ -302,6 +346,200 @@ export class InspectionReportService {
     for (const row of rows) items.push(await mapReportWithFindings(this.database, row));
     return { items, page, pageSize, pageCount, total };
   }
+
+  async getInspectionReport(input: {
+    inspectionReportId: number;
+    viewerAccountId: number;
+  }): Promise<InspectionReportListItem> {
+    const reportId = positiveId(input.inspectionReportId, "Inspection Report");
+    const access = await requireReportReader(this.database, input.viewerAccountId);
+    const rows = await this.database.query<InspectionReportListRow>(
+      `${reportListQuery()} where report.id = $1
+        and ($2::bigint is null or inspector.current_team_id = $2)`,
+      [reportId, access.role === "mechanic" ? access.currentTeamId : null],
+    );
+    if (!rows[0]) throw new InspectionReportNotFoundError();
+    return mapListItem(this.database, rows[0]);
+  }
+
+  async listInspectionReports(input: {
+    viewerAccountId: number;
+    sourceBusinessOrderId?: number;
+    search?: string;
+    page?: number;
+    pageSize?: number;
+  }) {
+    const access = await requireReportReader(this.database, input.viewerAccountId);
+    const pageSize = toPageSize(input.pageSize);
+    const requestedPage = toPage(input.page);
+    const sourceBusinessOrderId = input.sourceBusinessOrderId === undefined
+      ? null
+      : positiveId(input.sourceBusinessOrderId, "来源 Business Order");
+    const search = optionalText(input.search);
+    const teamId = access.role === "mechanic" ? access.currentTeamId : null;
+    const filters = `where ($1::bigint is null or report.source_business_order_id = $1)
+      and ($2::text is null or concat_ws(' ', report.report_no, report.summary_zh,
+        vehicle.plate_display, vehicle.make, vehicle.make_zh, vehicle.model, vehicle.model_zh,
+        person.full_name, company.legal_name, inspector.full_name) ilike '%' || $2 || '%')
+      and ($3::bigint is null or inspector.current_team_id = $3)`;
+    const countRows = await this.database.query<{ total: number }>(
+      `select count(*)::integer as total
+       from inspection_reports as report
+       join vehicles as vehicle on vehicle.id = report.vehicle_id
+       left join personal_customers as person on person.id = vehicle.current_person_customer_id
+       left join company_accounts as company on company.id = vehicle.current_company_account_id
+       left join staff_members as inspector on inspector.id = report.actual_inspector_staff_member_id
+       ${filters}`,
+      [sourceBusinessOrderId, search, teamId],
+    );
+    const total = Number(countRows[0]?.total ?? 0);
+    const pageCount = Math.max(1, Math.ceil(total / pageSize));
+    const page = Math.min(requestedPage, pageCount);
+    const rows = await this.database.query<InspectionReportListRow>(
+      `${reportListQuery()} ${filters}
+       order by report.created_at desc, report.id desc
+       offset $4 limit $5`,
+      [sourceBusinessOrderId, search, teamId, (page - 1) * pageSize, pageSize],
+    );
+    const items: InspectionReportListItem[] = [];
+    for (const row of rows) items.push(await mapListItem(this.database, row));
+    return { items, page, pageSize, pageCount, total };
+  }
+
+  async listInspectionReportCommunications(input: {
+    inspectionReportId: number;
+    viewerAccountId: number;
+  }): Promise<InspectionReportCommunicationRecord[]> {
+    const reportId = positiveId(input.inspectionReportId, "Inspection Report");
+    await requireReportReader(this.database, input.viewerAccountId);
+    return selectCommunications(this.database, reportId);
+  }
+
+  async recordInspectionReportCommunication(input: {
+    inspectionReportId: number;
+    channel: "sms" | "email" | "whatsapp";
+    targetContact: string;
+    noteOrReply?: string | null;
+    context: BusinessOrderActionContext;
+  }): Promise<InspectionReportCommunicationRecord> {
+    const reportId = positiveId(input.inspectionReportId, "Inspection Report");
+    const targetContact = nonempty(input.targetContact, "目标联系方式");
+    const noteOrReply = optionalText(input.noteOrReply);
+    if (!["sms", "email", "whatsapp"].includes(input.channel)) {
+      throw new InspectionReportValidationError("通知渠道无效");
+    }
+    const now = input.context.now ?? new Date();
+    return this.database.transaction(async (transaction) => {
+      await requireReportReader(transaction, input.context.actorAccountId);
+      const rows = await selectReportRows(transaction, reportId, true);
+      const report = rows[0];
+      if (!report) throw new InspectionReportNotFoundError();
+      const inserted = await transaction.query<InspectionReportCommunicationRow>(
+        `insert into inspection_report_communications
+          (inspection_report_id, vehicle_id, source_business_order_id, channel,
+           target_contact, initiated_at, initiated_by, status, note_or_reply)
+         values ($1, $2, $3, $4, $5, $6, $7, 'initiated', $8)
+         returning ${communicationColumns()}`,
+        [reportId, report.vehicle_id, report.source_business_order_id, input.channel,
+          targetContact, now, input.context.actorAccountId, noteOrReply],
+      );
+      const communication = mapCommunication(inserted[0]!);
+      await audit(transaction, input.context, now, "inspection_report.customer_notification_initiated", reportId, {
+        communicationId: communication.id,
+        channel: communication.channel,
+        targetContact: communication.targetContact,
+        status: communication.status,
+      });
+      return communication;
+    });
+  }
+}
+
+type InspectionReportCommunicationRow = {
+  id: number;
+  inspection_report_id: number;
+  vehicle_id: number;
+  source_business_order_id: number | null;
+  channel: "sms" | "email" | "whatsapp";
+  target_contact: string;
+  initiated_at: Date;
+  initiated_by: number;
+  status: "initiated" | "confirmed" | "not_delivered";
+  note_or_reply: string | null;
+};
+
+function reportListQuery() {
+  return `select ${reportColumns("report")},
+          vehicle.plate_display as vehicle_plate_display,
+          vehicle.make as vehicle_make, vehicle.make_zh as vehicle_make_zh,
+          vehicle.model as vehicle_model, vehicle.model_zh as vehicle_model_zh,
+          coalesce(person.full_name, company.legal_name) as customer_name,
+          coalesce(person.normalized_phone, company.phone) as customer_phone,
+          person.whatsapp as customer_whatsapp,
+          coalesce(person.email, company.email) as customer_email,
+          inspector.full_name as inspector_name,
+          source_order.order_no as source_business_order_no
+   from inspection_reports as report
+   join vehicles as vehicle on vehicle.id = report.vehicle_id
+   left join personal_customers as person on person.id = vehicle.current_person_customer_id
+   left join company_accounts as company on company.id = vehicle.current_company_account_id
+   left join staff_members as inspector on inspector.id = report.actual_inspector_staff_member_id
+   left join business_orders as source_order on source_order.id = report.source_business_order_id`;
+}
+
+async function mapListItem(
+  executor: AuthSqlExecutor,
+  row: InspectionReportListRow,
+): Promise<InspectionReportListItem> {
+  const report = await mapReportWithFindings(executor, row);
+  const plate = row.vehicle_plate_display ?? "未登记车牌";
+  const make = row.vehicle_make_zh ?? row.vehicle_make;
+  const model = row.vehicle_model_zh ?? row.vehicle_model;
+  return {
+    report,
+    vehicle: { id: report.vehicleId, plate, description: `${make} ${model}`.trim() },
+    customer: {
+      name: row.customer_name,
+      phone: row.customer_phone,
+      whatsapp: row.customer_whatsapp,
+      email: row.customer_email,
+    },
+    inspectorName: row.inspector_name,
+    sourceBusinessOrder: report.sourceBusinessOrderId === null || row.source_business_order_no === null
+      ? null
+      : { id: report.sourceBusinessOrderId, orderNo: row.source_business_order_no },
+  };
+}
+
+async function selectCommunications(
+  executor: AuthSqlExecutor,
+  inspectionReportId: number,
+): Promise<InspectionReportCommunicationRecord[]> {
+  const rows = await executor.query<InspectionReportCommunicationRow>(
+    `select ${communicationColumns()} from inspection_report_communications
+     where inspection_report_id = $1 order by initiated_at desc, id desc`,
+    [inspectionReportId],
+  );
+  return rows.map(mapCommunication);
+}
+
+function communicationColumns() {
+  return "id, inspection_report_id, vehicle_id, source_business_order_id, channel, target_contact, initiated_at, initiated_by, status, note_or_reply";
+}
+
+function mapCommunication(row: InspectionReportCommunicationRow): InspectionReportCommunicationRecord {
+  return {
+    id: Number(row.id),
+    inspectionReportId: Number(row.inspection_report_id),
+    vehicleId: Number(row.vehicle_id),
+    sourceBusinessOrderId: nullableNumber(row.source_business_order_id),
+    channel: row.channel,
+    targetContact: row.target_contact,
+    initiatedAt: new Date(row.initiated_at),
+    initiatedBy: Number(row.initiated_by),
+    status: row.status,
+    noteOrReply: row.note_or_reply,
+  };
 }
 
 async function insertDraft(

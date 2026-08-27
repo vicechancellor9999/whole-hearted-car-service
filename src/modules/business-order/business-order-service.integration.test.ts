@@ -26,6 +26,7 @@ const migrationPaths = [
   "0009_business_order_core.sql",
   "0010_business_order_facts_append_only.sql",
   "0011_repair_rounds.sql",
+  "0018_business_order_number_format.sql",
 ].map((name) => resolve(process.cwd(), "drizzle", name));
 
 let database: PGlite;
@@ -164,7 +165,7 @@ describe("BusinessOrderService", () => {
       context: context(frontDeskId, "req-create-person-order"),
     });
     expect(order).toMatchObject({
-      orderNo: "BO-20260824-0001",
+      orderNo: "KGN-WH-2026082400001",
       vehicleId: personVehicleId,
       status: "waiting_assignment",
       payer: {
@@ -298,9 +299,9 @@ describe("BusinessOrderService", () => {
         partDiscountMinor: 50_000,
         otherDiscountMinor: 0,
         categoryDiscountMinor: 150_000,
-        wholeOrderDiscountMinor: 150_000,
-        totalDueMinor: 3_150_000,
-        includedGctMinor: 410_870,
+        wholeOrderDiscountMinor: 0,
+        totalDueMinor: 3_300_000,
+        includedGctMinor: 430_435,
       },
       items: [
         expect.objectContaining({

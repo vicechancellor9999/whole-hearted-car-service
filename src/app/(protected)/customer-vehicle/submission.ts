@@ -11,6 +11,27 @@ const optionalYear = z.preprocess(
   (value) => value === "" || value == null ? null : value,
   z.coerce.number().int().min(1886).max(2200).nullable(),
 );
+const optionalInteger = (minimum: number, maximum: number) => z.preprocess(
+  (value) => value === "" || value == null ? null : value,
+  z.coerce.number().int().min(minimum).max(maximum).nullable(),
+);
+const vehicleProfileFields = {
+  plate: z.string(),
+  vin: z.string().optional().default(""),
+  engineNumber: z.string().optional().default(""),
+  make: z.string(),
+  makeZh: z.string().optional().default(""),
+  model: z.string(),
+  modelZh: z.string().optional().default(""),
+  modelYear: optionalYear,
+  color: z.string().optional().default(""),
+  bodyType: z.string().optional().default(""),
+  fuelType: z.string().optional().default(""),
+  engineCc: optionalInteger(1, 30_000),
+  seating: optionalInteger(1, 200),
+  usage: z.string().optional().default(""),
+  specialNotes: z.string().optional().default(""),
+};
 const contactFields = {
   companyId: id,
   personalCustomerId: id,
@@ -54,15 +75,12 @@ const schema = z.discriminatedUnion("operation", [
     receivesCollection: booleanField, isActive: booleanField,
   }),
   z.object({
-    operation: z.literal("create_vehicle"), plate: z.string(),
-    vin: z.string().optional().default(""), make: z.string(), model: z.string(),
-    modelYear: optionalYear, color: z.string().optional().default(""),
+    operation: z.literal("create_vehicle"), ...vehicleProfileFields,
     ownerType: z.enum(["person", "company"]), ownerId: id,
   }),
   z.object({
     operation: z.literal("update_vehicle"), vehicleId: id, version,
-    plate: z.string(), vin: z.string().optional().default(""), make: z.string(),
-    model: z.string(), modelYear: optionalYear, color: z.string().optional().default(""),
+    ...vehicleProfileFields,
     isActive: booleanField,
   }),
   z.object({
@@ -151,18 +169,28 @@ export async function executeCustomerVehicleSubmission(
       return { message: "公司联系人关系已保存", destination: "/companies" };
     case "create_vehicle":
       await service.createVehicle({
-        plate: submission.plate, vin: submission.vin, make: submission.make,
-        model: submission.model, modelYear: submission.modelYear,
-        color: submission.color, ownerType: submission.ownerType,
+        plate: submission.plate, vin: submission.vin, engineNumber: submission.engineNumber,
+        make: submission.make, makeZh: submission.makeZh,
+        model: submission.model, modelZh: submission.modelZh,
+        modelYear: submission.modelYear, color: submission.color,
+        bodyType: submission.bodyType, fuelType: submission.fuelType,
+        engineCc: submission.engineCc, seating: submission.seating,
+        usage: submission.usage, specialNotes: submission.specialNotes,
+        ownerType: submission.ownerType,
         ownerId: submission.ownerId, context,
       });
       return { message: "车辆档案已创建", destination: "/vehicles" };
     case "update_vehicle":
       await service.updateVehicle({
         vehicleId: submission.vehicleId, version: submission.version,
-        plate: submission.plate, vin: submission.vin, make: submission.make,
-        model: submission.model, modelYear: submission.modelYear,
-        color: submission.color, isActive: submission.isActive, context,
+        plate: submission.plate, vin: submission.vin, engineNumber: submission.engineNumber,
+        make: submission.make, makeZh: submission.makeZh,
+        model: submission.model, modelZh: submission.modelZh,
+        modelYear: submission.modelYear, color: submission.color,
+        bodyType: submission.bodyType, fuelType: submission.fuelType,
+        engineCc: submission.engineCc, seating: submission.seating,
+        usage: submission.usage, specialNotes: submission.specialNotes,
+        isActive: submission.isActive, context,
       });
       return { message: "车辆档案已保存", destination: "/vehicles" };
     case "change_owner":

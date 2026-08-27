@@ -23,6 +23,16 @@ export const inspectionReportStatus = pgEnum("inspection_report_status", [
   "submitted",
 ]);
 
+export const inspectionReportCommunicationChannel = pgEnum(
+  "inspection_report_communication_channel",
+  ["sms", "email", "whatsapp"],
+);
+
+export const inspectionReportCommunicationStatus = pgEnum(
+  "inspection_report_communication_status",
+  ["initiated", "confirmed", "not_delivered"],
+);
+
 export const inspectionReports = pgTable(
   "inspection_reports",
   {
@@ -120,6 +130,48 @@ export const inspectionReportFindings = pgTable(
     check(
       "inspection_report_findings_sort_positive",
       sql`${table.sortOrder} >= 1`,
+    ),
+  ],
+);
+
+/** Immutable customer-contact facts. An external link only creates `initiated`; it never claims delivery. */
+export const inspectionReportCommunications = pgTable(
+  "inspection_report_communications",
+  {
+    id: identityPrimaryKey(),
+    inspectionReportId: bigint("inspection_report_id", { mode: "number" })
+      .notNull()
+      .references(() => inspectionReports.id, { onDelete: "restrict" }),
+    vehicleId: bigint("vehicle_id", { mode: "number" })
+      .notNull()
+      .references(() => vehicles.id, { onDelete: "restrict" }),
+    sourceBusinessOrderId: bigint("source_business_order_id", { mode: "number" })
+      .references(() => businessOrders.id, { onDelete: "restrict" }),
+    channel: inspectionReportCommunicationChannel("channel").notNull(),
+    targetContact: text("target_contact").notNull(),
+    initiatedAt: timestamp("initiated_at", { withTimezone: true }).notNull(),
+    initiatedBy: bigint("initiated_by", { mode: "number" })
+      .notNull()
+      .references(() => staffAccounts.id, { onDelete: "restrict" }),
+    status: inspectionReportCommunicationStatus("status").notNull().default("initiated"),
+    noteOrReply: text("note_or_reply"),
+  },
+  (table) => [
+    index("inspection_report_communications_report_time_idx").on(
+      table.inspectionReportId,
+      table.initiatedAt,
+    ),
+    index("inspection_report_communications_vehicle_time_idx").on(
+      table.vehicleId,
+      table.initiatedAt,
+    ),
+    check(
+      "inspection_report_communications_target_nonempty",
+      sql`length(btrim(${table.targetContact})) > 0`,
+    ),
+    check(
+      "inspection_report_communications_note_nonempty",
+      sql`${table.noteOrReply} is null or length(btrim(${table.noteOrReply})) > 0`,
     ),
   ],
 );

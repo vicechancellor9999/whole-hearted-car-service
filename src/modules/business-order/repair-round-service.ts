@@ -12,15 +12,22 @@ type RepairRoundStatus =
   | "return_pending_review"
   | "formally_handed_off";
 
+type RepairRoundSource = "initial" | "after_sales";
+
 type RepairRoundRow = {
   id: number;
   business_order_id: number;
   round_no: number;
+  source: RepairRoundSource;
+  after_sales_issue: string | null;
   status: RepairRoundStatus;
   assigned_team_id: number | null;
   vehicle_id: number;
   business_order_version: number;
   voided_at: Date | null;
+  created_at: Date;
+  created_by: number;
+  updated_at: Date;
   version: number;
 };
 
@@ -28,6 +35,8 @@ export type CurrentRepairRound = {
   id: number;
   businessOrderId: number;
   roundNo: number;
+  source: RepairRoundSource;
+  afterSalesIssue: string | null;
   status: RepairRoundStatus;
   assignedTeamId: number | null;
   intakeMileageKm: number | null;
@@ -35,6 +44,51 @@ export type CurrentRepairRound = {
   latestWorkReturnId: number | null;
   approvedWorkReturnId: number | null;
   version: number;
+};
+
+export type RepairRoundHistoryRecord = {
+  id: number;
+  businessOrderId: number;
+  roundNo: number;
+  source: RepairRoundSource;
+  afterSalesIssue: string | null;
+  status: RepairRoundStatus;
+  assignedTeamId: number | null;
+  createdAt: Date;
+  createdBy: number;
+  updatedAt: Date;
+  version: number;
+  events: Array<{
+    id: number;
+    eventType: string;
+    teamId: number | null;
+    workReturnId: number | null;
+    note: string | null;
+    actorAccountId: number;
+    occurredAt: Date;
+  }>;
+  formalHandoffs: Array<{
+    id: number;
+    handoffNo: number;
+    performanceMinor: number;
+    jamaicaMonth: string;
+    handedOffAt: Date;
+    cancelledAt: Date | null;
+  }>;
+};
+
+export type BusinessOrderAuditTrailRecord = {
+  id: number;
+  occurredAt: Date;
+  actorAccountId: number | null;
+  actorDisplayName: string | null;
+  actorUsername: string | null;
+  eventType: string;
+  objectType: string;
+  objectId: string;
+  reason: string | null;
+  before: Record<string, unknown> | null;
+  after: Record<string, unknown> | null;
 };
 
 export class RepairRoundValidationError extends Error {
@@ -115,6 +169,8 @@ export class RepairRoundService {
       id: Number(round.id),
       businessOrderId: Number(round.business_order_id),
       roundNo: round.round_no,
+      source: round.source,
+      afterSalesIssue: round.after_sales_issue,
       status: round.status,
       assignedTeamId: nullableNumber(round.assigned_team_id),
       intakeMileageKm: mileage[0] ? Number(mileage[0].odometer_km) : null,
@@ -125,6 +181,340 @@ export class RepairRoundService {
         : null,
       version: round.version,
     };
+  }
+
+  async startAfterSalesRound(input: {
+    businessOrderId: number;
+    expectedBusinessOrderVersion: number;
+    issue: string;
+    context: BusinessOrderActionContext;
+  }): Promise<CurrentRepairRound> {
+    const businessOrderId = positiveId(input.businessOrderId, "Business Order");
+    const expectedVersion = positiveId(
+      input.expectedBusinessOrderVersion,
+      "Business Order 版本",
+    );
+    const issue = nonempty(input.issue, "售后问题");
+    const now = input.context.now ?? new Date();
+
+    await this.database.transaction(async (transaction) => {
+      await requirePcWriter(transaction, input.context.actorAccountId);
+      const current = await lockCurrentRound(transaction, businessOrderId);
+      if (current.voided_at) {
+        throw new RepairRoundValidationError("已作废的 Business Order 不能发起售后维修");
+      }
+      if (current.business_order_version !== expectedVersion) {
+        throw new RepairRoundValidationError("Business Order 已发生变化，请刷新后重试");
+      }
+      if (current.status !== "formally_handed_off") {
+        throw new RepairRoundValidationError("只有当前维修轮次正式交单后才能发起售后维修");
+      }
+      const activeHandoff = await transaction.query<{ id: number }>(
+        `select handoff.id
+         from formal_handoffs as handoff
+         left join formal_handoff_cancellations as cancellation
+           on cancellation.formal_handoff_id = handoff.id
+         where handoff.repair_round_id = $1 and cancellation.id is null
+         limit 1`,
+        [current.id],
+      );
+      if (!activeHandoff[0]) {
+        throw new RepairRoundValidationError("当前维修轮次没有有效正式交单");
+      }
+
+      const nextRoundNo = current.round_no + 1;
+      await transaction.query(
+        `insert into repair_rounds
+          (business_order_id, round_no, source, after_sales_issue, status,
+           assigned_team_id, created_at, created_by, updated_at, version)
+         values ($1, $2, 'after_sales', $3, 'waiting_assignment',
+                 null, $4, $5, $4, 1)`,
+        [businessOrderId, nextRoundNo, issue, now, input.context.actorAccountId],
+      );
+      await transaction.query(
+        "select set_config('whole_hearted.repair_event_projection', 'on', true)",
+      );
+      const updated = await transaction.query<{ id: number }>(
+        `update business_orders
+         set current_repair_round_no = $2,
+             status = 'waiting_assignment', updated_at = $3,
+             version = version + 1
+         where id = $1 and version = $4
+         returning id`,
+        [businessOrderId, nextRoundNo, now, expectedVersion],
+      );
+      if (!updated[0]) {
+        throw new RepairRoundValidationError("Business Order 已发生变化，请刷新后重试");
+      }
+      await audit(
+        transaction,
+        input.context,
+        now,
+        "business_order.after_sales_round_started",
+        businessOrderId,
+        { roundNo: nextRoundNo, issue },
+      );
+    });
+
+    return this.getCurrentRound({
+      businessOrderId,
+      viewerAccountId: input.context.actorAccountId,
+    });
+  }
+
+  async cancelAfterSalesRound(input: {
+    businessOrderId: number;
+    expectedRepairRoundVersion: number;
+    context: BusinessOrderActionContext;
+  }): Promise<{ cancelled: true }> {
+    const businessOrderId = positiveId(input.businessOrderId, "Business Order");
+    const expectedVersion = positiveId(input.expectedRepairRoundVersion, "维修轮次版本");
+    const now = input.context.now ?? new Date();
+
+    return this.database.transaction(async (transaction) => {
+      await requirePcWriter(transaction, input.context.actorAccountId);
+      const current = await lockCurrentRound(transaction, businessOrderId);
+      requireRoundVersion(current, expectedVersion);
+      if (
+        current.source !== "after_sales" ||
+        current.round_no <= 1 ||
+        current.status !== "waiting_assignment" ||
+        current.assigned_team_id !== null
+      ) {
+        throw new RepairRoundValidationError("只有误建且尚未派单的售后维修轮次可以撤销");
+      }
+
+      const facts = await transaction.query<{ fact_count: number }>(
+        `select (
+           (select count(*) from repair_round_events where repair_round_id = $1) +
+           (select count(*) from repair_round_work_returns where repair_round_id = $1) +
+           (select count(*) from vehicle_mileage_records where repair_round_id = $1) +
+           (select count(*) from repair_round_intake_photos where repair_round_id = $1) +
+           (select count(*) from formal_handoffs where repair_round_id = $1) +
+           (select count(*) from inspection_reports where source_repair_round_id = $1)
+         )::integer as fact_count`,
+        [current.id],
+      );
+      if (Number(facts[0]?.fact_count ?? 0) > 0) {
+        throw new RepairRoundValidationError("本轮已经产生实际记录，不能作为误触轮次删除");
+      }
+
+      const previousRoundNo = current.round_no - 1;
+      const previous = await transaction.query<{ id: number; status: RepairRoundStatus }>(
+        `select id, status from repair_rounds
+         where business_order_id = $1 and round_no = $2
+         limit 1 for update`,
+        [businessOrderId, previousRoundNo],
+      );
+      if (previous[0]?.status !== "formally_handed_off") {
+        throw new RepairRoundValidationError("上一轮不是有效交单状态，不能撤销当前轮次");
+      }
+      const activeHandoff = await transaction.query<{ id: number }>(
+        `select handoff.id
+         from formal_handoffs as handoff
+         left join formal_handoff_cancellations as cancellation
+           on cancellation.formal_handoff_id = handoff.id
+         where handoff.repair_round_id = $1 and cancellation.id is null
+         limit 1`,
+        [previous[0].id],
+      );
+      if (!activeHandoff[0]) {
+        throw new RepairRoundValidationError("上一轮没有有效正式交单，不能撤销当前轮次");
+      }
+
+      await transaction.query(
+        "select set_config('whole_hearted.repair_event_projection', 'on', true)",
+      );
+      const updated = await transaction.query<{ id: number }>(
+        `update business_orders
+         set current_repair_round_no = $2,
+             status = 'formally_handed_off', updated_at = $3,
+             version = version + 1
+         where id = $1 and version = $4 and current_repair_round_no = $5
+         returning id`,
+        [businessOrderId, previousRoundNo, now, current.business_order_version, current.round_no],
+      );
+      if (!updated[0]) {
+        throw new RepairRoundValidationError("Business Order 已发生变化，请刷新后重试");
+      }
+      const deleted = await transaction.query<{ id: number }>(
+        `delete from repair_rounds
+         where id = $1 and version = $2
+         returning id`,
+        [current.id, expectedVersion],
+      );
+      if (!deleted[0]) {
+        throw new RepairRoundValidationError("维修轮次已发生变化，请刷新后重试");
+      }
+      await audit(
+        transaction,
+        input.context,
+        now,
+        "business_order.after_sales_round_cancelled",
+        businessOrderId,
+        {
+          cancelledRoundNo: current.round_no,
+          previousRoundNo,
+          issue: current.after_sales_issue,
+        },
+      );
+      return { cancelled: true };
+    });
+  }
+
+  async listRepairRounds(input: {
+    businessOrderId: number;
+    viewerAccountId: number;
+  }): Promise<RepairRoundHistoryRecord[]> {
+    const businessOrderId = positiveId(input.businessOrderId, "Business Order");
+    const currentRows = await selectCurrentRound(this.database, businessOrderId);
+    const current = currentRows[0];
+    if (!current) throw new RepairRoundNotFoundError();
+    await requireRoundReader(this.database, input.viewerAccountId, current);
+
+    const rounds = await this.database.query<RepairRoundRow>(
+      `select repair_round.id, repair_round.business_order_id,
+              repair_round.round_no, repair_round.source,
+              repair_round.after_sales_issue, repair_round.status,
+              repair_round.assigned_team_id, repair_round.created_at,
+              repair_round.created_by, repair_round.updated_at,
+              repair_round.version, business_order.vehicle_id,
+              business_order.version as business_order_version,
+              business_order.voided_at
+       from repair_rounds as repair_round
+       join business_orders as business_order
+         on business_order.id = repair_round.business_order_id
+       where repair_round.business_order_id = $1
+       order by repair_round.round_no, repair_round.id`,
+      [businessOrderId],
+    );
+    const events = await this.database.query<{
+      id: number;
+      repair_round_id: number;
+      event_type: string;
+      team_id: number | null;
+      work_return_id: number | null;
+      note: string | null;
+      actor_account_id: number;
+      occurred_at: Date;
+    }>(
+      `select event.id, event.repair_round_id, event.event_type,
+              event.team_id, event.work_return_id, event.note,
+              event.actor_account_id, event.occurred_at
+       from repair_round_events as event
+       join repair_rounds as repair_round on repair_round.id = event.repair_round_id
+       where repair_round.business_order_id = $1
+       order by repair_round.round_no, event.occurred_at, event.id`,
+      [businessOrderId],
+    );
+    const handoffs = await this.database.query<{
+      id: number;
+      repair_round_id: number;
+      handoff_no: number;
+      performance_minor: number;
+      jamaica_month: string | Date;
+      handed_off_at: Date;
+      cancelled_at: Date | null;
+    }>(
+      `select handoff.id, handoff.repair_round_id, handoff.handoff_no,
+              handoff.performance_minor, handoff.jamaica_month,
+              handoff.handed_off_at, cancellation.cancelled_at
+       from formal_handoffs as handoff
+       left join formal_handoff_cancellations as cancellation
+         on cancellation.formal_handoff_id = handoff.id
+       where handoff.business_order_id = $1
+       order by handoff.handoff_no, handoff.id`,
+      [businessOrderId],
+    );
+
+    return rounds.map((round) => ({
+      id: Number(round.id),
+      businessOrderId: Number(round.business_order_id),
+      roundNo: round.round_no,
+      source: round.source,
+      afterSalesIssue: round.after_sales_issue,
+      status: round.status,
+      assignedTeamId: nullableNumber(round.assigned_team_id),
+      createdAt: new Date(round.created_at),
+      createdBy: Number(round.created_by),
+      updatedAt: new Date(round.updated_at),
+      version: round.version,
+      events: events
+        .filter((event) => Number(event.repair_round_id) === Number(round.id))
+        .map((event) => ({
+          id: Number(event.id),
+          eventType: event.event_type,
+          teamId: nullableNumber(event.team_id),
+          workReturnId: nullableNumber(event.work_return_id),
+          note: event.note,
+          actorAccountId: Number(event.actor_account_id),
+          occurredAt: new Date(event.occurred_at),
+        })),
+      formalHandoffs: handoffs
+        .filter((handoff) => Number(handoff.repair_round_id) === Number(round.id))
+        .map((handoff) => ({
+          id: Number(handoff.id),
+          handoffNo: handoff.handoff_no,
+          performanceMinor: Number(handoff.performance_minor),
+          jamaicaMonth: normalizeMonth(handoff.jamaica_month),
+          handedOffAt: new Date(handoff.handed_off_at),
+          cancelledAt: handoff.cancelled_at === null
+            ? null
+            : new Date(handoff.cancelled_at),
+        })),
+    }));
+  }
+
+  async listAuditTrail(input: {
+    businessOrderId: number;
+    viewerAccountId: number;
+  }): Promise<BusinessOrderAuditTrailRecord[]> {
+    const businessOrderId = positiveId(input.businessOrderId, "Business Order");
+    const currentRows = await selectCurrentRound(this.database, businessOrderId);
+    const current = currentRows[0];
+    if (!current) throw new RepairRoundNotFoundError();
+    await requireRoundReader(this.database, input.viewerAccountId, current);
+
+    const rows = await this.database.query<{
+      id: number;
+      occurred_at: Date;
+      actor_account_id: number | null;
+      actor_display_name: string | null;
+      actor_username: string | null;
+      event_type: string;
+      object_type: string;
+      object_id: string;
+      reason: string | null;
+      before_state: Record<string, unknown> | string | null;
+      after_state: Record<string, unknown> | string | null;
+    }>(
+      `select event.id, event.occurred_at, event.actor_account_id,
+              account.display_name as actor_display_name,
+              account.normalized_username as actor_username,
+              event.event_type, event.object_type, event.object_id,
+              event.reason, event.before_state, event.after_state
+       from audit_events as event
+       left join staff_accounts as account on account.id = event.actor_account_id
+       where (event.object_type = 'business_order' and event.object_id = $1::text)
+          or event.before_state ->> 'businessOrderId' = $1::text
+          or event.after_state ->> 'businessOrderId' = $1::text
+       order by event.occurred_at desc, event.id desc`,
+      [businessOrderId],
+    );
+
+    return rows.map((row) => ({
+      id: Number(row.id),
+      occurredAt: new Date(row.occurred_at),
+      actorAccountId: nullableNumber(row.actor_account_id),
+      actorDisplayName: row.actor_display_name,
+      actorUsername: row.actor_username,
+      eventType: row.event_type,
+      objectType: row.object_type,
+      objectId: row.object_id,
+      reason: row.reason,
+      before: normalizeAuditState(row.before_state),
+      after: normalizeAuditState(row.after_state),
+    }));
   }
 
   async assignRound(input: {
@@ -176,6 +566,43 @@ export class RepairRoundService {
     });
   }
 
+  async withdrawAssignment(input: {
+    businessOrderId: number;
+    expectedRepairRoundVersion: number;
+    context: BusinessOrderActionContext;
+  }): Promise<{ withdrawn: true }> {
+    const businessOrderId = positiveId(input.businessOrderId, "Business Order");
+    const expectedVersion = positiveId(input.expectedRepairRoundVersion, "维修轮次版本");
+    const now = input.context.now ?? new Date();
+
+    return this.database.transaction(async (transaction) => {
+      await requireSuperAdmin(transaction, input.context.actorAccountId);
+      const round = await lockCurrentRound(transaction, businessOrderId);
+      requireRoundVersion(round, expectedVersion);
+      if (round.status === "waiting_assignment" || round.status === "formally_handed_off") {
+        throw new RepairRoundValidationError("只有正式交单前已派出的维修轮次可以撤回");
+      }
+      if (round.assigned_team_id === null) {
+        throw new RepairRoundValidationError("当前维修轮次没有可撤回的维修班组");
+      }
+
+      await insertEvent(transaction, {
+        repairRoundId: round.id,
+        eventType: "assignment_withdrawn",
+        teamId: round.assigned_team_id,
+        note: "超级管理员撤回派单",
+        actorAccountId: input.context.actorAccountId,
+        occurredAt: now,
+      });
+      await audit(transaction, input.context, now, "business_order.round_assignment_withdrawn", businessOrderId, {
+        roundNo: round.round_no,
+        previousTeamId: round.assigned_team_id,
+        previousStatus: round.status,
+      });
+      return { withdrawn: true };
+    });
+  }
+
   async acceptRound(input: {
     businessOrderId: number;
     expectedRepairRoundVersion: number;
@@ -206,6 +633,40 @@ export class RepairRoundService {
         roundNo: round.round_no,
         teamId: round.assigned_team_id,
         staffMemberId: staff.id,
+      });
+    });
+  }
+
+  async recordAcceptanceOnBehalf(input: {
+    businessOrderId: number;
+    expectedRepairRoundVersion: number;
+    actualStaffMemberId: number;
+    context: BusinessOrderActionContext;
+  }): Promise<void> {
+    const businessOrderId = positiveId(input.businessOrderId, "Business Order");
+    const expectedVersion = positiveId(input.expectedRepairRoundVersion, "维修轮次版本");
+    const actualStaffMemberId = positiveId(input.actualStaffMemberId, "实际维修工");
+    const now = input.context.now ?? new Date();
+    await this.database.transaction(async (transaction) => {
+      await requirePcWriter(transaction, input.context.actorAccountId);
+      const round = await lockCurrentRound(transaction, businessOrderId);
+      requireRoundVersion(round, expectedVersion);
+      if (round.status !== "assigned" || round.assigned_team_id === null) {
+        throw new RepairRoundValidationError("当前维修轮次不是待接单状态");
+      }
+      await requireActiveTeamStaff(transaction, actualStaffMemberId, round.assigned_team_id);
+      await insertEvent(transaction, {
+        repairRoundId: round.id,
+        eventType: "accepted",
+        teamId: round.assigned_team_id,
+        note: `纸质接单，实际维修工 staff:${actualStaffMemberId}`,
+        actorAccountId: input.context.actorAccountId,
+        occurredAt: now,
+      });
+      await audit(transaction, input.context, now, "business_order.round_paper_acceptance_recorded", businessOrderId, {
+        roundNo: round.round_no,
+        teamId: round.assigned_team_id,
+        actualStaffMemberId,
       });
     });
   }
@@ -298,14 +759,13 @@ export class RepairRoundService {
   async submitWorkReturn(input: {
     businessOrderId: number;
     expectedRepairRoundVersion: number;
-    workSummary: string;
-    actualStaffMemberId: number;
+    workSummary?: string;
+    actualStaffMemberId?: number;
     context: BusinessOrderActionContext;
   }): Promise<{ id: number; submissionNo: number }> {
     const businessOrderId = positiveId(input.businessOrderId, "Business Order");
     const expectedVersion = positiveId(input.expectedRepairRoundVersion, "维修轮次版本");
-    const workSummary = nonempty(input.workSummary, "回单工作内容");
-    const actualStaffMemberId = positiveId(input.actualStaffMemberId, "实际维修工");
+    const workSummary = input.workSummary?.trim() || null;
     const now = input.context.now ?? new Date();
     return this.database.transaction(async (transaction) => {
       const round = await lockCurrentRound(transaction, businessOrderId);
@@ -314,10 +774,10 @@ export class RepairRoundService {
       if (round.assigned_team_id === null) {
         throw new RepairRoundValidationError("本轮尚未分配维修班组");
       }
-      await requireReturnSubmitter(
+      const actualStaffMemberId = await requireReturnSubmitter(
         transaction,
         input.context.actorAccountId,
-        actualStaffMemberId,
+        input.actualStaffMemberId,
         round.assigned_team_id,
       );
       const counts = await transaction.query<{ current_number: number }>(
@@ -420,8 +880,11 @@ export class RepairRoundService {
 async function selectCurrentRound(executor: AuthSqlExecutor, businessOrderId: number) {
   return executor.query<RepairRoundRow>(
     `select repair_round.id, repair_round.business_order_id,
-            repair_round.round_no, repair_round.status,
+            repair_round.round_no, repair_round.source,
+            repair_round.after_sales_issue, repair_round.status,
             repair_round.assigned_team_id, repair_round.version,
+            repair_round.created_at, repair_round.created_by,
+            repair_round.updated_at,
             business_order.vehicle_id,
             business_order.version as business_order_version,
             business_order.voided_at
@@ -437,8 +900,11 @@ async function selectCurrentRound(executor: AuthSqlExecutor, businessOrderId: nu
 async function lockCurrentRound(executor: AuthSqlExecutor, businessOrderId: number) {
   const rows = await executor.query<RepairRoundRow>(
     `select repair_round.id, repair_round.business_order_id,
-            repair_round.round_no, repair_round.status,
+            repair_round.round_no, repair_round.source,
+            repair_round.after_sales_issue, repair_round.status,
             repair_round.assigned_team_id, repair_round.version,
+            repair_round.created_at, repair_round.created_by,
+            repair_round.updated_at,
             business_order.vehicle_id,
             business_order.version as business_order_version,
             business_order.voided_at
@@ -530,11 +996,15 @@ async function requireIntakeActor(
 async function requireReturnSubmitter(
   executor: AuthSqlExecutor,
   accountId: number,
-  actualStaffMemberId: number,
+  actualStaffMemberId: number | undefined,
   teamId: number,
-) {
-  const actors = await executor.query<{ role: string; staff_member_id: number | null }>(
-    `select account.role, member.id as staff_member_id
+): Promise<number | null> {
+  const actors = await executor.query<{
+    role: string;
+    staff_member_id: number | null;
+    current_team_id: number | null;
+  }>(
+    `select account.role, member.id as staff_member_id, member.current_team_id
      from staff_accounts as account
      left join staff_members as member
        on member.account_id = account.id and member.status = 'active'
@@ -545,18 +1015,36 @@ async function requireReturnSubmitter(
   if (!actor || !["super_admin", "front_desk", "mechanic"].includes(actor.role)) {
     throw new RepairRoundWriteDeniedError();
   }
+  if (actor.role === "mechanic") {
+    if (!actor.staff_member_id || Number(actor.current_team_id) !== Number(teamId)) {
+      throw new RepairRoundValidationError("只有本维修班组成员可以提交回单");
+    }
+    if (actualStaffMemberId !== undefined && Number(actor.staff_member_id) !== actualStaffMemberId) {
+      throw new RepairRoundValidationError("维修工只能提交自己的回单");
+    }
+    return Number(actor.staff_member_id);
+  }
+  if (actualStaffMemberId === undefined) return null;
   const staff = await executor.query<{ id: number }>(
     `select id from staff_members
      where id = $1 and status = 'active' and current_team_id = $2 limit 1`,
     [actualStaffMemberId, teamId],
   );
   if (!staff[0]) throw new RepairRoundValidationError("实际维修工不属于本维修班组");
-  if (
-    actor.role === "mechanic" &&
-    Number(actor.staff_member_id) !== actualStaffMemberId
-  ) {
-    throw new RepairRoundValidationError("维修工只能提交自己的回单");
-  }
+  return Number(staff[0].id);
+}
+
+async function requireActiveTeamStaff(
+  executor: AuthSqlExecutor,
+  staffMemberId: number,
+  teamId: number,
+) {
+  const rows = await executor.query<{ id: number }>(
+    `select id from staff_members
+     where id = $1 and status = 'active' and current_team_id = $2 limit 1`,
+    [staffMemberId, teamId],
+  );
+  if (!rows[0]) throw new RepairRoundValidationError("实际维修工不属于本维修班组");
 }
 
 async function requireReviewableReturn(
@@ -590,6 +1078,7 @@ async function insertEvent(
     repairRoundId: number;
     eventType:
       | "assigned"
+      | "assignment_withdrawn"
       | "accepted"
       | "intake_mileage_recorded"
       | "intake_photo_linked"
@@ -614,6 +1103,14 @@ async function insertEvent(
       input.workReturnId ?? null, input.customerConfirmedWithoutPayment ?? null,
       input.note ?? null, input.actorAccountId, input.occurredAt],
   );
+}
+
+async function requireSuperAdmin(executor: AuthSqlExecutor, accountId: number) {
+  const rows = await executor.query<{ id: number }>(
+    "select id from staff_accounts where id = $1 and is_active = true and role = 'super_admin' limit 1",
+    [accountId],
+  );
+  if (!rows[0]) throw new RepairRoundWriteDeniedError();
 }
 
 async function audit(
@@ -677,4 +1174,25 @@ function nonempty(value: string, label: string) {
 
 function nullableNumber(value: number | null) {
   return value === null ? null : Number(value);
+}
+
+function normalizeMonth(value: string | Date) {
+  return typeof value === "string"
+    ? value.slice(0, 7)
+    : value.toISOString().slice(0, 7);
+}
+
+function normalizeAuditState(
+  value: Record<string, unknown> | string | null,
+): Record<string, unknown> | null {
+  if (value === null) return null;
+  if (typeof value === "object") return value;
+  try {
+    const parsed = JSON.parse(value) as unknown;
+    return parsed && typeof parsed === "object" && !Array.isArray(parsed)
+      ? parsed as Record<string, unknown>
+      : null;
+  } catch {
+    return null;
+  }
 }

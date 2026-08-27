@@ -195,13 +195,22 @@ export const vehicles = pgTable(
   {
     id: identityPrimaryKey(),
     vehicleNo: text("vehicle_no").notNull(),
-    plateDisplay: text("plate_display").notNull(),
-    normalizedPlate: text("normalized_plate").notNull(),
+    plateDisplay: text("plate_display"),
+    normalizedPlate: text("normalized_plate"),
     vin: text("vin"),
+    engineNumber: text("engine_number"),
     make: text("make").notNull(),
+    makeZh: text("make_zh"),
     model: text("model").notNull(),
+    modelZh: text("model_zh"),
     modelYear: integer("model_year"),
     color: text("color"),
+    bodyType: text("body_type"),
+    fuelType: text("fuel_type"),
+    engineCc: integer("engine_cc"),
+    seating: integer("seating"),
+    usage: text("usage"),
+    specialNotes: text("special_notes"),
     currentPersonCustomerId: bigint("current_person_customer_id", {
       mode: "number",
     }).references(() => personalCustomers.id, { onDelete: "restrict" }),
@@ -222,7 +231,9 @@ export const vehicles = pgTable(
   },
   (table) => [
     uniqueIndex("vehicles_vehicle_no_uq").on(table.vehicleNo),
-    uniqueIndex("vehicles_normalized_plate_uq").on(table.normalizedPlate),
+    uniqueIndex("vehicles_normalized_plate_uq")
+      .on(table.normalizedPlate)
+      .where(sql`${table.normalizedPlate} is not null`),
     uniqueIndex("vehicles_vin_uq").on(table.vin),
     index("vehicles_person_owner_idx").on(table.currentPersonCustomerId),
     index("vehicles_company_owner_idx").on(table.currentCompanyAccountId),
@@ -233,7 +244,8 @@ export const vehicles = pgTable(
     ),
     check(
       "vehicles_plate_nonempty",
-      sql`length(btrim(${table.plateDisplay})) > 0 and length(btrim(${table.normalizedPlate})) > 0`,
+      sql`(${table.plateDisplay} is null and ${table.normalizedPlate} is null)
+          or (length(btrim(${table.plateDisplay})) > 0 and length(btrim(${table.normalizedPlate})) > 0)`,
     ),
     check(
       "vehicles_make_model_nonempty",
@@ -246,6 +258,14 @@ export const vehicles = pgTable(
     check(
       "vehicles_model_year_valid",
       sql`${table.modelYear} is null or ${table.modelYear} between 1886 and 2200`,
+    ),
+    check(
+      "vehicles_engine_cc_valid",
+      sql`${table.engineCc} is null or ${table.engineCc} between 1 and 30000`,
+    ),
+    check(
+      "vehicles_seating_valid",
+      sql`${table.seating} is null or ${table.seating} between 1 and 200`,
     ),
     check("vehicles_version_positive", sql`${table.version} >= 1`),
   ],

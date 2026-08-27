@@ -135,7 +135,7 @@ describe("Business Order formal print documents", () => {
     expect(screen.getByText("发动机诊断 / Engine diagnosis")).toBeInTheDocument();
     expect(screen.getByText("工时折扣 / Labor discount")).toBeInTheDocument();
     expect(screen.getByText("配件折扣 / Parts discount")).toBeInTheDocument();
-    expect(screen.getByText("整单折扣 / Whole-order discount")).toBeInTheDocument();
+    expect(screen.queryByText("整单折扣 / Whole-order discount")).not.toBeInTheDocument();
     expect(screen.getByText("其中含 15% GCT / Included 15% GCT")).toBeInTheDocument();
     expect(screen.getByText("PAY-20260824-0001")).toBeInTheDocument();
     expect(screen.getByText(/办公室内部备注。/)).toBeInTheDocument();

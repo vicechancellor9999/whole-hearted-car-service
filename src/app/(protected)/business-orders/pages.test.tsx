@@ -78,6 +78,8 @@ const round = {
   id: 71,
   businessOrderId: 11,
   roundNo: 1,
+  source: "initial" as const,
+  afterSalesIssue: null,
   status: "waiting_assignment" as const,
   assignedTeamId: null,
   intakeMileageKm: null,
@@ -167,6 +169,72 @@ describe("Business Order PC pages", () => {
     );
     expect(screen.getByText("老板只读：可查看全部事实，不能修改或执行流程操作。")).toBeInTheDocument();
     expect(screen.queryByRole("button")).not.toBeInTheDocument();
+  });
+
+  it("opens after-sales from the same Business Order and preserves visible round history", () => {
+    const handedOffRound = {
+      ...round,
+      status: "formally_handed_off" as const,
+      assignedTeamId: 81,
+      version: 7,
+    };
+    const formalHandoffs = [{
+      id: 91,
+      handoffNo: 1,
+      businessOrderId: 11,
+      repairRoundId: 71,
+      repairRoundNo: 1,
+      teamId: 81,
+      performanceMinor: 2_000_000,
+      jamaicaMonth: "2026-08",
+      chargeVersionId: 31,
+      chargeVersionNo: 2,
+      chargeSnapshot: { totals: charges.totals, items: [], notes: [] },
+      handedOffAt: new Date("2026-08-24T15:00:00Z"),
+      handedOffBy: 1,
+      cancellation: null,
+    }];
+    render(
+      <BusinessOrderDetailView
+        action={action}
+        canWrite
+        chargeUnits={[]}
+        charges={charges}
+        formalHandoffs={formalHandoffs}
+        isSuperAdmin
+        mechanics={[]}
+        order={{ ...order, status: "formally_handed_off", version: 8 }}
+        repairRound={handedOffRound}
+        repairRounds={[{
+          id: 71,
+          businessOrderId: 11,
+          roundNo: 1,
+          source: "initial",
+          afterSalesIssue: null,
+          status: "formally_handed_off",
+          assignedTeamId: 81,
+          createdAt: new Date("2026-08-24T14:00:00Z"),
+          createdBy: 1,
+          updatedAt: new Date("2026-08-24T15:00:00Z"),
+          version: 7,
+          events: [],
+          formalHandoffs: [{
+            id: 91,
+            handoffNo: 1,
+            performanceMinor: 2_000_000,
+            jamaicaMonth: "2026-08",
+            handedOffAt: new Date("2026-08-24T15:00:00Z"),
+            cancelledAt: null,
+          }],
+        }]}
+        teams={[{ id: 81, name: "维修一组" }]}
+      />,
+    );
+    expect(screen.getByRole("button", { name: "开始售后维修" })).toBeInTheDocument();
+    expect(screen.getByLabelText("售后问题")).toBeInTheDocument();
+    const history = screen.getByRole("region", { name: "维修轮次历史" });
+    expect(within(history).getByText("第 1 轮维修")).toBeInTheDocument();
+    expect(within(history).getByText(/绩效 JMD 20,000.00/)).toBeInTheDocument();
   });
 
   it("creates Inspection Report as an independent vehicle fact with optional source links", () => {

@@ -364,7 +364,7 @@ export class BusinessOrderService {
     context: BusinessOrderActionContext;
   }): Promise<BusinessOrderChargeSnapshot> {
     const fields = replaceChargeVersionSchema.parse(input);
-    const calculated = calculateCharges(fields);
+    const calculated = calculateCharges({ ...fields, wholeOrderDiscount: "0" });
     const now = input.context.now ?? new Date();
     return this.database.transaction(async (transaction) => {
       await requireWriter(transaction, input.context.actorAccountId);
@@ -637,15 +637,15 @@ function mapBusinessOrder(row: BusinessOrderRow | undefined): BusinessOrderRecor
 }
 
 async function nextBusinessOrderNumber(executor: AuthSqlExecutor, now: Date) {
-  const prefix = `BO-${toBusinessDateKey(now).replaceAll("-", "")}-`;
+  const prefix = `KGN-WH-${toBusinessDateKey(now).replaceAll("-", "")}`;
   const rows = await executor.query<{ current_number: number }>(
-    `select coalesce(max(right(order_no, 4)::integer), 0)::integer as current_number
+    `select coalesce(max(right(order_no, 5)::integer), 0)::integer as current_number
      from business_orders where order_no like $1`,
     [`${prefix}%`],
   );
   const next = Number(rows[0]?.current_number ?? 0) + 1;
-  if (next > 9_999) throw new BusinessOrderConflictError("当天 Business Order 编号已经用尽");
-  return `${prefix}${String(next).padStart(4, "0")}`;
+  if (next > 99_999) throw new BusinessOrderConflictError("当天 Business Order 编号已经用尽");
+  return `${prefix}${String(next).padStart(5, "0")}`;
 }
 
 async function requireReader(executor: AuthSqlExecutor, accountId: number) {

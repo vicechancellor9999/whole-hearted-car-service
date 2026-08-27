@@ -18,7 +18,7 @@ export const recordPaymentSchema = z.object({
   note: optionalNote,
 });
 
-const storedEvidenceSchema = z.object({
+export const storedEvidenceSchema = z.object({
   storageKey: z.string().trim().min(1).max(500),
   originalName: z.string().trim().min(1).max(500),
   mediaType: z.enum(["image/jpeg", "image/png", "image/webp", "application/pdf"]),
@@ -35,18 +35,7 @@ export const recordRefundSchema = z.object({
   originalDocumentNote: z.string().trim().max(2_000).optional().transform(
     (value) => value || null,
   ),
-  proof: storedEvidenceSchema.nullable(),
-  customerSignature: storedEvidenceSchema.nullable().optional().transform(
-    (value) => value ?? null,
-  ),
 }).superRefine((value, context) => {
-  if (!value.proof) {
-    context.addIssue({
-      code: "custom",
-      message: "退款必须上传退款凭证",
-      path: ["proof"],
-    });
-  }
   if (value.originalDocumentStatus === "unavailable" && !value.originalDocumentNote) {
     context.addIssue({
       code: "custom",
@@ -54,6 +43,18 @@ export const recordRefundSchema = z.object({
       path: ["originalDocumentNote"],
     });
   }
+});
+
+export const appendRefundProofSchema = z.object({
+  businessOrderId: z.number().int().positive(),
+  refundId: z.number().int().positive(),
+  proof: storedEvidenceSchema,
+});
+
+export const appendRefundSignedAcknowledgementSchema = z.object({
+  businessOrderId: z.number().int().positive(),
+  refundId: z.number().int().positive(),
+  signedAcknowledgement: storedEvidenceSchema,
 });
 
 export function moneyTextToMinor(value: string): number {

@@ -8,7 +8,7 @@ export type NavigationItem = Readonly<{
 
 const navigationItems = [
   {
-    label: "工作台",
+    label: "经营概览",
     href: "/dashboard",
     permission: "pc.dashboard.read",
   },
@@ -21,6 +21,11 @@ const navigationItems = [
     label: "Inspection Report",
     href: "/inspection-reports",
     permission: "business.read.all",
+  },
+  {
+    label: "绩效管理",
+    href: "/performance",
+    permission: "pc.dashboard.read",
   },
   {
     label: "客户档案",

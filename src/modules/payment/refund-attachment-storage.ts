@@ -26,6 +26,15 @@ export class RefundAttachmentStorageError extends Error {
   }
 }
 
+export function isRefundUploadFile(value: unknown): value is File {
+  return typeof value === "object" && value !== null
+    && "name" in value && typeof value.name === "string"
+    && "type" in value && typeof value.type === "string"
+    && "size" in value && typeof value.size === "number"
+    && value.size > 0
+    && "arrayBuffer" in value && typeof value.arrayBuffer === "function";
+}
+
 export function refundAttachmentStorageRoot(
   source: Record<string, unknown> = process.env,
 ) {

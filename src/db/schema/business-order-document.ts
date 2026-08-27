@@ -23,6 +23,7 @@ import { repairRounds } from "@/db/schema/repair-round";
 type OfficeArchiveRenderSnapshot = {
   version: 1;
   kind: "office_archive";
+  presentation?: "office_english_primary_v1";
   businessOrder: ReceiptRenderSnapshot["businessOrder"];
   charges: ReceiptRenderSnapshot["charges"];
   transactions: ReceiptRenderSnapshot["transactions"];

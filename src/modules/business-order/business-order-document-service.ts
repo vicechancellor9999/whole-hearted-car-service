@@ -284,6 +284,7 @@ function buildOfficeSnapshot(
   return {
     version: 1,
     kind: "office_archive",
+    presentation: "office_english_primary_v1",
     businessOrder: {
       id: Number(source.id),
       orderNo: source.order_no,

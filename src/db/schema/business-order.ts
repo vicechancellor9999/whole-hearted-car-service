@@ -101,7 +101,7 @@ export const businessOrders = pgTable(
     index("business_orders_company_payer_idx").on(table.payerCompanyAccountId),
     check(
       "business_orders_order_no_format",
-      sql`${table.orderNo} ~ '^BO-[0-9]{8}-[0-9]{4}$'`,
+      sql`${table.orderNo} ~ '^KGN-WH-[0-9]{13}$'`,
     ),
     check(
       "business_orders_exactly_one_payer",

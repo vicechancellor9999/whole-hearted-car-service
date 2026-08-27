@@ -101,7 +101,7 @@ export const vehicleOwnerSchema = z.discriminatedUnion("ownerType", [
 
 export const createVehicleSchema = z
   .object({
-    plate: z.string().trim().min(1, "车牌不能为空").max(40),
+    plate: optionalText(40),
     vin: z.string().optional().transform((value, context) => {
       if (!value?.trim()) return null;
       const normalized = normalizeVin(value);
@@ -111,15 +111,24 @@ export const createVehicleSchema = z
       }
       return normalized;
     }),
+    engineNumber: optionalText(120),
     make: z.string().trim().min(1, "品牌不能为空").max(120),
+    makeZh: optionalText(120),
     model: z.string().trim().min(1, "车型不能为空").max(120),
+    modelZh: optionalText(120),
     modelYear: z.number().int().min(1886).max(2200).nullable().optional(),
     color: optionalText(80),
+    bodyType: optionalText(80),
+    fuelType: optionalText(80),
+    engineCc: z.number().int().min(1).max(30_000).nullable().optional(),
+    seating: z.number().int().min(1).max(200).nullable().optional(),
+    usage: optionalText(160),
+    specialNotes: optionalText(2_000),
   })
   .and(vehicleOwnerSchema)
   .transform((value, context) => {
-    const normalizedPlate = normalizePlate(value.plate);
-    if (!normalizedPlate) {
+    const normalizedPlate = value.plate ? normalizePlate(value.plate) : null;
+    if (value.plate && !normalizedPlate) {
       context.addIssue({ code: "custom", path: ["plate"], message: "车牌格式不正确" });
       return z.NEVER;
     }
@@ -128,7 +137,7 @@ export const createVehicleSchema = z
 
 export const updateVehicleSchema = z
   .object({
-    plate: z.string().trim().min(1, "车牌不能为空").max(40),
+    plate: optionalText(40),
     vin: z.string().optional().transform((value, context) => {
       if (!value?.trim()) return null;
       const normalized = normalizeVin(value);
@@ -138,16 +147,25 @@ export const updateVehicleSchema = z
       }
       return normalized;
     }),
+    engineNumber: optionalText(120),
     make: z.string().trim().min(1, "品牌不能为空").max(120),
+    makeZh: optionalText(120),
     model: z.string().trim().min(1, "车型不能为空").max(120),
+    modelZh: optionalText(120),
     modelYear: z.number().int().min(1886).max(2200).nullable().optional(),
     color: optionalText(80),
+    bodyType: optionalText(80),
+    fuelType: optionalText(80),
+    engineCc: z.number().int().min(1).max(30_000).nullable().optional(),
+    seating: z.number().int().min(1).max(200).nullable().optional(),
+    usage: optionalText(160),
+    specialNotes: optionalText(2_000),
     isActive: z.boolean(),
     version: z.number().int().positive(),
   })
   .transform((value, context) => {
-    const normalizedPlate = normalizePlate(value.plate);
-    if (!normalizedPlate) {
+    const normalizedPlate = value.plate ? normalizePlate(value.plate) : null;
+    if (value.plate && !normalizedPlate) {
       context.addIssue({ code: "custom", path: ["plate"], message: "车牌格式不正确" });
       return z.NEVER;
     }

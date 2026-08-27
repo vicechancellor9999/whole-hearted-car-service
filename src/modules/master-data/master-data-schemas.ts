@@ -45,6 +45,10 @@ export const normalizedPhoneSchema = z
       .regex(/^\+[1-9]\d{6,14}$/, "手机号格式不正确"),
   );
 
+export const optionalNormalizedPhoneSchema = z
+  .union([normalizedPhoneSchema, z.literal(""), z.null(), z.undefined()])
+  .transform((value) => value || null);
+
 export const dateKeySchema = z
   .string()
   .regex(/^\d{4}-\d{2}-\d{2}$/, "日期格式必须为 YYYY-MM-DD")
@@ -98,7 +102,7 @@ export const updateDictionaryItemSchema = z.object({
 
 export const createMechanicSchema = z.object({
   fullName: requiredNameSchema,
-  phone: normalizedPhoneSchema,
+  phone: optionalNormalizedPhoneSchema,
   positionItemId: z.number().int().positive(),
   teamId: z.number().int().positive(),
   hiredOn: dateKeySchema,

@@ -10,6 +10,14 @@ type QueryRunner = (
   parameters: readonly unknown[],
 ) => Promise<unknown>;
 
+export function normalizeSqlParameters(
+  parameters: readonly unknown[],
+): unknown[] {
+  return parameters.map((value) =>
+    value instanceof Date ? value.toISOString() : value
+  );
+}
+
 export function createPostgresAuthSqlDatabase(
   client: PostgresClient,
 ): AuthSqlDatabase {
@@ -23,7 +31,7 @@ export function createPostgresAuthSqlDatabase(
   });
 
   const executor = createExecutor((text, parameters) =>
-    client.unsafe(text, parameters as never[]),
+    client.unsafe(text, normalizeSqlParameters(parameters) as never[]),
   );
 
   return {
@@ -32,7 +40,10 @@ export function createPostgresAuthSqlDatabase(
       const result = await client.begin(async (transaction) => ({
         value: await callback(
           createExecutor((text, parameters) =>
-            transaction.unsafe(text, parameters as never[]),
+            transaction.unsafe(
+              text,
+              normalizeSqlParameters(parameters) as never[],
+            ),
           ),
         ),
       }));

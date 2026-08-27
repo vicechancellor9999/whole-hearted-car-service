@@ -180,6 +180,9 @@ describe("MasterDataService", () => {
         salaryEffectiveMonth: null,
       }),
     ]);
+    await expect(
+      service.listPayrollParameters({ viewerAccountId: frontDeskId }),
+    ).rejects.toBeInstanceOf(MasterDataManagementDeniedError);
     const audits = await database.query<{
       event_type: string;
       after_state: Record<string, unknown>;

@@ -50,12 +50,12 @@ describe("Business Order finance panel", () => {
     expect(screen.getByText("累计退款")).toBeInTheDocument();
     expect(screen.getByText("未结余额")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "登记收款并生成 Receipt" })).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "登记退款" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "登记退款并生成签收单" })).toBeInTheDocument();
     expect(screen.getByRole("link", { name: "打开 Receipt" })).toHaveAttribute(
       "href",
       "/business-orders/12/receipts/31?copy=zh",
     );
-    expect(screen.getByRole("link", { name: "打开退款说明与签收单" })).toHaveAttribute(
+    expect(screen.getByRole("link", { name: "打印退款签收单" })).toHaveAttribute(
       "href",
       "/business-orders/12/refunds/2",
     );
@@ -66,14 +66,15 @@ describe("Business Order finance panel", () => {
     expect(screen.getByLabelText("退款金额（JMD）")).toBeInTheDocument();
     expect(screen.queryByLabelText(/退款项目/)).not.toBeInTheDocument();
     expect(screen.queryByText(/选择收费项目/)).not.toBeInTheDocument();
-    expect(screen.getByLabelText("退款凭证")).toBeRequired();
-    expect(screen.getByLabelText("现金退款客户签字")).toBeInTheDocument();
+    expect(screen.queryByLabelText("退款凭证")).not.toBeInTheDocument();
+    expect(screen.getByText(/先登记退款并生成可打印的退款签收单/)).toBeInTheDocument();
+    expect(screen.queryByLabelText(/客户签字/)).not.toBeInTheDocument();
   });
 
   it("keeps the owner view read-only", () => {
     render(<FinancePanel action={vi.fn()} businessOrderId={12} canRecordPayment={false} canRefund={false} ledger={ledger} paymentMethods={methods} />);
     expect(screen.queryByRole("button", { name: "登记收款并生成 Receipt" })).not.toBeInTheDocument();
-    expect(screen.queryByRole("button", { name: "登记退款" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "登记退款并生成签收单" })).not.toBeInTheDocument();
     expect(screen.getByText("当前账号为只读，可查看每一笔收付款和单据。")).toBeInTheDocument();
   });
 });

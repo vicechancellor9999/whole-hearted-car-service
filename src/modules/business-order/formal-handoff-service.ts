@@ -285,10 +285,12 @@ export class FormalHandoffService {
   }
 
   async cancelFormalHandoffInSameMonth(input: {
+    businessOrderId: number;
     formalHandoffId: number;
     reason: string;
     context: BusinessOrderActionContext;
   }): Promise<FormalHandoffCancellationRecord> {
+    const businessOrderId = positiveId(input.businessOrderId, "Business Order");
     const formalHandoffId = positiveId(input.formalHandoffId, "正式交单记录");
     const reason = nonempty(input.reason, "取消原因");
     const now = input.context.now ?? new Date();
@@ -297,35 +299,36 @@ export class FormalHandoffService {
     return this.database.transaction(async (transaction) => {
       await requireWriter(transaction, input.context.actorAccountId);
       const rows = await transaction.query<FormalHandoffRow>(
-        `select handoff.*,
-                cancellation.id as cancellation_id,
-                cancellation.reason as cancellation_reason,
-                cancellation.cancelled_at,
-                cancellation.cancelled_by
+        `select handoff.*
          from formal_handoffs as handoff
-         left join formal_handoff_cancellations as cancellation
-           on cancellation.formal_handoff_id = handoff.id
          where handoff.id = $1
+           and handoff.business_order_id = $2
          for update of handoff`,
-        [formalHandoffId],
+        [formalHandoffId, businessOrderId],
       );
       const handoff = rows[0];
       if (!handoff) throw new FormalHandoffNotFoundError();
-      if (handoff.cancellation_id !== null) {
+      const cancellations = await transaction.query<{ id: number }>(
+        `select id from formal_handoff_cancellations
+         where formal_handoff_id = $1
+         limit 1`,
+        [formalHandoffId],
+      );
+      if (cancellations[0]) {
         throw new FormalHandoffValidationError("这次正式交单已经取消");
       }
       const handoffMonth = normalizeMonthDate(handoff.jamaica_month);
       if (handoffMonth !== cancellationMonth) {
         throw new FormalHandoffValidationError("只能在正式交单发生的牙买加自然月内取消");
       }
-      const current = await transaction.query<{ active: boolean }>(
-        `select true as active
-         from repair_rounds
-         where id = $1 and status = 'formally_handed_off'
-         limit 1`,
-        [handoff.repair_round_id],
+      const currentOrders = await transaction.query<{ current_repair_round_no: number }>(
+        `select current_repair_round_no
+         from business_orders
+         where id = $1
+         for update`,
+        [businessOrderId],
       );
-      if (!current[0]) {
+      if (currentOrders[0]?.current_repair_round_no !== handoff.repair_round_no) {
         throw new FormalHandoffValidationError("这次正式交单已不是当前有效交单");
       }
       const inserted = await transaction.query<{

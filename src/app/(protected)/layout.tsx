@@ -1,10 +1,12 @@
 import Link from "next/link";
+import Image from "next/image";
 import { redirect } from "next/navigation";
 import { connection } from "next/server";
 import type { ReactNode } from "react";
 import type { CurrentSession } from "@/modules/auth/auth-service";
 import { currentSession } from "@/modules/auth/current-session";
 import { getRoleNavigation } from "@/modules/permissions/role-navigation";
+import { ProtectedNavigation } from "@/app/(protected)/protected-navigation";
 
 type ProtectedShellProps = {
   children: ReactNode;
@@ -40,32 +42,20 @@ export function ProtectedShell({ children, session }: ProtectedShellProps) {
     <div className="protected-shell">
       <aside className="protected-sidebar">
         <Link className="protected-brand" href="/dashboard">
-          <span className="brand-mark" aria-hidden="true">WH</span>
-          <span>Whole Hearted<br />正式管理系统</span>
+          <Image alt="Whole Hearted Car Service Limited" height={44} priority src="/brand-logo-wh-512.png" width={44} />
+          <span><strong>Whole Hearted Car<br />Service Limited</strong><small>综合管理系统</small></span>
         </Link>
-        <nav aria-label="主导航" className="protected-navigation">
-          {navigation.map((item) => (
-            <Link href={item.href} key={item.href}>{item.label}</Link>
-          ))}
-        </nav>
+        <ProtectedNavigation items={navigation} />
         <div className="protected-account">
-          <strong>{session.account.displayName}</strong>
-          <span>{roleLabels[session.account.role]}</span>
+          <div className="protected-account-identity"><span aria-hidden="true">{session.account.displayName.slice(0, 1)}</span><div><strong>{session.account.displayName}</strong><small>{roleLabels[session.account.role]}</small></div></div>
           <form action="/logout" method="post">
             <button className="secondary-action" type="submit">退出</button>
           </form>
+          <p><i aria-hidden="true" />正式数据模式</p>
         </div>
       </aside>
       <main className="protected-content">
-        <header className="protected-header">
-          <div>
-            <p className="eyebrow">Whole Hearted Car Service Limited</p>
-            <strong>{roleLabels[session.account.role]}</strong>
-          </div>
-          {session.account.role === "owner" ? (
-            <span className="readonly-badge">全部业务只读</span>
-          ) : null}
-        </header>
+        {session.account.role === "owner" ? <span className="readonly-badge shell-readonly-badge">全部业务只读</span> : null}
         {children}
       </main>
     </div>

@@ -34,6 +34,8 @@ export type PersonalCustomerRecord = {
   trn: string | null;
   isActive: boolean;
   version: number;
+  createdAt?: Date;
+  updatedAt?: Date;
 };
 
 export type CompanyAccountRecord = {
@@ -46,6 +48,8 @@ export type CompanyAccountRecord = {
   address: string | null;
   isActive: boolean;
   version: number;
+  createdAt?: Date;
+  updatedAt?: Date;
 };
 
 export type CompanyContactRecord = {
@@ -68,18 +72,29 @@ export type VehicleOwner = { type: "person" | "company"; id: number; name?: stri
 export type VehicleRecord = {
   id: number;
   vehicleNo: string;
-  plateDisplay: string;
-  normalizedPlate: string;
+  plateDisplay: string | null;
+  normalizedPlate: string | null;
   vin: string | null;
+  engineNumber: string | null;
   make: string;
+  makeZh: string | null;
   model: string;
+  modelZh: string | null;
   modelYear: number | null;
   color: string | null;
+  bodyType: string | null;
+  fuelType: string | null;
+  engineCc: number | null;
+  seating: number | null;
+  usage: string | null;
+  specialNotes: string | null;
   currentOwner: VehicleOwner;
   hasOpenDispute: boolean;
   openDisputeId: number | null;
   isActive: boolean;
   version: number;
+  createdAt?: Date;
+  updatedAt?: Date;
 };
 
 export type VehicleAttachmentRecord = {
@@ -91,6 +106,15 @@ export type VehicleAttachmentRecord = {
   mediaType: string;
   sizeBytes: number;
   uploadedAt: Date;
+};
+
+export type VehicleOwnerHistoryRecord = {
+  id: number;
+  vehicleId: number;
+  owner: VehicleOwner;
+  startedAt: Date;
+  endedAt: Date | null;
+  reason: string | null;
 };
 
 export type VehicleAttachmentFileRecord = VehicleAttachmentRecord & {
@@ -116,6 +140,8 @@ type PersonalRow = {
   trn: string | null;
   is_active: boolean;
   version: number;
+  created_at?: Date;
+  updated_at?: Date;
 };
 
 type CompanyRow = {
@@ -128,18 +154,29 @@ type CompanyRow = {
   address: string | null;
   is_active: boolean;
   version: number;
+  created_at?: Date;
+  updated_at?: Date;
 };
 
 type VehicleRow = {
   id: number;
   vehicle_no: string;
-  plate_display: string;
-  normalized_plate: string;
+  plate_display: string | null;
+  normalized_plate: string | null;
   vin: string | null;
+  engine_number: string | null;
   make: string;
+  make_zh: string | null;
   model: string;
+  model_zh: string | null;
   model_year: number | null;
   color: string | null;
+  body_type: string | null;
+  fuel_type: string | null;
+  engine_cc: number | null;
+  seating: number | null;
+  usage: string | null;
+  special_notes: string | null;
   current_person_customer_id: number | null;
   current_company_account_id: number | null;
   owner_name?: string | null;
@@ -147,6 +184,8 @@ type VehicleRow = {
   open_dispute_id?: number | null;
   is_active: boolean;
   version: number;
+  created_at?: Date;
+  updated_at?: Date;
 };
 
 export class CustomerVehicleReadDeniedError extends Error {
@@ -211,7 +250,7 @@ export class CustomerVehicleService {
     const page = effectivePage(paging.page, paging.pageSize, counts[0]?.total ?? 0);
     const rows = await this.database.query<PersonalRow>(
       `select id, customer_no, full_name, normalized_phone, whatsapp,
-              email, address, trn, is_active, version
+              email, address, trn, is_active, version, created_at, updated_at
        from personal_customers
        where ($1::text is null
           or full_name ilike $2
@@ -242,7 +281,8 @@ export class CustomerVehicleService {
     );
     const page = effectivePage(paging.page, paging.pageSize, counts[0]?.total ?? 0);
     const rows = await this.database.query<CompanyRow>(
-      `select id, company_no, legal_name, trn, phone, email, address, is_active, version
+      `select id, company_no, legal_name, trn, phone, email, address,
+              is_active, version, created_at, updated_at
        from company_accounts
        where ($1::text is null or legal_name ilike $2 or company_no ilike $2 or trn ilike $2)
        order by created_at desc, id desc offset $3 limit $4`,
@@ -276,6 +316,7 @@ export class CustomerVehicleService {
        left join personal_customers as person on person.id = vehicle.current_person_customer_id
        left join company_accounts as company on company.id = vehicle.current_company_account_id
        where ($1::text is null
+          or vehicle.vehicle_no ilike $3
           or vehicle.normalized_plate ilike $2 or vehicle.plate_display ilike $3
           or vehicle.vin ilike $2 or vehicle.make ilike $3 or vehicle.model ilike $3
           or person.full_name ilike $3 or person.normalized_phone ilike $3
@@ -286,18 +327,22 @@ export class CustomerVehicleService {
     const page = effectivePage(paging.page, paging.pageSize, counts[0]?.total ?? 0);
     const rows = await this.database.query<VehicleRow>(
       `select vehicle.id, vehicle.vehicle_no, vehicle.plate_display,
-              vehicle.normalized_plate, vehicle.vin, vehicle.make, vehicle.model,
-              vehicle.model_year, vehicle.color, vehicle.current_person_customer_id,
+              vehicle.normalized_plate, vehicle.vin, vehicle.engine_number,
+              vehicle.make, vehicle.make_zh, vehicle.model, vehicle.model_zh,
+              vehicle.model_year, vehicle.color, vehicle.body_type, vehicle.fuel_type,
+              vehicle.engine_cc, vehicle.seating, vehicle.usage, vehicle.special_notes,
+              vehicle.current_person_customer_id,
               vehicle.current_company_account_id,
               coalesce(person.full_name, company.legal_name) as owner_name,
               (select dispute.id from vehicle_disputes as dispute
                where dispute.vehicle_id = vehicle.id and dispute.resolved_at is null
                order by dispute.opened_at desc, dispute.id desc limit 1) as open_dispute_id,
-              vehicle.is_active, vehicle.version
+              vehicle.is_active, vehicle.version, vehicle.created_at, vehicle.updated_at
        from vehicles as vehicle
        left join personal_customers as person on person.id = vehicle.current_person_customer_id
        left join company_accounts as company on company.id = vehicle.current_company_account_id
        where ($1::text is null
+          or vehicle.vehicle_no ilike $3
           or vehicle.normalized_plate ilike $2 or vehicle.plate_display ilike $3
           or vehicle.vin ilike $2 or vehicle.make ilike $3 or vehicle.model ilike $3
           or person.full_name ilike $3 or person.normalized_phone ilike $3
@@ -337,6 +382,80 @@ export class CustomerVehicleService {
       mediaType: row.media_type, sizeBytes: Number(row.size_bytes),
       uploadedAt: new Date(row.uploaded_at),
     }));
+  }
+
+  async listOnSiteVehicleIds(input: {
+    viewerAccountId: number;
+    vehicleIds: number[];
+  }): Promise<number[]> {
+    await requireReader(this.database, input.viewerAccountId);
+    const vehicleIds = [...new Set(input.vehicleIds.filter((id) => Number.isSafeInteger(id) && id > 0))];
+    if (vehicleIds.length === 0) return [];
+    const rows = await this.database.query<{ vehicle_id: number }>(
+      `select distinct business_order.vehicle_id
+       from business_orders as business_order
+       join repair_rounds as repair_round
+         on repair_round.business_order_id = business_order.id
+       join repair_round_events as acceptance
+         on acceptance.repair_round_id = repair_round.id
+        and acceptance.event_type = 'accepted'
+       where business_order.vehicle_id = any($1::bigint[])
+         and not exists (
+           select 1
+           from vehicle_pickup_notices as pickup
+           where pickup.vehicle_id = business_order.vehicle_id
+             and pickup.picked_up_at is not null
+             and pickup.picked_up_at >= acceptance.occurred_at
+         )
+       order by business_order.vehicle_id`,
+      [vehicleIds],
+    );
+    return rows.map((row) => Number(row.vehicle_id));
+  }
+
+  async listVehicleOwnerHistory(input: {
+    viewerAccountId: number;
+    vehicleIds: number[];
+  }): Promise<VehicleOwnerHistoryRecord[]> {
+    await requireReader(this.database, input.viewerAccountId);
+    const vehicleIds = [...new Set(input.vehicleIds.filter((id) => Number.isSafeInteger(id) && id > 0))];
+    if (vehicleIds.length === 0) return [];
+    const rows = await this.database.query<{
+      id: number;
+      vehicle_id: number;
+      person_customer_id: number | null;
+      company_account_id: number | null;
+      owner_name: string | null;
+      started_at: Date;
+      ended_at: Date | null;
+      reason: string | null;
+    }>(
+      `select history.id, history.vehicle_id, history.person_customer_id,
+              history.company_account_id,
+              coalesce(person.full_name, company.legal_name) as owner_name,
+              history.started_at, history.ended_at, history.reason
+       from vehicle_owner_history as history
+       left join personal_customers as person on person.id = history.person_customer_id
+       left join company_accounts as company on company.id = history.company_account_id
+       where history.vehicle_id = any($1::bigint[])
+       order by history.vehicle_id, history.started_at desc, history.id desc`,
+      [vehicleIds],
+    );
+    return rows.map((row) => {
+      const isPerson = row.person_customer_id != null;
+      return {
+        id: Number(row.id),
+        vehicleId: Number(row.vehicle_id),
+        owner: {
+          type: isPerson ? "person" : "company",
+          id: Number(isPerson ? row.person_customer_id : row.company_account_id),
+          ...(row.owner_name ? { name: row.owner_name } : {}),
+        },
+        startedAt: new Date(row.started_at),
+        endedAt: row.ended_at == null ? null : new Date(row.ended_at),
+        reason: row.reason,
+      };
+    });
   }
 
   async getVehicleAttachmentFile(input: {
@@ -386,7 +505,7 @@ export class CustomerVehicleService {
              trn, created_at, updated_at, created_by)
            values ($1, $2, $3, $4, $5, $6, $7, $8, $8, $9)
            returning id, customer_no, full_name, normalized_phone, whatsapp,
-                     email, address, trn, is_active, version`,
+                     email, address, trn, is_active, version, created_at, updated_at`,
           [customerNo, fields.fullName, fields.phone, fields.whatsapp, fields.email,
             fields.address, fields.trn, now, input.context.actorAccountId],
         );
@@ -418,7 +537,8 @@ export class CustomerVehicleService {
             (company_no, legal_name, normalized_name, trn, phone, email, address,
              created_at, updated_at, created_by)
            values ($1, $2, $3, $4, $5, $6, $7, $8, $8, $9)
-           returning id, company_no, legal_name, trn, phone, email, address, is_active, version`,
+           returning id, company_no, legal_name, trn, phone, email, address,
+                     is_active, version, created_at, updated_at`,
           [companyNo, fields.legalName, normalizeName(fields.legalName), fields.trn,
             fields.phone, fields.email, fields.address, now, input.context.actorAccountId],
         );
@@ -446,7 +566,7 @@ export class CustomerVehicleService {
         await requireWriter(transaction, input.context.actorAccountId);
         const existing = await transaction.query<PersonalRow>(
           `select id, customer_no, full_name, normalized_phone, whatsapp, email,
-                  address, trn, is_active, version
+                  address, trn, is_active, version, created_at, updated_at
            from personal_customers where id = $1 for update`,
           [input.customerId],
         );
@@ -458,7 +578,7 @@ export class CustomerVehicleService {
                   is_active = $8, updated_at = $9, version = version + 1
            where id = $1 and version = $10
            returning id, customer_no, full_name, normalized_phone, whatsapp,
-                     email, address, trn, is_active, version`,
+                     email, address, trn, is_active, version, created_at, updated_at`,
           [input.customerId, fields.fullName, fields.phone, fields.whatsapp,
             fields.email, fields.address, fields.trn, fields.isActive, now, fields.version],
         );
@@ -486,7 +606,8 @@ export class CustomerVehicleService {
       return await this.database.transaction(async (transaction) => {
         await requireWriter(transaction, input.context.actorAccountId);
         const existing = await transaction.query<CompanyRow>(
-          `select id, company_no, legal_name, trn, phone, email, address, is_active, version
+          `select id, company_no, legal_name, trn, phone, email, address,
+                  is_active, version, created_at, updated_at
            from company_accounts where id = $1 for update`,
           [input.companyId],
         );
@@ -497,7 +618,8 @@ export class CustomerVehicleService {
                   trn = $4, phone = $5, email = $6, address = $7,
                   is_active = $8, updated_at = $9, version = version + 1
            where id = $1 and version = $10
-           returning id, company_no, legal_name, trn, phone, email, address, is_active, version`,
+           returning id, company_no, legal_name, trn, phone, email, address,
+                     is_active, version, created_at, updated_at`,
           [input.companyId, fields.legalName, normalizeName(fields.legalName),
             fields.trn, fields.phone, fields.email, fields.address, fields.isActive,
             now, fields.version],
@@ -603,8 +725,11 @@ export class CustomerVehicleService {
   }
 
   async createVehicle(input: {
-    plate: string; vin?: string; make: string; model: string;
-    modelYear?: number | null; color?: string; ownerType: "person" | "company";
+    plate?: string; vin?: string; engineNumber?: string; make: string; makeZh?: string;
+    model: string; modelZh?: string; modelYear?: number | null; color?: string;
+    bodyType?: string; fuelType?: string; engineCc?: number | null;
+    seating?: number | null; usage?: string; specialNotes?: string;
+    ownerType: "person" | "company";
     ownerId: number; context: CustomerVehicleActionContext;
   }): Promise<VehicleRecord> {
     const fields = createVehicleSchema.parse(input);
@@ -618,16 +743,25 @@ export class CustomerVehicleService {
         const ownerColumns = ownerValues(fields.ownerType, fields.ownerId);
         const rows = await transaction.query<VehicleRow>(
           `insert into vehicles
-            (vehicle_no, plate_display, normalized_plate, vin, make, model,
-             model_year, color, current_person_customer_id,
-             current_company_account_id, created_at, updated_at, created_by)
-           values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $11, $12)
-           returning id, vehicle_no, plate_display, normalized_plate, vin, make,
-                     model, model_year, color, current_person_customer_id,
-                     current_company_account_id, is_active, version`,
-          [vehicleNo, fields.plate.trim(), fields.normalizedPlate, fields.vin,
-            fields.make, fields.model, fields.modelYear ?? null, fields.color,
-            ownerColumns.personId, ownerColumns.companyId, now, input.context.actorAccountId],
+            (vehicle_no, plate_display, normalized_plate, vin, engine_number,
+             make, make_zh, model, model_zh, model_year, color, body_type,
+             fuel_type, engine_cc, seating, usage, special_notes,
+             current_person_customer_id, current_company_account_id,
+             created_at, updated_at, created_by)
+           values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11,
+                   $12, $13, $14, $15, $16, $17, $18, $19, $20, $20, $21)
+           returning id, vehicle_no, plate_display, normalized_plate, vin,
+                     engine_number, make, make_zh, model, model_zh, model_year,
+                     color, body_type, fuel_type, engine_cc, seating, usage,
+                     special_notes, current_person_customer_id,
+                     current_company_account_id, is_active, version,
+                     created_at, updated_at`,
+          [vehicleNo, fields.plate, fields.normalizedPlate, fields.vin,
+            fields.engineNumber, fields.make, fields.makeZh, fields.model,
+            fields.modelZh, fields.modelYear ?? null, fields.color, fields.bodyType,
+            fields.fuelType, fields.engineCc ?? null, fields.seating ?? null,
+            fields.usage, fields.specialNotes, ownerColumns.personId,
+            ownerColumns.companyId, now, input.context.actorAccountId],
         );
         const vehicle = mapVehicle(rows[0]);
         await transaction.query(
@@ -657,9 +791,11 @@ export class CustomerVehicleService {
       await requireWriter(transaction, input.context.actorAccountId);
       await requireOwnerExists(transaction, fields.ownerType, fields.ownerId);
       const rows = await transaction.query<VehicleRow>(
-        `select id, vehicle_no, plate_display, normalized_plate, vin, make, model,
-                model_year, color, current_person_customer_id,
-                current_company_account_id, is_active, version
+        `select id, vehicle_no, plate_display, normalized_plate, vin,
+                engine_number, make, make_zh, model, model_zh, model_year, color,
+                body_type, fuel_type, engine_cc, seating, usage, special_notes,
+                current_person_customer_id,
+                current_company_account_id, is_active, version, created_at, updated_at
          from vehicles where id = $1 and is_active = true for update`,
         [input.vehicleId],
       );
@@ -686,9 +822,12 @@ export class CustomerVehicleService {
         `update vehicles set current_person_customer_id = $2,
               current_company_account_id = $3, updated_at = $4, version = version + 1
          where id = $1
-         returning id, vehicle_no, plate_display, normalized_plate, vin, make,
-                   model, model_year, color, current_person_customer_id,
-                   current_company_account_id, is_active, version`,
+         returning id, vehicle_no, plate_display, normalized_plate, vin,
+                   engine_number, make, make_zh, model, model_zh, model_year,
+                   color, body_type, fuel_type, engine_cc, seating, usage,
+                   special_notes, current_person_customer_id,
+                   current_company_account_id, is_active, version,
+                   created_at, updated_at`,
         [input.vehicleId, ownerColumns.personId, ownerColumns.companyId, now],
       );
       const after = mapVehicle(updated[0]);
@@ -702,8 +841,11 @@ export class CustomerVehicleService {
   }
 
   async updateVehicle(input: {
-    vehicleId: number; plate: string; vin?: string; make: string; model: string;
-    modelYear?: number | null; color?: string; isActive: boolean; version: number;
+    vehicleId: number; plate?: string; vin?: string; engineNumber?: string;
+    make: string; makeZh?: string; model: string; modelZh?: string;
+    modelYear?: number | null; color?: string; bodyType?: string; fuelType?: string;
+    engineCc?: number | null; seating?: number | null; usage?: string;
+    specialNotes?: string; isActive: boolean; version: number;
     context: CustomerVehicleActionContext;
   }): Promise<VehicleRecord> {
     const fields = updateVehicleSchema.parse(input);
@@ -712,9 +854,11 @@ export class CustomerVehicleService {
       return await this.database.transaction(async (transaction) => {
         await requireWriter(transaction, input.context.actorAccountId);
         const existing = await transaction.query<VehicleRow>(
-          `select id, vehicle_no, plate_display, normalized_plate, vin, make,
-                  model, model_year, color, current_person_customer_id,
-                  current_company_account_id, is_active, version
+          `select id, vehicle_no, plate_display, normalized_plate, vin,
+                  engine_number, make, make_zh, model, model_zh, model_year,
+                  color, body_type, fuel_type, engine_cc, seating, usage,
+                  special_notes, current_person_customer_id,
+                  current_company_account_id, is_active, version, created_at, updated_at
            from vehicles where id = $1 for update`,
           [input.vehicleId],
         );
@@ -722,21 +866,136 @@ export class CustomerVehicleService {
         const before = mapVehicle(existing[0]);
         const rows = await transaction.query<VehicleRow>(
           `update vehicles set plate_display = $2, normalized_plate = $3, vin = $4,
-                  make = $5, model = $6, model_year = $7, color = $8,
-                  is_active = $9, updated_at = $10, version = version + 1
-           where id = $1 and version = $11
-           returning id, vehicle_no, plate_display, normalized_plate, vin, make,
-                     model, model_year, color, current_person_customer_id,
-                     current_company_account_id, is_active, version`,
-          [input.vehicleId, fields.plate.trim(), fields.normalizedPlate, fields.vin,
-            fields.make, fields.model, fields.modelYear ?? null, fields.color,
-            fields.isActive, now, fields.version],
+                  engine_number = $5, make = $6, make_zh = $7, model = $8,
+                  model_zh = $9, model_year = $10, color = $11, body_type = $12,
+                  fuel_type = $13, engine_cc = $14, seating = $15, usage = $16,
+                  special_notes = $17, is_active = $18, updated_at = $19,
+                  version = version + 1
+           where id = $1 and version = $20
+           returning id, vehicle_no, plate_display, normalized_plate, vin,
+                     engine_number, make, make_zh, model, model_zh, model_year,
+                     color, body_type, fuel_type, engine_cc, seating, usage,
+                     special_notes, current_person_customer_id,
+                     current_company_account_id, is_active, version,
+                     created_at, updated_at`,
+          [input.vehicleId, fields.plate, fields.normalizedPlate, fields.vin,
+            fields.engineNumber, fields.make, fields.makeZh, fields.model,
+            fields.modelZh, fields.modelYear ?? null, fields.color, fields.bodyType,
+            fields.fuelType, fields.engineCc ?? null, fields.seating ?? null,
+            fields.usage, fields.specialNotes, fields.isActive, now, fields.version],
         );
         if (!rows[0]) throw new CustomerVehicleConflictError("车辆资料已被其他操作修改，请刷新后重试");
         const after = mapVehicle(rows[0]);
         await audit(transaction, input.context, now, {
           eventType: "vehicle.updated", objectType: "vehicle",
           objectId: String(input.vehicleId), before, after,
+        });
+        return after;
+      });
+    } catch (error) {
+      rethrowConflict(error);
+    }
+  }
+
+  async updateVehicleWithOwner(input: {
+    vehicleId: number; plate?: string; vin?: string; engineNumber?: string;
+    make: string; makeZh?: string; model: string; modelZh?: string;
+    modelYear?: number | null; color?: string; bodyType?: string; fuelType?: string;
+    engineCc?: number | null; seating?: number | null; usage?: string;
+    specialNotes?: string; isActive: boolean; version: number;
+    ownerType: "person" | "company"; ownerId: number; reason: string;
+    context: CustomerVehicleActionContext;
+  }): Promise<VehicleRecord> {
+    const fields = updateVehicleSchema.parse(input);
+    const owner = changeVehicleOwnerSchema.parse({
+      ownerType: input.ownerType,
+      ownerId: input.ownerId,
+      reason: input.reason,
+    });
+    const now = input.context.now ?? new Date();
+    try {
+      return await this.database.transaction(async (transaction) => {
+        await requireWriter(transaction, input.context.actorAccountId);
+        await requireOwnerExists(transaction, owner.ownerType, owner.ownerId);
+        const existing = await transaction.query<VehicleRow>(
+          `select id, vehicle_no, plate_display, normalized_plate, vin,
+                  engine_number, make, make_zh, model, model_zh, model_year,
+                  color, body_type, fuel_type, engine_cc, seating, usage,
+                  special_notes, current_person_customer_id,
+                  current_company_account_id, is_active, version, created_at, updated_at
+           from vehicles where id = $1 for update`,
+          [input.vehicleId],
+        );
+        if (!existing[0]) throw new CustomerVehicleNotFoundError("车辆档案不存在");
+        const before = mapVehicle(existing[0]);
+        if (before.currentOwner.type === owner.ownerType && before.currentOwner.id === owner.ownerId) {
+          throw new CustomerVehicleConflictError("车辆当前已经属于这个客户或公司");
+        }
+        if (!fields.isActive) {
+          throw new CustomerVehicleConflictError("停用车辆不能变更当前客户");
+        }
+        const profileRows = await transaction.query<VehicleRow>(
+          `update vehicles set plate_display = $2, normalized_plate = $3, vin = $4,
+                  engine_number = $5, make = $6, make_zh = $7, model = $8,
+                  model_zh = $9, model_year = $10, color = $11, body_type = $12,
+                  fuel_type = $13, engine_cc = $14, seating = $15, usage = $16,
+                  special_notes = $17, is_active = $18, updated_at = $19,
+                  version = version + 1
+           where id = $1 and version = $20
+           returning id, vehicle_no, plate_display, normalized_plate, vin,
+                     engine_number, make, make_zh, model, model_zh, model_year,
+                     color, body_type, fuel_type, engine_cc, seating, usage,
+                     special_notes, current_person_customer_id,
+                     current_company_account_id, is_active, version,
+                     created_at, updated_at`,
+          [input.vehicleId, fields.plate, fields.normalizedPlate, fields.vin,
+            fields.engineNumber, fields.make, fields.makeZh, fields.model,
+            fields.modelZh, fields.modelYear ?? null, fields.color, fields.bodyType,
+            fields.fuelType, fields.engineCc ?? null, fields.seating ?? null,
+            fields.usage, fields.specialNotes, fields.isActive, now, fields.version],
+        );
+        if (!profileRows[0]) {
+          throw new CustomerVehicleConflictError("车辆资料已被其他操作修改，请刷新后重试");
+        }
+        const profileAfter = mapVehicle(profileRows[0]);
+        await audit(transaction, input.context, now, {
+          eventType: "vehicle.updated", objectType: "vehicle",
+          objectId: String(input.vehicleId), before, after: profileAfter,
+        });
+
+        const ownerColumns = ownerValues(owner.ownerType, owner.ownerId);
+        const closed = await transaction.query<{ id: number }>(
+          `update vehicle_owner_history set ended_at = $2
+           where vehicle_id = $1 and ended_at is null returning id`,
+          [input.vehicleId, now],
+        );
+        if (closed.length !== 1) {
+          throw new CustomerVehicleConflictError("车辆当前归属历史异常");
+        }
+        await transaction.query(
+          `insert into vehicle_owner_history
+            (vehicle_id, person_customer_id, company_account_id, started_at, reason, changed_by)
+           values ($1, $2, $3, $4, $5, $6)`,
+          [input.vehicleId, ownerColumns.personId, ownerColumns.companyId,
+            now, owner.reason, input.context.actorAccountId],
+        );
+        const ownerRows = await transaction.query<VehicleRow>(
+          `update vehicles set current_person_customer_id = $2,
+                current_company_account_id = $3, updated_at = $4, version = version + 1
+           where id = $1
+           returning id, vehicle_no, plate_display, normalized_plate, vin,
+                     engine_number, make, make_zh, model, model_zh, model_year,
+                     color, body_type, fuel_type, engine_cc, seating, usage,
+                     special_notes, current_person_customer_id,
+                     current_company_account_id, is_active, version,
+                     created_at, updated_at`,
+          [input.vehicleId, ownerColumns.personId, ownerColumns.companyId, now],
+        );
+        const after = mapVehicle(ownerRows[0]);
+        await audit(transaction, input.context, now, {
+          eventType: "vehicle.owner_changed", objectType: "vehicle",
+          objectId: String(input.vehicleId), reason: owner.reason,
+          before: before.currentOwner, after: after.currentOwner,
         });
         return after;
       });
@@ -913,6 +1172,8 @@ function mapPersonal(row: PersonalRow | undefined): PersonalCustomerRecord {
     id: Number(row.id), customerNo: row.customer_no, fullName: row.full_name,
     normalizedPhone: row.normalized_phone, whatsapp: row.whatsapp, email: row.email,
     address: row.address, trn: row.trn, isActive: row.is_active, version: row.version,
+    ...(row.created_at ? { createdAt: new Date(row.created_at) } : {}),
+    ...(row.updated_at ? { updatedAt: new Date(row.updated_at) } : {}),
   };
 }
 
@@ -922,6 +1183,8 @@ function mapCompany(row: CompanyRow | undefined): CompanyAccountRecord {
     id: Number(row.id), companyNo: row.company_no, legalName: row.legal_name,
     trn: row.trn, phone: row.phone, email: row.email, address: row.address,
     isActive: row.is_active, version: row.version,
+    ...(row.created_at ? { createdAt: new Date(row.created_at) } : {}),
+    ...(row.updated_at ? { updatedAt: new Date(row.updated_at) } : {}),
   };
 }
 
@@ -930,8 +1193,12 @@ function mapVehicle(row: VehicleRow | undefined): VehicleRecord {
   const isPerson = row.current_person_customer_id != null;
   return {
     id: Number(row.id), vehicleNo: row.vehicle_no, plateDisplay: row.plate_display,
-    normalizedPlate: row.normalized_plate, vin: row.vin, make: row.make, model: row.model,
-    modelYear: row.model_year, color: row.color,
+    normalizedPlate: row.normalized_plate, vin: row.vin,
+    engineNumber: row.engine_number, make: row.make, makeZh: row.make_zh,
+    model: row.model, modelZh: row.model_zh, modelYear: row.model_year,
+    color: row.color, bodyType: row.body_type, fuelType: row.fuel_type,
+    engineCc: row.engine_cc, seating: row.seating, usage: row.usage,
+    specialNotes: row.special_notes,
     currentOwner: {
       type: isPerson ? "person" : "company",
       id: Number(isPerson ? row.current_person_customer_id : row.current_company_account_id),
@@ -940,6 +1207,8 @@ function mapVehicle(row: VehicleRow | undefined): VehicleRecord {
     hasOpenDispute: row.open_dispute_id != null || row.has_open_dispute === true,
     openDisputeId: row.open_dispute_id == null ? null : Number(row.open_dispute_id),
     isActive: row.is_active, version: row.version,
+    ...(row.created_at ? { createdAt: new Date(row.created_at) } : {}),
+    ...(row.updated_at ? { updatedAt: new Date(row.updated_at) } : {}),
   };
 }
 

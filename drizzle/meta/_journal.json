@@ -113,6 +113,62 @@
       "when": 1787577810976,
       "tag": "0015_business_order_documents",
       "breakpoints": true
+    },
+    {
+      "idx": 16,
+      "version": "7",
+      "when": 1787651638500,
+      "tag": "0016_vehicle_profile_fields",
+      "breakpoints": true
+    },
+    {
+      "idx": 17,
+      "version": "7",
+      "when": 1787652158919,
+      "tag": "0017_optional_vehicle_plate",
+      "breakpoints": true
+    },
+    {
+      "idx": 18,
+      "version": "7",
+      "when": 1787653059081,
+      "tag": "0018_business_order_number_format",
+      "breakpoints": true
+    },
+    {
+      "idx": 19,
+      "version": "7",
+      "when": 1787689000000,
+      "tag": "0019_repair_assignment_withdrawal",
+      "breakpoints": true
+    },
+    {
+      "idx": 20,
+      "version": "7",
+      "when": 1787689001000,
+      "tag": "0020_repair_assignment_withdrawal_projection",
+      "breakpoints": true
+    },
+    {
+      "idx": 21,
+      "version": "7",
+      "when": 1787702400000,
+      "tag": "0021_optional_work_return_details",
+      "breakpoints": true
+    },
+    {
+      "idx": 22,
+      "version": "7",
+      "when": 1787797567207,
+      "tag": "0022_glamorous_wild_child",
+      "breakpoints": true
+    },
+    {
+      "idx": 23,
+      "version": "7",
+      "when": 1787798040000,
+      "tag": "0023_vehicle_pickup_presence",
+      "breakpoints": true
     }
   ]
 }

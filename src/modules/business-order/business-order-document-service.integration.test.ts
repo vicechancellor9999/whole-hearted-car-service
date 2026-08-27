@@ -30,6 +30,11 @@ const migrationPaths = [
   "0013_formal_handoffs.sql",
   "0014_payments_receipts_refunds.sql",
   "0015_business_order_documents.sql",
+  "0016_vehicle_profile_fields.sql",
+  "0017_optional_vehicle_plate.sql",
+  "0018_business_order_number_format.sql",
+  "0019_repair_assignment_withdrawal.sql",
+  "0020_repair_assignment_withdrawal_projection.sql",
 ].map((name) => resolve(process.cwd(), "drizzle", name));
 
 let database: PGlite;
@@ -234,6 +239,7 @@ describe("BusinessOrderDocumentService", () => {
     expect(reprinted.documentNo).toBe("OFF-20260824-0001");
     expect(reprinted.snapshot).toMatchObject({
       kind: "office_archive",
+      presentation: "office_english_primary_v1",
       charges: { versionNo: 2 },
       totals: { totalPaidMinor: 300_000 },
     });

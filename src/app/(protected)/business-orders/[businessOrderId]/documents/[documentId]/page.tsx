@@ -148,7 +148,6 @@ function OfficeArchiveCopy({
           <span>工时折扣 / Labor discount<strong>{money(snapshot.charges.totals.laborDiscountMinor)}</strong></span>
           <span>配件折扣 / Parts discount<strong>{money(snapshot.charges.totals.partDiscountMinor)}</strong></span>
           <span>其他费用折扣 / Other discount<strong>{money(snapshot.charges.totals.otherDiscountMinor)}</strong></span>
-          <span>整单折扣 / Whole-order discount<strong>{money(snapshot.charges.totals.wholeOrderDiscountMinor)}</strong></span>
           <span>折后应收（含税）/ Total due<strong>{money(snapshot.charges.totals.totalDueMinor)}</strong></span>
           <span>其中含 15% GCT / Included 15% GCT<strong>{money(snapshot.charges.totals.includedGctMinor)}</strong></span>
         </div>

@@ -172,7 +172,6 @@ export function ChargeEditor({
             <label>工时折扣<input defaultValue={moneyFromMinor(charges.totals.laborDiscountMinor)} inputMode="decimal" name="laborDiscount" required /></label>
             <label>配件折扣<input defaultValue={moneyFromMinor(charges.totals.partDiscountMinor)} inputMode="decimal" name="partDiscount" required /></label>
             <label>其他费用折扣<input defaultValue={moneyFromMinor(charges.totals.otherDiscountMinor)} inputMode="decimal" name="otherDiscount" required /></label>
-            <label>整单折扣<input defaultValue={moneyFromMinor(charges.totals.wholeOrderDiscountMinor)} inputMode="decimal" name="wholeOrderDiscount" required /></label>
           </section>
           <section className="bo-notes-editor" aria-label="Business Order 备注">
             {(Object.keys(noteLabels) as Array<keyof typeof noteLabels>).map((kind) => (
@@ -195,7 +194,6 @@ export function ChargeEditor({
             <span>工时折扣<strong>JMD {moneyFromMinor(charges.totals.laborDiscountMinor)}</strong></span>
             <span>配件折扣<strong>JMD {moneyFromMinor(charges.totals.partDiscountMinor)}</strong></span>
             <span>其他费用折扣<strong>JMD {moneyFromMinor(charges.totals.otherDiscountMinor)}</strong></span>
-            <span>整单折扣<strong>JMD {moneyFromMinor(charges.totals.wholeOrderDiscountMinor)}</strong></span>
           </section>
           <section className="bo-readonly-notes" aria-label="Business Order 备注">
             {(Object.keys(noteLabels) as Array<keyof typeof noteLabels>).map((kind) => {

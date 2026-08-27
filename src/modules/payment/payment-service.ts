@@ -14,6 +14,8 @@ import {
   PaymentWriteDeniedError,
 } from "@/modules/payment/payment-errors";
 import {
+  appendRefundProofSchema,
+  appendRefundSignedAcknowledgementSchema,
   moneyTextToMinor,
   recordPaymentSchema,
   recordRefundSchema,
@@ -333,31 +335,25 @@ export class PaymentService {
     reason: string;
     originalDocumentStatus: "returned" | "unavailable";
     originalDocumentNote?: string;
-    proof: StoredRefundUpload | null;
-    customerSignature?: StoredRefundUpload | null;
     context: BusinessOrderActionContext;
   }): Promise<BusinessOrderRefundRecord> {
     const parsed = recordRefundSchema.safeParse(input);
     if (!parsed.success) {
       throw new PaymentValidationError(parsed.error.issues[0]?.message ?? "退款数据不正确");
     }
-    const proof = parsed.data.proof;
-    if (!proof) {
-      throw new PaymentValidationError("退款必须上传退款凭证");
-    }
     const now = input.context.now ?? new Date();
     const amountMinor = moneyTextToMinor(parsed.data.amount);
     try {
       return await this.database.transaction(async (transaction) => {
         await requireSensitiveRefundWriter(transaction, input.context.actorAccountId);
-        await loadOrderAndCharge(transaction, parsed.data.businessOrderId, true);
+        const order = await loadOrderAndCharge(transaction, parsed.data.businessOrderId, true);
+        if (order.voided_at !== null) {
+          throw new PaymentValidationError("已作废的 Business Order 不能登记退款");
+        }
         const method = await requirePaymentMethod(
           transaction,
           parsed.data.paymentMethodItemId,
         );
-        if (method.code === "cash" && !parsed.data.customerSignature) {
-          throw new PaymentValidationError("现金退款必须上传客户签字证据");
-        }
         await transaction.query(
           "lock table business_order_refunds in share row exclusive mode",
         );
@@ -402,24 +398,6 @@ export class PaymentService {
         );
         const refundRow = refundRows[0];
         if (!refundRow) throw new Error("退款写入后无法读取");
-        await insertRefundEvidence(
-          transaction,
-          Number(refundRow.id),
-          "refund_proof",
-          proof,
-          input.context.actorAccountId,
-          now,
-        );
-        if (parsed.data.customerSignature) {
-          await insertRefundEvidence(
-            transaction,
-            Number(refundRow.id),
-            "customer_signature",
-            parsed.data.customerSignature,
-            input.context.actorAccountId,
-            now,
-          );
-        }
         const evidence = await selectRefundEvidence(transaction, Number(refundRow.id));
         const refund = mapRefund(refundRow, evidence);
         const ledger = buildLedger(
@@ -441,6 +419,153 @@ export class PaymentService {
             originalDocumentStatus: refund.originalDocumentStatus,
             evidenceKinds: refund.evidence.map((file) => file.kind),
             balanceAfterMinor: ledger.balanceMinor,
+          },
+          requestId: input.context.requestId,
+          ipAddress: input.context.ipAddress,
+          userAgent: input.context.userAgent,
+        });
+        return refund;
+      });
+    } catch (error) {
+      rethrowPaymentError(error);
+    }
+  }
+
+  async appendRefundProof(input: {
+    businessOrderId: number;
+    refundId: number;
+    proof: StoredRefundUpload;
+    context: BusinessOrderActionContext;
+  }): Promise<BusinessOrderRefundRecord> {
+    const parsed = appendRefundProofSchema.safeParse(input);
+    if (!parsed.success) {
+      throw new PaymentValidationError(parsed.error.issues[0]?.message ?? "退款凭证数据不正确");
+    }
+    const now = input.context.now ?? new Date();
+    try {
+      return await this.database.transaction(async (transaction) => {
+        await requireSensitiveRefundWriter(transaction, input.context.actorAccountId);
+        const refundRows = await transaction.query<RefundRow>(
+          `select id, refund_no, business_order_id, payment_method_item_id,
+                  payment_method_code_snapshot,
+                  payment_method_label_zh_snapshot,
+                  payment_method_label_en_snapshot, amount_minor, reason,
+                  original_document_status, original_document_note,
+                  refunded_at, recorded_by
+           from business_order_refunds
+           where id = $1 and business_order_id = $2
+           for update`,
+          [parsed.data.refundId, parsed.data.businessOrderId],
+        );
+        const refundRow = refundRows[0];
+        if (!refundRow) throw new PaymentNotFoundError("退款记录不存在");
+        if (refundRow.payment_method_code_snapshot === "cash") {
+          throw new PaymentValidationError("现金退款不需要上传转账凭证");
+        }
+        const existingEvidence = await selectRefundEvidence(
+          transaction,
+          parsed.data.refundId,
+        );
+        if (existingEvidence.some((file) => file.kind === "refund_proof")) {
+          throw new PaymentConflictError("退款凭证已经上传，不允许替换");
+        }
+        await insertRefundEvidence(
+          transaction,
+          parsed.data.refundId,
+          "refund_proof",
+          parsed.data.proof,
+          input.context.actorAccountId,
+          now,
+        );
+        const refund = mapRefund(
+          refundRow,
+          await selectRefundEvidence(transaction, parsed.data.refundId),
+        );
+        await writeAuditEvent(transaction, {
+          occurredAt: now,
+          actorAccountId: input.context.actorAccountId,
+          eventType: "refund.proof_attached",
+          objectType: "business_order_refund",
+          objectId: refund.refundNo,
+          reason: null,
+          after: {
+            businessOrderId: refund.businessOrderId,
+            refundId: refund.id,
+            refundNo: refund.refundNo,
+            evidenceKind: "refund_proof",
+            fileId: refund.evidence.find((file) => file.kind === "refund_proof")?.fileId,
+          },
+          requestId: input.context.requestId,
+          ipAddress: input.context.ipAddress,
+          userAgent: input.context.userAgent,
+        });
+        return refund;
+      });
+    } catch (error) {
+      rethrowPaymentError(error);
+    }
+  }
+
+  async appendRefundSignedAcknowledgement(input: {
+    businessOrderId: number;
+    refundId: number;
+    signedAcknowledgement: StoredRefundUpload;
+    context: BusinessOrderActionContext;
+  }): Promise<BusinessOrderRefundRecord> {
+    const parsed = appendRefundSignedAcknowledgementSchema.safeParse(input);
+    if (!parsed.success) {
+      throw new PaymentValidationError(parsed.error.issues[0]?.message ?? "退款签收单数据不正确");
+    }
+    const now = input.context.now ?? new Date();
+    try {
+      return await this.database.transaction(async (transaction) => {
+        await requireSensitiveRefundWriter(transaction, input.context.actorAccountId);
+        const refundRows = await transaction.query<RefundRow>(
+          `select id, refund_no, business_order_id, payment_method_item_id,
+                  payment_method_code_snapshot,
+                  payment_method_label_zh_snapshot,
+                  payment_method_label_en_snapshot, amount_minor, reason,
+                  original_document_status, original_document_note,
+                  refunded_at, recorded_by
+           from business_order_refunds
+           where id = $1 and business_order_id = $2
+           for update`,
+          [parsed.data.refundId, parsed.data.businessOrderId],
+        );
+        const refundRow = refundRows[0];
+        if (!refundRow) throw new PaymentNotFoundError("退款记录不存在");
+        const existingEvidence = await selectRefundEvidence(
+          transaction,
+          parsed.data.refundId,
+        );
+        if (existingEvidence.some((file) => file.kind === "customer_signature")) {
+          throw new PaymentConflictError("签字后的退款签收单已经上传，不允许替换");
+        }
+        await insertRefundEvidence(
+          transaction,
+          parsed.data.refundId,
+          "customer_signature",
+          parsed.data.signedAcknowledgement,
+          input.context.actorAccountId,
+          now,
+        );
+        const refund = mapRefund(
+          refundRow,
+          await selectRefundEvidence(transaction, parsed.data.refundId),
+        );
+        await writeAuditEvent(transaction, {
+          occurredAt: now,
+          actorAccountId: input.context.actorAccountId,
+          eventType: "refund.signed_acknowledgement_attached",
+          objectType: "business_order_refund",
+          objectId: refund.refundNo,
+          reason: null,
+          after: {
+            businessOrderId: refund.businessOrderId,
+            refundId: refund.id,
+            refundNo: refund.refundNo,
+            evidenceKind: "customer_signature",
+            fileId: refund.evidence.find((file) => file.kind === "customer_signature")?.fileId,
           },
           requestId: input.context.requestId,
           ipAddress: input.context.ipAddress,

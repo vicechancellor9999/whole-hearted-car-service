@@ -44,6 +44,10 @@ describe("ProtectedShell", () => {
       "href",
       "/settings/accounts",
     );
+    expect(screen.getByRole("img", { name: "Whole Hearted Car Service Limited" })).toBeInTheDocument();
+    expect(screen.getByRole("navigation", { name: "主导航" })).toHaveTextContent("工单管理");
+    expect(screen.getByRole("navigation", { name: "主导航" })).toHaveTextContent("客户与车辆管理");
+    expect(screen.getByRole("link", { name: "经营概览" })).toHaveAttribute("href", "/dashboard");
   });
 
   it("blocks a mechanic from seeing any PC child content", () => {

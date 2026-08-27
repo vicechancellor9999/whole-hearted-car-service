@@ -16,7 +16,7 @@
 - 每次收款是独立且不可编辑的记录；三笔收款对应三张不同编号的 Receipt。
 - 每笔 Receipt 保存生成当时的收费项目、备注、历次收付款、当次收款和余额快照；补打不得重算或换号。
 - 退款金额按实际填写，不绑定项目，不修改收费项目、收款、Receipt 或绩效。
-- 退款必须保存原因、退款方式、原单处理情况和退款凭证；现金退款必须另存客户签字证据。
+- 退款必须先保存原因、退款方式和原单处理情况；现金退款当场保存客户签字，非现金退款在记录生成后追加一次实际付款凭证且不得替换。
 - 原单无法交回时允许退款，但必须选择“原单无法交回”并填写说明。
 - 应收余额始终按 `当前折后应收 - 累计收款 + 累计退款` 推导，不保存可手填余额。
 - 超级管理员可退款；前台只有取得 `sensitive_operations.execute` 下放权限后才可退款；老板只读。
@@ -163,8 +163,8 @@ git commit -m "feat: add independent payments and receipts"
 - Create: `src/modules/payment/refund-attachment-storage.test.ts`
 
 **Interfaces:**
-- Produces: `PaymentService.recordRefund(input)`。
-- 输入包括 `amount`、`paymentMethodItemId`、`reason`、`originalDocumentStatus`、`originalDocumentNote`、退款凭证元数据；现金退款另含客户签字文件元数据。
+- Produces: `PaymentService.recordRefund(input)`、`PaymentService.appendRefundProof(input)`。
+- 创建退款输入包括 `amount`、`paymentMethodItemId`、`reason`、`originalDocumentStatus`、`originalDocumentNote`；现金退款另含客户签字文件元数据。非现金退款凭证在记录生成后单独追加。
 - 退款不接收收费项目 ID 或收款 ID。
 
 - [ ] **Step 1: 写失败测试**
@@ -177,7 +177,7 @@ it("accepts an arbitrary refund amount without touching payments, charges or per
 });
 ```
 
-另测：缺退款凭证拒绝；现金缺客户签字拒绝；原单无法交回但无说明拒绝；老板拒绝；无下放权限的前台拒绝；有下放权限的前台成功；审计事件为 `refund.created`。
+另测：非现金退款无凭证也能先生成；之后可追加一次凭证；第二次上传替换被拒绝；现金缺客户签字拒绝且不要求额外凭证；原单无法交回但无说明拒绝；老板拒绝；无下放权限的前台拒绝；有下放权限的前台成功；审计事件分别为 `refund.created` 和 `refund.proof_attached`。
 
 - [ ] **Step 2: 运行红灯测试**
 
@@ -187,7 +187,7 @@ Expected: FAIL，因为退款接口和安全存储尚不存在。
 
 - [ ] **Step 3: 实现退款事务和文件补偿清理**
 
-退款文件仅允许 JPG、PNG、WebP、PDF，每个不超过 25 MB，保存到 `refund-files/YYYY/MM/`。先落盘、事务失败则删除新文件；数据库事务写入退款事实、凭证关联、余额校验与敏感审计。
+退款文件仅允许 JPG、PNG、WebP、PDF，每个不超过 25 MB，保存到 `refund-files/YYYY/MM/`。现金签字随退款事务归档；非现金退款先写入退款事实，实际退款后另行上传凭证。文件先落盘、事务失败则删除新文件；凭证追加事务锁定退款记录并拒绝覆盖已有凭证。
 
 - [ ] **Step 4: 运行测试**
 
@@ -267,8 +267,8 @@ git commit -m "feat: add Business Order payment workflow"
 4. 逐张打开 Receipt，核对当次金额、收费项目、历次收付款、时间、方式和收款后余额。
 5. 修改 Business Order 收费项目后补打第一张 Receipt，确认编号和旧快照不变。
 6. 以无敏感权限前台尝试退款，确认系统拒绝且不产生退款事实。
-7. 下放敏感权限后录入任意金额非现金退款，上传凭证，确认不选择项目也能完成。
-8. 录入现金退款，未上传客户签字时确认无法提交；上传签字后完成。
+7. 下放敏感权限后先生成任意金额非现金退款，确认不选择项目、也不要求预先提供退款凭证；退款生成后再补传一次实际退款凭证，确认凭证不可替换。
+8. 录入现金退款，未提供客户签字时确认无法提交；客户签字后完成，签字本身即为客户收款证据，不再另传退款凭证。
 9. 选择原单无法交回，未填说明时确认无法提交；填说明后完成。
 10. 打开退款说明与签收单，确认全部信息集中在同一张单。
 11. 核对应收、累计收款、累计退款和余额满足守恒公式。

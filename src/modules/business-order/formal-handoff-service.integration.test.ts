@@ -12,7 +12,10 @@ import {
   FormalHandoffValidationError,
   FormalHandoffWriteDeniedError,
 } from "@/modules/business-order/formal-handoff-service";
-import { RepairRoundService } from "@/modules/business-order/repair-round-service";
+import {
+  RepairRoundService,
+  RepairRoundValidationError,
+} from "@/modules/business-order/repair-round-service";
 
 const migrationPaths = [
   "0000_foundation.sql",
@@ -29,6 +32,10 @@ const migrationPaths = [
   "0011_repair_rounds.sql",
   "0012_inspection_reports.sql",
   "0013_formal_handoffs.sql",
+  "0018_business_order_number_format.sql",
+  "0019_repair_assignment_withdrawal.sql",
+  "0021_optional_work_return_details.sql",
+  "0020_repair_assignment_withdrawal_projection.sql",
 ].map((name) => resolve(process.cwd(), "drizzle", name));
 
 let database: PGlite;
@@ -239,8 +246,8 @@ describe("FormalHandoffService", () => {
           grossMinor: 2_000_000,
           lineDiscountMinor: 200_000,
           laborDiscountMinor: 100_000,
-          wholeOrderDiscountMinor: 50_000,
-          totalDueMinor: 1_650_000,
+          wholeOrderDiscountMinor: 0,
+          totalDueMinor: 1_700_000,
         },
         items: [expect.objectContaining({ nameZh: "发动机诊断" })],
         notes: [expect.objectContaining({ contentZh: "客户已知悉诊断范围。" })],
@@ -274,7 +281,7 @@ describe("FormalHandoffService", () => {
       id: handoff.id,
       chargeVersionNo: charges.versionNo,
       chargeSnapshot: expect.objectContaining({
-        totals: expect.objectContaining({ totalDueMinor: 1_650_000 }),
+        totals: expect.objectContaining({ totalDueMinor: 1_700_000 }),
       }),
     })]);
   });
@@ -301,12 +308,14 @@ describe("FormalHandoffService", () => {
       context: context(adminId, "handoff-negative", "2026-09-01T15:30:00Z"),
     });
     await expect(formalHandoffs.cancelFormalHandoffInSameMonth({
+      businessOrderId: order.id,
       formalHandoffId: handoff.id,
       reason: "交单内容录入错误",
       context: context(frontDeskId, "late-cancel", "2026-10-01T05:01:00Z"),
     })).rejects.toBeInstanceOf(FormalHandoffValidationError);
 
     const cancellation = await formalHandoffs.cancelFormalHandoffInSameMonth({
+      businessOrderId: order.id,
       formalHandoffId: handoff.id,
       reason: "交单内容录入错误",
       context: context(frontDeskId, "same-month-cancel", "2026-09-20T15:00:00Z"),
@@ -317,6 +326,7 @@ describe("FormalHandoffService", () => {
       jamaicaMonth: "2026-09",
     });
     await expect(formalHandoffs.cancelFormalHandoffInSameMonth({
+      businessOrderId: order.id,
       formalHandoffId: handoff.id,
       reason: "重复取消",
       context: context(adminId, "duplicate-cancel", "2026-09-21T15:00:00Z"),
@@ -342,6 +352,123 @@ describe("FormalHandoffService", () => {
     )).rejects.toThrow(/repair round event does not match the current state/);
   });
 
+  it("does not cancel a handoff that belongs to another Business Order", async () => {
+    const { order: handoffOrder } = await createApprovedOrder();
+    const { order: otherOrder } = await createApprovedOrder();
+    const handoff = await formalHandoffs.formallyHandOffRound({
+      businessOrderId: handoffOrder.id,
+      expectedRepairRoundVersion: await roundVersion(handoffOrder.id),
+      performanceValue: "20000",
+      context: context(frontDeskId, "handoff-for-other-order-cancel", "2026-09-01T15:30:00Z"),
+    });
+
+    await expect(formalHandoffs.cancelFormalHandoffInSameMonth({
+      businessOrderId: otherOrder.id,
+      formalHandoffId: handoff.id + 10_000,
+      reason: "不存在的交单",
+      context: context(frontDeskId, "unknown-handoff-cancel", "2026-09-02T14:59:00Z"),
+    })).rejects.toMatchObject({ status: 404, code: "formal_handoff_not_found" });
+    await expect(formalHandoffs.cancelFormalHandoffInSameMonth({
+      businessOrderId: otherOrder.id,
+      formalHandoffId: handoff.id,
+      reason: "不应取消其他订单的交单",
+      context: context(frontDeskId, "wrong-order-cancel", "2026-09-02T15:00:00Z"),
+    })).rejects.toMatchObject({ status: 404, code: "formal_handoff_not_found" });
+
+    await expect(formalHandoffs.listFormalHandoffs({
+      businessOrderId: handoffOrder.id,
+      viewerAccountId: ownerId,
+    })).resolves.toEqual([expect.objectContaining({
+      id: handoff.id,
+      cancellation: null,
+    })]);
+    await expect(repairRounds.getCurrentRound({
+      businessOrderId: handoffOrder.id,
+      viewerAccountId: ownerId,
+    })).resolves.toMatchObject({ status: "formally_handed_off" });
+    const cancellations = await database.query<{ count: number }>(
+      "select count(*)::integer as count from formal_handoff_cancellations",
+    );
+    expect(cancellations.rows[0]).toEqual({ count: 0 });
+  });
+
+  it("does not cancel a first-round handoff after an after-sales round becomes current", async () => {
+    const { order } = await createApprovedOrder();
+    const handoff = await formalHandoffs.formallyHandOffRound({
+      businessOrderId: order.id,
+      expectedRepairRoundVersion: await roundVersion(order.id),
+      performanceValue: "20000",
+      context: context(frontDeskId, "first-round-handoff-before-after-sales", "2026-09-01T15:30:00Z"),
+    });
+    const handedOffOrder = await businessOrders.getBusinessOrder({
+      businessOrderId: order.id,
+      viewerAccountId: adminId,
+    });
+    const afterSalesRound = await repairRounds.startAfterSalesRound({
+      businessOrderId: order.id,
+      expectedBusinessOrderVersion: handedOffOrder.version,
+      issue: "客户反馈异响",
+      context: context(frontDeskId, "start-after-sales-before-first-cancel", "2026-09-02T15:00:00Z"),
+    });
+
+    await expect(formalHandoffs.cancelFormalHandoffInSameMonth({
+      businessOrderId: order.id,
+      formalHandoffId: handoff.id,
+      reason: "不应取消已被售后轮次替代的交单",
+      context: context(frontDeskId, "cancel-noncurrent-first-handoff", "2026-09-03T15:00:00Z"),
+    })).rejects.toBeInstanceOf(FormalHandoffValidationError);
+
+    await expect(formalHandoffs.listFormalHandoffs({
+      businessOrderId: order.id,
+      viewerAccountId: ownerId,
+    })).resolves.toEqual([expect.objectContaining({ id: handoff.id, cancellation: null })]);
+    await expect(repairRounds.getCurrentRound({
+      businessOrderId: order.id,
+      viewerAccountId: ownerId,
+    })).resolves.toMatchObject({
+      id: afterSalesRound.id,
+      status: "waiting_assignment",
+    });
+    const cancellations = await database.query<{ count: number }>(
+      "select count(*)::integer as count from formal_handoff_cancellations",
+    );
+    expect(cancellations.rows[0]).toEqual({ count: 0 });
+  });
+
+  it("allows exactly one concurrent same-month cancellation", async () => {
+    const { order } = await createApprovedOrder();
+    const handoff = await formalHandoffs.formallyHandOffRound({
+      businessOrderId: order.id,
+      expectedRepairRoundVersion: await roundVersion(order.id),
+      performanceValue: "20000",
+      context: context(frontDeskId, "handoff-before-concurrent-cancel", "2026-09-01T15:30:00Z"),
+    });
+
+    const results = await Promise.allSettled([
+      formalHandoffs.cancelFormalHandoffInSameMonth({
+        businessOrderId: order.id,
+        formalHandoffId: handoff.id,
+        reason: "第一次并发取消",
+        context: context(frontDeskId, "concurrent-cancel-one", "2026-09-02T15:00:00Z"),
+      }),
+      formalHandoffs.cancelFormalHandoffInSameMonth({
+        businessOrderId: order.id,
+        formalHandoffId: handoff.id,
+        reason: "第二次并发取消",
+        context: context(frontDeskId, "concurrent-cancel-two", "2026-09-02T15:00:00Z"),
+      }),
+    ]);
+
+    expect(results.filter((result) => result.status === "fulfilled")).toHaveLength(1);
+    const rejected = results.filter((result) => result.status === "rejected");
+    expect(rejected).toHaveLength(1);
+    expect(rejected[0]).toMatchObject({ reason: expect.any(FormalHandoffValidationError) });
+    const cancellations = await database.query<{ count: number }>(
+      "select count(*)::integer as count from formal_handoff_cancellations",
+    );
+    expect(cancellations.rows[0]).toEqual({ count: 1 });
+  });
+
   it("creates a new handoff fact after same-month cancellation", async () => {
     const { order } = await createApprovedOrder();
     const first = await formalHandoffs.formallyHandOffRound({
@@ -351,6 +478,7 @@ describe("FormalHandoffService", () => {
       context: context(frontDeskId, "first-handoff", "2026-09-01T15:30:00Z"),
     });
     await formalHandoffs.cancelFormalHandoffInSameMonth({
+      businessOrderId: order.id,
       formalHandoffId: first.id,
       reason: "需要重新确认绩效值",
       context: context(frontDeskId, "cancel-first", "2026-09-02T15:00:00Z"),
@@ -366,6 +494,174 @@ describe("FormalHandoffService", () => {
       performanceMinor: 1_800_000,
     });
     expect(second.id).not.toBe(first.id);
+  });
+
+  it("starts an independent after-sales repair round while preserving the first round and handoff", async () => {
+    const { order } = await createApprovedOrder();
+    const firstHandoff = await formalHandoffs.formallyHandOffRound({
+      businessOrderId: order.id,
+      expectedRepairRoundVersion: await roundVersion(order.id),
+      performanceValue: "20000",
+      context: context(frontDeskId, "first-round-handoff", "2026-08-24T15:30:00Z"),
+    });
+    const handedOffOrder = await businessOrders.getBusinessOrder({
+      businessOrderId: order.id,
+      viewerAccountId: adminId,
+    });
+
+    const secondRound = await repairRounds.startAfterSalesRound({
+      businessOrderId: order.id,
+      expectedBusinessOrderVersion: handedOffOrder.version,
+      issue: "客户反馈维修后异响仍然存在",
+      context: context(frontDeskId, "start-after-sales", "2026-09-05T15:00:00Z"),
+    });
+
+    expect(secondRound).toMatchObject({
+      businessOrderId: order.id,
+      roundNo: 2,
+      source: "after_sales",
+      afterSalesIssue: "客户反馈维修后异响仍然存在",
+      status: "waiting_assignment",
+      assignedTeamId: null,
+    });
+    const history = await repairRounds.listRepairRounds({
+      businessOrderId: order.id,
+      viewerAccountId: ownerId,
+    });
+    expect(history).toHaveLength(2);
+    expect(history[0]).toMatchObject({
+      roundNo: 1,
+      source: "initial",
+      afterSalesIssue: null,
+      formalHandoffs: [{
+        id: firstHandoff.id,
+        performanceMinor: 2_000_000,
+        jamaicaMonth: "2026-08",
+        cancelledAt: null,
+      }],
+    });
+    expect(history[1]).toMatchObject({
+      roundNo: 2,
+      source: "after_sales",
+      afterSalesIssue: "客户反馈维修后异响仍然存在",
+      formalHandoffs: [],
+    });
+    await expect(formalHandoffs.listFormalHandoffs({
+      businessOrderId: order.id,
+      viewerAccountId: ownerId,
+    })).resolves.toEqual([expect.objectContaining({ id: firstHandoff.id })]);
+  });
+
+  it("cancels an empty after-sales round created by mistake and restores the handed-off round", async () => {
+    const { order } = await createApprovedOrder();
+    await formalHandoffs.formallyHandOffRound({
+      businessOrderId: order.id,
+      expectedRepairRoundVersion: await roundVersion(order.id),
+      performanceValue: "20000",
+      context: context(frontDeskId, "handoff-before-cancel-after-sales", "2026-08-24T15:30:00Z"),
+    });
+    const handedOffOrder = await businessOrders.getBusinessOrder({
+      businessOrderId: order.id,
+      viewerAccountId: adminId,
+    });
+    const secondRound = await repairRounds.startAfterSalesRound({
+      businessOrderId: order.id,
+      expectedBusinessOrderVersion: handedOffOrder.version,
+      issue: "误触创建",
+      context: context(frontDeskId, "start-after-sales-to-cancel", "2026-08-25T15:00:00Z"),
+    });
+
+    await expect(repairRounds.cancelAfterSalesRound({
+      businessOrderId: order.id,
+      expectedRepairRoundVersion: secondRound.version,
+      context: context(frontDeskId, "cancel-empty-after-sales", "2026-08-25T15:01:00Z"),
+    })).resolves.toEqual({ cancelled: true });
+
+    await expect(repairRounds.getCurrentRound({
+      businessOrderId: order.id,
+      viewerAccountId: adminId,
+    })).resolves.toMatchObject({ roundNo: 1, status: "formally_handed_off" });
+    await expect(repairRounds.listRepairRounds({
+      businessOrderId: order.id,
+      viewerAccountId: adminId,
+    })).resolves.toHaveLength(1);
+    const audits = await database.query<{ event_type: string }>(
+      "select event_type from audit_events where request_id = 'cancel-empty-after-sales'",
+    );
+    expect(audits.rows).toEqual([{ event_type: "business_order.after_sales_round_cancelled" }]);
+  });
+
+  it("does not cancel an after-sales round after it has been assigned", async () => {
+    const { order } = await createApprovedOrder();
+    await formalHandoffs.formallyHandOffRound({
+      businessOrderId: order.id,
+      expectedRepairRoundVersion: await roundVersion(order.id),
+      performanceValue: "20000",
+      context: context(frontDeskId, "handoff-before-noncancellable-after-sales", "2026-08-24T15:30:00Z"),
+    });
+    const handedOffOrder = await businessOrders.getBusinessOrder({
+      businessOrderId: order.id,
+      viewerAccountId: adminId,
+    });
+    const secondRound = await repairRounds.startAfterSalesRound({
+      businessOrderId: order.id,
+      expectedBusinessOrderVersion: handedOffOrder.version,
+      issue: "真实售后问题",
+      context: context(frontDeskId, "start-after-sales-before-assignment", "2026-08-25T15:00:00Z"),
+    });
+    await repairRounds.assignRound({
+      businessOrderId: order.id,
+      expectedBusinessOrderVersion: (await businessOrders.getBusinessOrder({
+        businessOrderId: order.id,
+        viewerAccountId: adminId,
+      })).version,
+      teamId,
+      customerConfirmedWithoutPayment: true,
+      context: context(frontDeskId, "assign-after-sales", "2026-08-25T15:01:00Z"),
+    });
+
+    await expect(repairRounds.cancelAfterSalesRound({
+      businessOrderId: order.id,
+      expectedRepairRoundVersion: secondRound.version + 1,
+      context: context(frontDeskId, "cancel-assigned-after-sales", "2026-08-25T15:02:00Z"),
+    })).rejects.toBeInstanceOf(RepairRoundValidationError);
+  });
+
+  it("requires an active formal handoff and a nonempty issue before starting after-sales", async () => {
+    const { order } = await createApprovedOrder();
+    const approvedOrder = await businessOrders.getBusinessOrder({
+      businessOrderId: order.id,
+      viewerAccountId: adminId,
+    });
+    await expect(repairRounds.startAfterSalesRound({
+      businessOrderId: order.id,
+      expectedBusinessOrderVersion: approvedOrder.version,
+      issue: "售后问题",
+      context: context(frontDeskId, "after-sales-before-handoff", "2026-08-24T15:00:00Z"),
+    })).rejects.toBeInstanceOf(RepairRoundValidationError);
+
+    await formalHandoffs.formallyHandOffRound({
+      businessOrderId: order.id,
+      expectedRepairRoundVersion: await roundVersion(order.id),
+      performanceValue: "20000",
+      context: context(frontDeskId, "handoff-before-invalid-after-sales", "2026-08-24T15:30:00Z"),
+    });
+    const handedOffOrder = await businessOrders.getBusinessOrder({
+      businessOrderId: order.id,
+      viewerAccountId: adminId,
+    });
+    await expect(repairRounds.startAfterSalesRound({
+      businessOrderId: order.id,
+      expectedBusinessOrderVersion: handedOffOrder.version,
+      issue: "   ",
+      context: context(frontDeskId, "empty-after-sales-issue", "2026-08-24T16:00:00Z"),
+    })).rejects.toBeInstanceOf(RepairRoundValidationError);
+    await expect(repairRounds.startAfterSalesRound({
+      businessOrderId: order.id,
+      expectedBusinessOrderVersion: handedOffOrder.version,
+      issue: "客户反馈异响",
+      context: context(ownerId, "owner-start-after-sales", "2026-08-24T16:01:00Z"),
+    })).rejects.toMatchObject({ status: 403 });
   });
 
   it("keeps the owner read-only and rejects direct changes to handoff facts", async () => {
@@ -402,6 +698,7 @@ describe("FormalHandoffService", () => {
       context: context(frontDeskId, "handoff-before-forgery", "2026-09-01T15:30:00Z"),
     });
     await formalHandoffs.cancelFormalHandoffInSameMonth({
+      businessOrderId: order.id,
       formalHandoffId: handoff.id,
       reason: "测试收费快照防篡改",
       context: context(frontDeskId, "cancel-before-forgery", "2026-09-02T15:00:00Z"),

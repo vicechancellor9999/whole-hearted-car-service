@@ -16,6 +16,7 @@ import {
 import { createPaymentRuntime } from "@/modules/payment/payment-runtime";
 import {
   RefundAttachmentStorageError,
+  isRefundUploadFile,
   removeStoredRefundUpload,
   storeRefundUpload,
   type StoredRefundUpload,
@@ -29,11 +30,14 @@ export async function businessOrderFinanceAction(formData: FormData): Promise<ne
   const operation = String(formData.get("operation") ?? "");
   const actor = requirePermission(
     session,
-    operation === "record_refund"
+    operation === "record_refund" ||
+      operation === "append_refund_proof" ||
+      operation === "append_refund_signed_acknowledgement"
       ? "sensitive_operations.execute"
       : "business_order.write",
   );
   const businessOrderId = positiveId.parse(formData.get("businessOrderId"));
+  let destination = `/business-orders/${businessOrderId}`;
   const forwardedFor = requestHeaders.get("x-forwarded-for");
   const context: BusinessOrderActionContext = {
     actorAccountId: actor.id,
@@ -43,7 +47,7 @@ export async function businessOrderFinanceAction(formData: FormData): Promise<ne
   };
   const runtime = createPaymentRuntime();
   let proof: StoredRefundUpload | null = null;
-  let customerSignature: StoredRefundUpload | null = null;
+  let signedAcknowledgement: StoredRefundUpload | null = null;
   let message = "操作已完成";
   let error: string | null = null;
   try {
@@ -57,15 +61,6 @@ export async function businessOrderFinanceAction(formData: FormData): Promise<ne
       });
       message = `收款已登记，Receipt ${result.receipt.receiptNo} 已生成`;
     } else if (operation === "record_refund") {
-      const proofFile = formData.get("proof");
-      if (!(proofFile instanceof File) || proofFile.size === 0) {
-        throw new RefundAttachmentStorageError("请选择退款凭证");
-      }
-      proof = await storeRefundUpload(proofFile);
-      const signatureFile = formData.get("customerSignature");
-      if (signatureFile instanceof File && signatureFile.size > 0) {
-        customerSignature = await storeRefundUpload(signatureFile);
-      }
       const result = await runtime.service.recordRefund({
         businessOrderId,
         amount: String(formData.get("amount") ?? ""),
@@ -75,18 +70,47 @@ export async function businessOrderFinanceAction(formData: FormData): Promise<ne
           formData.get("originalDocumentStatus"),
         ),
         originalDocumentNote: String(formData.get("originalDocumentNote") ?? ""),
+        context,
+      });
+      destination = `/business-orders/${businessOrderId}/refunds/${result.id}`;
+      message = `退款 ${result.refundNo} 已生成；请打印退款签收单交客户手写签字，签字件可稍后回传`;
+    } else if (operation === "append_refund_proof") {
+      const refundId = positiveId.parse(formData.get("refundId"));
+      const proofFile = formData.get("proof");
+      if (!isRefundUploadFile(proofFile)) {
+        throw new RefundAttachmentStorageError("请选择实际退款凭证");
+      }
+      proof = await storeRefundUpload(proofFile);
+      const result = await runtime.service.appendRefundProof({
+        businessOrderId,
+        refundId,
         proof,
-        customerSignature,
         context,
       });
       proof = null;
-      customerSignature = null;
-      message = `退款 ${result.refundNo} 已登记，退款说明与签收单已生成`;
+      destination = `/business-orders/${businessOrderId}/refunds/${refundId}`;
+      message = `退款 ${result.refundNo} 的凭证已归档，之后不能替换`;
+    } else if (operation === "append_refund_signed_acknowledgement") {
+      const refundId = positiveId.parse(formData.get("refundId"));
+      const signedFile = formData.get("signedAcknowledgement");
+      if (!isRefundUploadFile(signedFile)) {
+        throw new RefundAttachmentStorageError("请选择签字后的退款签收单");
+      }
+      signedAcknowledgement = await storeRefundUpload(signedFile);
+      const result = await runtime.service.appendRefundSignedAcknowledgement({
+        businessOrderId,
+        refundId,
+        signedAcknowledgement,
+        context,
+      });
+      signedAcknowledgement = null;
+      destination = `/business-orders/${businessOrderId}/refunds/${refundId}`;
+      message = `退款 ${result.refundNo} 的签字签收单已归档，之后不能替换`;
     } else {
       throw new PaymentValidationError("未知收付款操作");
     }
   } catch (caught) {
-    for (const upload of [proof, customerSignature]) {
+    for (const upload of [proof, signedAcknowledgement]) {
       if (upload) {
         await removeStoredRefundUpload(upload.storageKey).catch(() => undefined);
       }
@@ -95,7 +119,7 @@ export async function businessOrderFinanceAction(formData: FormData): Promise<ne
   } finally {
     await runtime.close();
   }
-  const destination = `/business-orders/${businessOrderId}`;
+  revalidatePath(`/business-orders/${businessOrderId}`);
   revalidatePath(destination);
   const query = new URLSearchParams(error ? { error } : { success: message });
   redirect(`${destination}?${query.toString()}`);

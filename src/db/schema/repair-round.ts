@@ -34,6 +34,7 @@ export const repairRoundSource = pgEnum("repair_round_source", [
 
 export const repairRoundEventType = pgEnum("repair_round_event_type", [
   "assigned",
+  "assignment_withdrawn",
   "team_responsibility_transferred",
   "accepted",
   "intake_mileage_recorded",
@@ -96,9 +97,8 @@ export const repairRoundWorkReturns = pgTable(
       .notNull()
       .references(() => repairRounds.id, { onDelete: "restrict" }),
     submissionNo: integer("submission_no").notNull(),
-    workSummary: text("work_summary").notNull(),
+    workSummary: text("work_summary"),
     actualStaffMemberId: bigint("actual_staff_member_id", { mode: "number" })
-      .notNull()
       .references(() => staffMembers.id, { onDelete: "restrict" }),
     submittedBy: bigint("submitted_by", { mode: "number" })
       .notNull()
@@ -118,7 +118,7 @@ export const repairRoundWorkReturns = pgTable(
     ),
     check(
       "repair_round_work_returns_summary_nonempty",
-      sql`length(btrim(${table.workSummary})) > 0`,
+      sql`${table.workSummary} is null or length(btrim(${table.workSummary})) > 0`,
     ),
   ],
 );
@@ -156,9 +156,9 @@ export const repairRoundEvents = pgTable(
     ),
     check(
       "repair_round_events_assignment_complete",
-      sql`${table.eventType} not in ('assigned', 'team_responsibility_transferred')
+      sql`${table.eventType}::text not in ('assigned', 'assignment_withdrawn', 'team_responsibility_transferred')
           or (${table.teamId} is not null
-              and (${table.eventType} <> 'assigned'
+              and (${table.eventType}::text <> 'assigned'
                    or ${table.customerConfirmedWithoutPayment} = true))`,
     ),
     check(

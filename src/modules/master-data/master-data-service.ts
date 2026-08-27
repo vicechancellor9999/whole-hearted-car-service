@@ -47,7 +47,7 @@ export type ManagedStaffMember = {
   id: number;
   staffNo: string;
   fullName: string;
-  normalizedPhone: string;
+  normalizedPhone: string | null;
   accountId: number;
   accountUsername: string;
   positionItemId: number;
@@ -93,7 +93,7 @@ type StaffRow = {
   id: number;
   staff_no: string;
   full_name: string;
-  normalized_phone: string;
+  normalized_phone: string | null;
   account_id: number;
   position_item_id: number;
   current_team_id: number;
