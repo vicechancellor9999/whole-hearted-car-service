@@ -58,7 +58,10 @@ function maskSecret(secret: string | null): string | null {
 
 async function readStoredSettings(): Promise<StoredVehicleDocumentAiSettings | null> {
   try {
-    const parsed = JSON.parse(await readFile(settingsPath(), "utf8")) as Partial<StoredVehicleDocumentAiSettings>;
+    const parsed = JSON.parse(await readFile(
+      /* turbopackIgnore: true */ settingsPath(),
+      "utf8",
+    )) as Partial<StoredVehicleDocumentAiSettings>;
     if (parsed.version !== 1) return null;
     return {
       version: 1,
