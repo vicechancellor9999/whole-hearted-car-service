@@ -18,8 +18,10 @@ const noFlashScript = `
 (function() {
   try {
     var t = localStorage.getItem('wh_theme');
-    if (!t) t = window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
+    var source = localStorage.getItem('wh_theme_source');
+    if (t !== 'dark' || source !== 'user') t = 'light';
     if (t === 'dark') document.documentElement.classList.add('dark');
+    else document.documentElement.classList.remove('dark');
   } catch(e) {}
 })();
 `;

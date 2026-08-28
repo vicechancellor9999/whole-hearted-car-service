@@ -1,8 +1,44 @@
 "use client";
 
-import { createContext, useContext, useEffect, useState, type ReactNode } from "react";
+import { createContext, useContext, useEffect, useSyncExternalStore, type ReactNode } from "react";
 
 type Theme = "light" | "dark";
+
+const THEME_STORAGE_KEY = "wh_theme";
+const THEME_SOURCE_STORAGE_KEY = "wh_theme_source";
+const THEME_CHANGE_EVENT = "wh:theme-change";
+
+function storedTheme(): Theme {
+  const stored = localStorage.getItem(THEME_STORAGE_KEY);
+  const source = localStorage.getItem(THEME_SOURCE_STORAGE_KEY);
+  return stored === "dark" && source === "user" ? "dark" : "light";
+}
+
+function currentTheme(): Theme {
+  if (typeof document === "undefined") return "light";
+  return document.documentElement.classList.contains("dark") ? "dark" : "light";
+}
+
+function applyTheme(theme: Theme, explicit: boolean) {
+  if (explicit) localStorage.setItem(THEME_SOURCE_STORAGE_KEY, "user");
+  localStorage.setItem(THEME_STORAGE_KEY, theme);
+  document.documentElement.classList.toggle("dark", theme === "dark");
+  window.dispatchEvent(new Event(THEME_CHANGE_EVENT));
+}
+
+function subscribeTheme(onStoreChange: () => void) {
+  const onStorage = (event: StorageEvent) => {
+    if (event.key !== THEME_STORAGE_KEY && event.key !== THEME_SOURCE_STORAGE_KEY) return;
+    document.documentElement.classList.toggle("dark", storedTheme() === "dark");
+    onStoreChange();
+  };
+  window.addEventListener(THEME_CHANGE_EVENT, onStoreChange);
+  window.addEventListener("storage", onStorage);
+  return () => {
+    window.removeEventListener(THEME_CHANGE_EVENT, onStoreChange);
+    window.removeEventListener("storage", onStorage);
+  };
+}
 
 interface ThemeContextValue {
   theme: Theme;
@@ -17,32 +53,14 @@ const ThemeContext = createContext<ThemeContextValue>({
 });
 
 export function ThemeProvider({ children }: { children: ReactNode }) {
-  const [theme, setThemeState] = useState<Theme>("light");
-  const [hydrated, setHydrated] = useState(false);
+  const theme = useSyncExternalStore<Theme>(subscribeTheme, currentTheme, () => "light");
 
   useEffect(() => {
-    const stored = localStorage.getItem("wh_theme") as Theme | null;
-    let initialTheme: Theme = "light";
-    if (stored === "light" || stored === "dark") {
-      initialTheme = stored;
-    } else if (window.matchMedia("(prefers-color-scheme: dark)").matches) {
-      initialTheme = "dark";
-    }
-    setThemeState(initialTheme);
-    document.documentElement.classList.toggle("dark", initialTheme === "dark");
-    localStorage.setItem("wh_theme", initialTheme);
-    setHydrated(true);
+    applyTheme(storedTheme(), false);
   }, []);
 
-  useEffect(() => {
-    if (!hydrated) return;
-    const root = document.documentElement;
-    root.classList.toggle("dark", theme === "dark");
-    localStorage.setItem("wh_theme", theme);
-  }, [hydrated, theme]);
-
-  const toggle = () => setThemeState((t) => (t === "light" ? "dark" : "light"));
-  const setTheme = (t: Theme) => setThemeState(t);
+  const toggle = () => applyTheme(theme === "light" ? "dark" : "light", true);
+  const setTheme = (nextTheme: Theme) => applyTheme(nextTheme, true);
 
   return (
     <ThemeContext.Provider value={{ theme, toggle, setTheme }}>

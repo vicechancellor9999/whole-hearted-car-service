@@ -126,6 +126,19 @@ textarea {
   --tw-via-opacity: 0.3;
 }
 
+/* Formal documents are paper artifacts, not theme surfaces. */
+.formal-print-page {
+  --wh-card-bg: #ffffff;
+  --wh-text: #0f172a;
+  --wh-text-soft: #64748b;
+  --wh-text-faint: #94a3b8;
+  --wh-border: #cbd5e1;
+  --wh-surface: #f8fafc;
+  background-color: #ffffff !important;
+  color: #0f172a !important;
+  color-scheme: light;
+}
+
 /* Scrollbar */
 ::-webkit-scrollbar {
   width: 6px;

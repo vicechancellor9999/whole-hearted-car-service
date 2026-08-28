@@ -200,6 +200,39 @@ test("只读账号看不到取消交单和售后回厂写入口", async ({ page 
   await expect(page.getByRole("button", { name: "售后回厂" })).toHaveCount(0);
 });
 
+test("业务单右栏的四个金额卡片在桌面窄栏内不溢出", async ({ page }) => {
+  await page.setViewportSize({ width: 1792, height: 1000 });
+  await installFormalFixtures(page);
+  await page.route("**/api/formal/business-orders/7", (route) => {
+    const detail = businessOrderDetail(true);
+    detail.ledger = {
+      ...detail.ledger,
+      currentDueMinor: 5_920_000,
+      totalPaidMinor: 2_470_000,
+      totalRefundedMinor: 1_000_000,
+      balanceMinor: 4_450_000,
+    };
+    return route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify(detail),
+    });
+  });
+  await page.goto("/orders/business/7?tab=operations");
+
+  const summary = page.locator("#business-order-finance-workspace > div.mt-3.grid");
+  const cards = summary.locator(":scope > span");
+  await expect(cards).toHaveCount(4);
+  const overflow = await summary.evaluate((node) => ({
+    clientWidth: node.clientWidth,
+    scrollWidth: node.scrollWidth,
+  }));
+  const cardWidths = await cards.evaluateAll((nodes) => nodes.map((node) => node.getBoundingClientRect().width));
+
+  expect(overflow.scrollWidth).toBeLessThanOrEqual(overflow.clientWidth);
+  expect(cardWidths.every((width) => width >= 180)).toBe(true);
+});
+
 test("取消交单失败后保留已输入原因和打开的表单", async ({ page }) => {
   const requests = await installFormalFixtures(page, { cancellation: "failure" });
   await page.goto("/orders/business/7");
