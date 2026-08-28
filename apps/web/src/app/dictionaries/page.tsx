@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useEffect, useState, type ReactNode } from "react";
-import { BookOpen, CreditCard, Ruler, ShieldCheck, Users, type LucideIcon } from "lucide-react";
+import { ArrowDown, ArrowUp, BookOpen, CreditCard, GripVertical, Ruler, Save, ShieldCheck, Users, type LucideIcon } from "lucide-react";
 import { PageHeader } from "@/components/layout/page-header";
 import {
   type ChargeUnitDefinition,
@@ -17,12 +17,14 @@ import {
   createFormalDictionaryItem,
   createFormalRepairTeam,
   fetchFormalMasterData,
+  reorderFormalRepairTeams,
   renameFormalRepairTeam,
   retireFormalRepairTeam,
   updateFormalDictionaryItem,
   type FormalDictionaryItem,
   type FormalStaffMember,
 } from "@/lib/api/formal-master-data";
+import { moveRepairTeam } from "@/lib/teams/repair-team-ordering";
 
 type DictionarySection = "teams" | "payment-methods" | "charge-units" | "roles";
 type TeamRemovalRequest = {
@@ -57,6 +59,9 @@ function sectionFromHash(): DictionarySection {
 export default function DictionariesPage() {
   const [activeSection, setActiveSection] = useState<DictionarySection>("teams");
   const [teams, setTeams] = useState<TeamDefinition[]>([]);
+  const [savedTeamOrder, setSavedTeamOrder] = useState<string[]>([]);
+  const [draggedTeamId, setDraggedTeamId] = useState<string | null>(null);
+  const [teamOrderPending, setTeamOrderPending] = useState(false);
   const [employees, setEmployees] = useState<FormalStaffMember[]>([]);
   const [teamDrafts, setTeamDrafts] = useState<Record<string, string>>({});
   const [newTeam, setNewTeam] = useState("");
@@ -82,9 +87,11 @@ export default function DictionariesPage() {
 
   const refreshAll = async () => {
     const result = await fetchFormalMasterData();
-    setTeams(result.teams.filter((team) => team.isActive).map((team) => ({
+    const activeTeams = result.teams.filter((team) => team.isActive).map((team) => ({
       id: String(team.id), name: team.name, engineering: false, builtin: false,
-    })));
+    }));
+    setTeams(activeTeams);
+    setSavedTeamOrder(activeTeams.map((team) => team.id));
     setEmployees(result.staff);
     setMethods(result.dictionaries.filter((item) => item.category === "payment_method" && item.isActive).map((item) => ({
       value: String(item.id), zh: item.labelZh, en: item.labelEn ?? "", builtin: !item.code.startsWith("custom-"),
@@ -119,6 +126,31 @@ export default function DictionariesPage() {
     "payment-methods": methods.length,
     "charge-units": units.length,
     roles: positions.length,
+  };
+  const teamOrderChanged = teams.map((team) => team.id).join(",") !== savedTeamOrder.join(",");
+
+  const moveTeam = (fromIndex: number, toIndex: number) => {
+    setTeams((current) => moveRepairTeam(current, fromIndex, toIndex));
+    setTeamNotice(null);
+  };
+
+  const saveTeamOrder = async () => {
+    if (!teamOrderChanged || teamOrderPending) return;
+    const previousOrder = [...savedTeamOrder];
+    setTeamOrderPending(true);
+    setTeamNotice(null);
+    try {
+      const updated = await reorderFormalRepairTeams(teams.map((team) => Number(team.id)));
+      const order = updated.filter((team) => team.isActive).map((team) => String(team.id));
+      setSavedTeamOrder(order);
+      setTeams((current) => order.map((id) => current.find((team) => team.id === id)).filter(Boolean) as TeamDefinition[]);
+      setTeamNotice("维修班组排序已保存，并同步用于派单、员工归组和绩效页面");
+    } catch (error) {
+      setTeams((current) => previousOrder.map((id) => current.find((team) => team.id === id)).filter(Boolean) as TeamDefinition[]);
+      setTeamNotice(error instanceof Error ? error.message : "班组排序保存失败，请刷新后重试");
+    } finally {
+      setTeamOrderPending(false);
+    }
   };
 
   const requestTeamRemoval = async (team: TeamDefinition) => {
@@ -221,14 +253,25 @@ export default function DictionariesPage() {
                       catch (error) { setTeamNotice(error instanceof Error ? error.message : "班组添加失败"); }
                     }} className={primaryButton}>添加班组</button>
                   </div>
-                  <div className="mt-3 space-y-2" data-testid="settings-teams-list">
-                    {teams.length === 0 ? <Empty copy="尚未建立维修班组。上方输入真实名称即可新增。" /> : teams.map((team) => {
+                  <div className="mt-3 flex flex-wrap items-center justify-between gap-2">
+                    <p className="text-xs text-ink-soft">拖动手柄调整顺序，也可以使用每行的上移、下移按钮。</p>
+                    <button type="button" data-testid="settings-team-order-save" disabled={!teamOrderChanged || teamOrderPending} onClick={() => void saveTeamOrder()} className={`${secondaryButton} inline-flex items-center gap-1.5`}><Save size={14} />{teamOrderPending ? "正在保存…" : "保存排序"}</button>
+                  </div>
+                  <div className="mt-2 space-y-2" data-testid="settings-teams-list">
+                    {teams.length === 0 ? <Empty copy="尚未建立维修班组。上方输入真实名称即可新增。" /> : teams.map((team, teamIndex) => {
                       const draft = teamDrafts[team.id] ?? team.name;
                       return (
-                        <div key={team.id} className="grid min-w-0 gap-2 rounded-lg border border-line bg-surface-warm/20 p-2.5 dark:border-slate-700 dark:bg-slate-800/25 sm:grid-cols-[92px_minmax(0,1fr)_auto_auto_auto] sm:items-center">
-                          <span className="font-mono text-[11px] text-ink-faint">{team.id}<small className="mt-1 block font-sans text-[10px]">{employees.filter((employee) => String(employee.currentTeamId) === team.id && employee.status === "active").length} 名成员</small></span>
+                        <div key={team.id} data-testid={`settings-team-row-${team.id}`} onDragOver={(event) => {
+                          event.preventDefault();
+                          if (!draggedTeamId || draggedTeamId === team.id) return;
+                          const fromIndex = teams.findIndex((candidate) => candidate.id === draggedTeamId);
+                          if (fromIndex >= 0) moveTeam(fromIndex, teamIndex);
+                        }} className={`grid min-w-0 gap-2 rounded-lg border bg-surface-warm/20 p-2.5 transition dark:bg-slate-800/25 sm:grid-cols-[48px_76px_minmax(0,1fr)_auto_auto_auto_auto] sm:items-center ${draggedTeamId === team.id ? "border-primary bg-primary-50/60 dark:border-primary" : "border-line dark:border-slate-700"}`}>
+                          <span draggable onDragStart={(event) => { setDraggedTeamId(team.id); event.dataTransfer.effectAllowed = "move"; event.dataTransfer.setData("text/plain", team.id); }} onDragEnd={() => setDraggedTeamId(null)} className="inline-flex h-9 cursor-grab items-center justify-center rounded-lg border border-line bg-white text-ink-soft active:cursor-grabbing dark:border-slate-600 dark:bg-slate-800" aria-label={`拖动${team.name}调整顺序`}><GripVertical size={16} /></span>
+                          <span className="font-mono text-[11px] text-ink-faint">{teamIndex + 1}<small className="mt-1 block font-sans text-[10px]">{employees.filter((employee) => String(employee.currentTeamId) === team.id && employee.status === "active").length} 名成员</small></span>
                           <input data-testid={`settings-team-name-${team.id}`} value={draft} onChange={(event) => setTeamDrafts((current) => ({ ...current, [team.id]: event.target.value }))} className={inputClass} aria-label={`${team.name}班组名称`} />
                           <Link href={`/employees?create=1&team=${encodeURIComponent(team.id)}`} data-testid={`settings-team-add-member-${team.id}`} className={secondaryButton}>添加成员账号</Link>
+                          <span className="inline-flex gap-1"><button type="button" data-testid={`settings-team-up-${team.id}`} aria-label={`上移${team.name}`} disabled={teamIndex === 0} onClick={() => moveTeam(teamIndex, teamIndex - 1)} className="grid h-9 w-9 place-items-center rounded-lg border border-line bg-white text-ink-soft disabled:opacity-30 dark:border-slate-600 dark:bg-slate-800"><ArrowUp size={14} /></button><button type="button" data-testid={`settings-team-down-${team.id}`} aria-label={`下移${team.name}`} disabled={teamIndex === teams.length - 1} onClick={() => moveTeam(teamIndex, teamIndex + 1)} className="grid h-9 w-9 place-items-center rounded-lg border border-line bg-white text-ink-soft disabled:opacity-30 dark:border-slate-600 dark:bg-slate-800"><ArrowDown size={14} /></button></span>
                           <button type="button" data-testid={`settings-team-rename-${team.id}`} disabled={!draft.trim() || draft.trim() === team.name} onClick={async () => {
                             try { await renameFormalRepairTeam(Number(team.id), draft); await refreshTeams(); setTeamNotice("班组名称已更新"); }
                             catch (error) { setTeamNotice(error instanceof Error ? error.message : "班组更新失败"); }

@@ -3,6 +3,24 @@ import { createMasterDataApiHandler } from "@formal/app/api/master-data/route";
 import { MasterDataManagementDeniedError } from "@formal/modules/master-data/master-data-service";
 
 describe("/api/master-data", () => {
+  it("saves the complete repair-team order with the signed-in actor", async () => {
+    const reorderRepairTeams = vi.fn(async () => []);
+    const handler = createMasterDataApiHandler({
+      readSession: async () => ({ account: { id: 5, role: "super_admin" as const } }),
+      listDictionaryItems: vi.fn(), listRepairTeams: vi.fn(), listStaffMembers: vi.fn(), listPayrollParameters: vi.fn(), listTeamCommissionRates: vi.fn(),
+      createRepairTeam: vi.fn(), reorderRepairTeams, createDictionaryItem: vi.fn(), updateDictionaryItem: vi.fn(), createMechanic: vi.fn(), renameRepairTeam: vi.fn(), retireRepairTeam: vi.fn(), setEmployeeSalary: vi.fn(), setPayrollParameters: vi.fn(), setTeamCommissionRate: vi.fn(),
+    });
+    const response = await handler(new Request("http://localhost/api/master-data", {
+      method: "POST",
+      headers: { "content-type": "application/json", "x-request-id": "req-reorder" },
+      body: JSON.stringify({ action: "reorder_teams", orderedTeamIds: [3, 1, 2] }),
+    }));
+    expect(response.status).toBe(200);
+    expect(reorderRepairTeams).toHaveBeenCalledWith({
+      orderedTeamIds: [3, 1, 2],
+      context: expect.objectContaining({ actorAccountId: 5, requestId: "req-reorder" }),
+    });
+  });
   it.each(["super_admin", "owner"] as const)(
     "returns payroll parameters to an authenticated %s",
     async (role) => {
@@ -20,6 +38,7 @@ describe("/api/master-data", () => {
         listPayrollParameters,
         listTeamCommissionRates,
         createRepairTeam: vi.fn(),
+        reorderRepairTeams: vi.fn(),
         createDictionaryItem: vi.fn(),
         updateDictionaryItem: vi.fn(),
         createMechanic: vi.fn(),
@@ -97,6 +116,7 @@ describe("/api/master-data", () => {
       listPayrollParameters,
       listTeamCommissionRates,
       createRepairTeam: vi.fn(),
+      reorderRepairTeams: vi.fn(),
       createDictionaryItem: vi.fn(),
       updateDictionaryItem: vi.fn(),
       createMechanic: vi.fn(),
@@ -156,6 +176,7 @@ describe("/api/master-data", () => {
       listPayrollParameters,
       listTeamCommissionRates,
       createRepairTeam: vi.fn(),
+      reorderRepairTeams: vi.fn(),
       createDictionaryItem: vi.fn(),
       updateDictionaryItem: vi.fn(),
       createMechanic: vi.fn(),
@@ -193,6 +214,7 @@ describe("/api/master-data", () => {
       listPayrollParameters,
       listTeamCommissionRates,
       createRepairTeam: vi.fn(),
+      reorderRepairTeams: vi.fn(),
       createDictionaryItem: vi.fn(),
       updateDictionaryItem: vi.fn(),
       createMechanic: vi.fn(),
@@ -220,6 +242,7 @@ describe("/api/master-data", () => {
       readSession: async () => ({ account: { id: 5, role: "super_admin" as const } }),
       listDictionaryItems: vi.fn(), listRepairTeams: vi.fn(), listStaffMembers: vi.fn(), listPayrollParameters: vi.fn(), listTeamCommissionRates: vi.fn(),
       createRepairTeam,
+      reorderRepairTeams: vi.fn(),
       createDictionaryItem: vi.fn(), updateDictionaryItem: vi.fn(), createMechanic: vi.fn(), renameRepairTeam: vi.fn(), retireRepairTeam: vi.fn(), setEmployeeSalary: vi.fn(), setPayrollParameters: vi.fn(), setTeamCommissionRate: vi.fn(),
     });
     const response = await handler(new Request("http://localhost/api/master-data", {
@@ -249,7 +272,7 @@ describe("/api/master-data", () => {
     const handler = createMasterDataApiHandler({
       readSession: async () => ({ account: { id: 5, role: "super_admin" as const } }),
       listDictionaryItems: vi.fn(), listRepairTeams: vi.fn(), listStaffMembers: vi.fn(), listPayrollParameters: vi.fn(), listTeamCommissionRates: vi.fn(),
-      createRepairTeam: vi.fn(), createDictionaryItem: vi.fn(), updateDictionaryItem: vi.fn(), createMechanic: vi.fn(), renameRepairTeam: vi.fn(), retireRepairTeam: vi.fn(), setEmployeeSalary: vi.fn(),
+      createRepairTeam: vi.fn(), reorderRepairTeams: vi.fn(), createDictionaryItem: vi.fn(), updateDictionaryItem: vi.fn(), createMechanic: vi.fn(), renameRepairTeam: vi.fn(), retireRepairTeam: vi.fn(), setEmployeeSalary: vi.fn(),
       setPayrollParameters,
       setTeamCommissionRate,
     });

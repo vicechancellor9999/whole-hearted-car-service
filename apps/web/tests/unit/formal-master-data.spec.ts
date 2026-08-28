@@ -2,6 +2,7 @@ import { expect, test } from "@playwright/test";
 import {
   createFormalRepairTeam,
   fetchFormalMasterData,
+  reorderFormalRepairTeams,
   setFormalPayrollParameters,
   setFormalTeamCommissionRate,
 } from "../../src/lib/api/formal-master-data";
@@ -23,6 +24,21 @@ test("formal master data reads and creates teams through the backend proxy", asy
       { url: "/api/formal/master-data", method: "GET" },
       { url: "/api/formal/master-data", method: "POST" },
     ]);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test("formal master data posts the complete repair-team order", async () => {
+  const originalFetch = globalThis.fetch;
+  let body: unknown;
+  globalThis.fetch = (async (_input: RequestInfo | URL, init?: RequestInit) => {
+    body = JSON.parse(String(init?.body));
+    return new Response(JSON.stringify([]), { status: 200 });
+  }) as typeof fetch;
+  try {
+    await reorderFormalRepairTeams([3, 1, 2]);
+    expect(body).toEqual({ action: "reorder_teams", orderedTeamIds: [3, 1, 2] });
   } finally {
     globalThis.fetch = originalFetch;
   }

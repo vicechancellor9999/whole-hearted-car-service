@@ -13,6 +13,7 @@ type ServiceMethods = Pick<MasterDataService,
   | "listPayrollParameters"
   | "listTeamCommissionRates"
   | "createRepairTeam"
+  | "reorderRepairTeams"
   | "createDictionaryItem"
   | "updateDictionaryItem"
   | "createMechanic"
@@ -42,6 +43,11 @@ function text(body: Record<string, unknown>, key: string): string {
 
 function number(body: Record<string, unknown>, key: string): number {
   return Number(body[key]);
+}
+
+function numberArray(body: Record<string, unknown>, key: string): number[] {
+  if (!Array.isArray(body[key])) return [];
+  return body[key].map(Number);
 }
 
 export function createMasterDataApiHandler(dependencies: MasterDataApiDependencies) {
@@ -80,6 +86,12 @@ export function createMasterDataApiHandler(dependencies: MasterDataApiDependenci
       if (action === "rename_team") {
         return NextResponse.json(await dependencies.renameRepairTeam({
           teamId: number(body, "teamId"), name: text(body, "name"), context: actionContext,
+        }));
+      }
+      if (action === "reorder_teams") {
+        return NextResponse.json(await dependencies.reorderRepairTeams({
+          orderedTeamIds: numberArray(body, "orderedTeamIds"),
+          context: actionContext,
         }));
       }
       if (action === "retire_team") {
@@ -184,6 +196,7 @@ async function run(request: Request): Promise<Response> {
       listPayrollParameters: (input) => runtime.service.listPayrollParameters(input),
       listTeamCommissionRates: (input) => runtime.service.listTeamCommissionRates(input),
       createRepairTeam: (input) => runtime.service.createRepairTeam(input),
+      reorderRepairTeams: (input) => runtime.service.reorderRepairTeams(input),
       createDictionaryItem: (input) => runtime.service.createDictionaryItem(input),
       updateDictionaryItem: (input) => runtime.service.updateDictionaryItem(input),
       createMechanic: (input) => runtime.service.createMechanic(input),

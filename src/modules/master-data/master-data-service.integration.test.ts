@@ -19,6 +19,7 @@ const migrationPaths = [
   resolve(process.cwd(), "drizzle/0002_master_data.sql"),
   resolve(process.cwd(), "drizzle/0003_master_data_facts_append_only.sql"),
   resolve(process.cwd(), "drizzle/0024_team_commission_rate_versions.sql"),
+  resolve(process.cwd(), "drizzle/0034_repair_team_sort_order.sql"),
 ];
 
 let database: PGlite;
@@ -349,6 +350,46 @@ describe("MasterDataService", () => {
     await expect(
       service.listRepairTeams({ viewerAccountId: ownerId, activeOnly: true }),
     ).resolves.toEqual([team]);
+  });
+
+  it("reorders the complete active team set atomically and appends a later team", async () => {
+    const first = await service.createRepairTeam({ name: "车间一组", context: context("req-team-1") });
+    const second = await service.createRepairTeam({ name: "车间二组", context: context("req-team-2") });
+    const third = await service.createRepairTeam({ name: "钣金喷漆", context: context("req-team-3") });
+
+    const reordered = await service.reorderRepairTeams({
+      orderedTeamIds: [third.id, first.id, second.id],
+      context: context("req-team-reorder"),
+    });
+    expect(reordered.map((team) => team.id)).toEqual([third.id, first.id, second.id]);
+    expect((await service.listRepairTeams({ viewerAccountId: adminId, activeOnly: true }))
+      .map((team) => team.id)).toEqual([third.id, first.id, second.id]);
+
+    const fourth = await service.createRepairTeam({ name: "工程机械", context: context("req-team-4") });
+    expect((await service.listRepairTeams({ viewerAccountId: adminId, activeOnly: true }))
+      .map((team) => team.id)).toEqual([third.id, first.id, second.id, fourth.id]);
+    const audits = await database.query<{ before_state: { teamIds: number[] }; after_state: { teamIds: number[] } }>(
+      "select before_state, after_state from audit_events where request_id = 'req-team-reorder'",
+    );
+    expect(audits.rows).toEqual([{
+      before_state: { teamIds: [first.id, second.id, third.id] },
+      after_state: { teamIds: [third.id, first.id, second.id] },
+    }]);
+  });
+
+  it("rejects partial, duplicate and non-admin team reorder requests", async () => {
+    const first = await service.createRepairTeam({ name: "车间一组", context: context("req-team-1") });
+    const second = await service.createRepairTeam({ name: "车间二组", context: context("req-team-2") });
+    await expect(service.reorderRepairTeams({
+      orderedTeamIds: [first.id], context: context("req-partial"),
+    })).rejects.toMatchObject({ code: "repair_team_order_conflict", status: 409 });
+    await expect(service.reorderRepairTeams({
+      orderedTeamIds: [first.id, first.id], context: context("req-duplicate"),
+    })).rejects.toMatchObject({ code: "repair_team_order_conflict", status: 409 });
+    const frontDeskId = await seedAccount("前台", "front-reorder", "front_desk");
+    await expect(service.reorderRepairTeams({
+      orderedTeamIds: [second.id, first.id], context: context("req-front", frontDeskId),
+    })).rejects.toBeInstanceOf(MasterDataManagementDeniedError);
   });
 
   it("saves commission and exchange-rate changes as whole-month versions", async () => {

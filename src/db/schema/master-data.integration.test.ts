@@ -9,6 +9,7 @@ const migrationPaths = [
   resolve(process.cwd(), "drizzle/0002_master_data.sql"),
   resolve(process.cwd(), "drizzle/0003_master_data_facts_append_only.sql"),
   resolve(process.cwd(), "drizzle/0024_team_commission_rate_versions.sql"),
+  resolve(process.cwd(), "drizzle/0034_repair_team_sort_order.sql"),
 ];
 
 let database: PGlite;
@@ -57,6 +58,20 @@ describe("master data schema", () => {
 
   afterEach(async () => {
     await database.close();
+  });
+
+  it("persists a nonnegative repair-team order for newly inserted teams", async () => {
+    const adminId = await seedAdmin();
+    await seedTeam("TEAM-202608-0001", "车间一组", adminId);
+    await seedTeam("TEAM-202608-0002", "车间二组", adminId);
+    const rows = await database.query<{ id: number; sort_order: number }>(
+      "select id, sort_order from repair_teams order by sort_order, id",
+    );
+    expect(rows.rows.map((row) => row.sort_order)).toEqual([0, 0]);
+    await expect(database.query(
+      "update repair_teams set sort_order = -1 where id = $1",
+      [rows.rows[0].id],
+    )).rejects.toMatchObject({ code: "23514" });
   });
 
   it("creates the formal dictionary, team, employee and monthly version tables", async () => {

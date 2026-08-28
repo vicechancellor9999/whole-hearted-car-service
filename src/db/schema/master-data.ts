@@ -80,6 +80,7 @@ export const repairTeams = pgTable(
     name: text("name").notNull(),
     normalizedName: text("normalized_name").notNull(),
     isActive: boolean("is_active").notNull().default(true),
+    sortOrder: integer("sort_order").notNull().default(0),
     createdAt: timestamp("created_at", { withTimezone: true })
       .notNull()
       .defaultNow(),
@@ -94,7 +95,7 @@ export const repairTeams = pgTable(
   (table) => [
     uniqueIndex("repair_teams_team_no_uq").on(table.teamNo),
     uniqueIndex("repair_teams_normalized_name_uq").on(table.normalizedName),
-    index("repair_teams_active_idx").on(table.isActive, table.name),
+    index("repair_teams_active_idx").on(table.isActive, table.sortOrder, table.id),
     check(
       "repair_teams_team_no_format",
       sql`${table.teamNo} ~ '^TEAM-[0-9]{6}-[0-9]{4}$'`,
@@ -108,6 +109,7 @@ export const repairTeams = pgTable(
       sql`length(btrim(${table.normalizedName})) > 0`,
     ),
     check("repair_teams_version_positive", sql`${table.version} >= 1`),
+    check("repair_teams_sort_nonnegative", sql`${table.sortOrder} >= 0`),
   ],
 );
 

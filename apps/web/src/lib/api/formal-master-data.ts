@@ -77,6 +77,14 @@ export function createFormalRepairTeam(name: string): Promise<FormalRepairTeam> 
   });
 }
 
+export function reorderFormalRepairTeams(orderedTeamIds: number[]): Promise<FormalRepairTeam[]> {
+  return masterDataJson({
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ action: "reorder_teams", orderedTeamIds }),
+  });
+}
+
 export function createFormalDictionaryItem(input: {
   category: FormalDictionaryItem["category"];
   labelZh: string;

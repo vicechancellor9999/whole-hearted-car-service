@@ -149,6 +149,16 @@ export class TeamReplacementRequiredError extends Error {
   }
 }
 
+export class RepairTeamOrderConflictError extends Error {
+  readonly status = 409;
+  readonly code = "repair_team_order_conflict";
+
+  constructor() {
+    super("维修班组已经变化，请刷新后重新排序");
+    this.name = "RepairTeamOrderConflictError";
+  }
+}
+
 export class MasterDataService {
   constructor(private readonly database: AuthSqlDatabase) {}
 
@@ -178,7 +188,7 @@ export class MasterDataService {
       `select id, team_no, name, is_active, version
        from repair_teams
        where ($1::boolean is false or is_active = true)
-       order by name, id`,
+       order by sort_order, id`,
       [input.activeOnly ?? false],
     );
     return rows.map(mapTeam);
@@ -339,12 +349,16 @@ export class MasterDataService {
           "TEAM",
           toBusinessMonthKey(now),
         );
+        const orderRows = await transaction.query<{ next_sort_order: number }>(
+          `select coalesce(max(sort_order), -1)::integer + 1 as next_sort_order
+           from repair_teams where is_active = true`,
+        );
         const rows = await transaction.query<TeamRow>(
           `insert into repair_teams
-            (team_no, name, normalized_name, created_at, updated_at, created_by)
-           values ($1, $2, $3, $4, $4, $5)
+            (team_no, name, normalized_name, sort_order, created_at, updated_at, created_by)
+           values ($1, $2, $3, $4, $5, $5, $6)
            returning id, team_no, name, is_active, version`,
-          [teamNo, fields.name, normalizedName, now, input.context.actorAccountId],
+          [teamNo, fields.name, normalizedName, Number(orderRows[0]?.next_sort_order ?? 0), now, input.context.actorAccountId],
         );
         const team = mapTeam(rows[0]);
         await writeContextAudit(transaction, input.context, now, {
@@ -358,6 +372,53 @@ export class MasterDataService {
     } catch (error) {
       rethrowConflict(error);
     }
+  }
+
+  async reorderRepairTeams(input: {
+    orderedTeamIds: number[];
+    context: MasterDataActionContext;
+  }): Promise<ManagedRepairTeam[]> {
+    const orderedTeamIds = input.orderedTeamIds.map(Number);
+    const hasInvalidId = orderedTeamIds.some((id) => !Number.isSafeInteger(id) || id < 1);
+    const hasDuplicates = new Set(orderedTeamIds).size !== orderedTeamIds.length;
+    if (hasInvalidId || hasDuplicates) throw new RepairTeamOrderConflictError();
+    const now = input.context.now ?? new Date();
+    return this.database.transaction(async (transaction) => {
+      await requireSuperAdmin(transaction, input.context.actorAccountId);
+      await transaction.query("lock table repair_teams in share row exclusive mode");
+      const rows = await transaction.query<TeamRow & { sort_order: number }>(
+        `select id, team_no, name, is_active, version, sort_order
+         from repair_teams where is_active = true
+         order by sort_order, id`,
+      );
+      const currentIds = rows.map((row) => Number(row.id));
+      const currentSet = [...currentIds].sort((left, right) => left - right);
+      const requestedSet = [...orderedTeamIds].sort((left, right) => left - right);
+      if (JSON.stringify(currentSet) !== JSON.stringify(requestedSet)) {
+        throw new RepairTeamOrderConflictError();
+      }
+      for (const [sortOrder, teamId] of orderedTeamIds.entries()) {
+        await transaction.query(
+          `update repair_teams
+           set sort_order = $2, updated_at = $3, version = version + 1
+           where id = $1 and is_active = true`,
+          [teamId, sortOrder, now],
+        );
+      }
+      await writeContextAudit(transaction, input.context, now, {
+        eventType: "repair_team.reordered",
+        objectType: "repair_team_order",
+        objectId: "active",
+        before: { teamIds: currentIds },
+        after: { teamIds: orderedTeamIds },
+      });
+      const updated = await transaction.query<TeamRow>(
+        `select id, team_no, name, is_active, version
+         from repair_teams where is_active = true
+         order by sort_order, id`,
+      );
+      return updated.map(mapTeam);
+    });
   }
 
   async updateDictionaryItem(input: {
