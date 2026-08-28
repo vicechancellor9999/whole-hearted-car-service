@@ -40,6 +40,7 @@ import {
   partStatusTone,
   taskStatusLabel,
   taskStatusTone,
+  useCurrentSessionKey,
 } from "./detail-shared";
 import { VehicleFormDialog } from "./form-dialogs";
 import { VehicleReportPhotoArchive } from "./vehicle-report-photo-archive";
@@ -77,7 +78,7 @@ export function VehicleDetailPage({ vehicleId }: VehicleDetailPageProps) {
   // Subscribing here makes the session key re-evaluate on those route updates.
   const searchParams = useSearchParams();
   void searchParams;
-  const sessionKey = currentSessionKey();
+  const sessionKey = useCurrentSessionKey();
   const [vehicle, setVehicle] = useState<VehicleRecord | null>(null);
   const [workspace, setWorkspace] = useState<CustomerVehicleWorkspaceResponse | null>(null);
   const [businessOrders, setBusinessOrders] = useState<QuickOrder[]>([]);

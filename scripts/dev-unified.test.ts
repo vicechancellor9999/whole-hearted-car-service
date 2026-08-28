@@ -1,9 +1,20 @@
 import { describe, expect, it } from "vitest";
+import { readFileSync } from "node:fs";
+import { resolve } from "node:path";
 import { getUnifiedRuntimeConfig } from "./dev-unified";
 
 const candidateRoot = "/Volumes/公司文件/Whole Hearted Car Service 单体候选/3210-single-runtime";
 
 describe("unified Whole Hearted runtime config", () => {
+  it("builds the candidate with formal browser flags at compile time", () => {
+    const packageJson = JSON.parse(readFileSync(resolve(candidateRoot, "package.json"), "utf8")) as {
+      scripts?: Record<string, string>;
+    };
+    expect(packageJson.scripts?.build).toContain("NEXT_PUBLIC_USE_MOCK=false");
+    expect(packageJson.scripts?.build).toContain("NEXT_PUBLIC_FORMAL_AUTH=true");
+    expect(packageJson.scripts?.build).toContain("NEXT_PUBLIC_FORMAL_CUSTOMER_VEHICLE=true");
+  });
+
   it("resolves one Web app and isolated database entirely on the external volume", () => {
     const config = getUnifiedRuntimeConfig({
       DATABASE_URL: "postgres://wholehearted:database-secret@127.0.0.1:5432/wholehearted",

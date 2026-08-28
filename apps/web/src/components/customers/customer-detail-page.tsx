@@ -39,6 +39,7 @@ import {
   currentSessionKey,
   errorMessage,
   loadWorkspace,
+  useCurrentSessionKey,
 } from "./detail-shared";
 import { CustomerFormDialog } from "./form-dialogs";
 import { VerificationRiskSections } from "./verification-risk-sections";
@@ -53,7 +54,7 @@ interface CustomerDetailPageProps {
 }
 
 export function CustomerDetailPage({ customerId }: CustomerDetailPageProps) {
-  const sessionKey = currentSessionKey();
+  const sessionKey = useCurrentSessionKey();
   const [customer, setCustomer] = useState<CustomerRecord | null>(null);
   const [workspace, setWorkspace] = useState<CustomerVehicleWorkspaceResponse | null>(null);
   const [loading, setLoading] = useState(true);

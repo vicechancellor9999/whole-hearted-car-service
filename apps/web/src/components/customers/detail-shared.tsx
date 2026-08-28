@@ -1,6 +1,6 @@
 "use client";
 
-import type { ComponentType, ReactNode } from "react";
+import { useEffect, useState, type ComponentType, type ReactNode } from "react";
 import type { CustomerRecord, CustomerVehicleWorkspaceResponse } from "@/lib/customers/types";
 import { api, isFormalCustomerVehicleApiEnabled } from "@/lib/api/client";
 import {
@@ -25,6 +25,16 @@ export function currentSessionKey(): string {
   } catch {
     return "invalid";
   }
+}
+
+export function useCurrentSessionKey(): string {
+  const [key, setKey] = useState(() => currentSessionKey());
+  useEffect(() => {
+    const refresh = () => setKey(currentSessionKey());
+    window.addEventListener("wh:formal-session-changed", refresh);
+    return () => window.removeEventListener("wh:formal-session-changed", refresh);
+  }, []);
+  return key;
 }
 
 export function loadWorkspace(): Promise<CustomerVehicleWorkspaceResponse> {
