@@ -8,7 +8,7 @@ import type {
 import { writeAuditEvent } from "@formal/modules/audit/audit-service";
 import type { BusinessOrderActionContext } from "@formal/modules/business-order/business-order-service";
 
-type DocumentKind = "office_archive" | "mechanic_work";
+type DocumentKind = "customer_copy" | "office_archive" | "mechanic_work";
 
 type DocumentRow = {
   id: number;
@@ -139,6 +139,13 @@ export class BusinessOrderDocumentConflictError extends Error {
 export class BusinessOrderDocumentService {
   constructor(private readonly database: AuthSqlDatabase) {}
 
+  generateCustomerCopy(input: {
+    businessOrderId: number;
+    context: BusinessOrderActionContext;
+  }) {
+    return this.generate("customer_copy", input);
+  }
+
   generateOfficeArchive(input: {
     businessOrderId: number;
     context: BusinessOrderActionContext;
@@ -203,11 +210,18 @@ export class BusinessOrderDocumentService {
           loadNotes(transaction, source.charge_version_id),
           loadLedger(transaction, source.id),
         ]);
-        const snapshot = kind === "office_archive"
-          ? buildOfficeSnapshot(source, items, notes, ledgerRows)
-          : buildMechanicSnapshot(source, items, notes);
+        const snapshot = kind === "customer_copy"
+          ? buildCustomerSnapshot(source, items, notes, ledgerRows)
+          : kind === "office_archive"
+            ? buildOfficeSnapshot(source, items, notes, ledgerRows)
+            : buildMechanicSnapshot(source, items, notes);
         const date = toBusinessDateKey(now).replaceAll("-", "");
-        const prefix = `${kind === "office_archive" ? "OFF" : "MEC"}-${date}-`;
+        const prefixCode = kind === "customer_copy"
+          ? "CUS"
+          : kind === "office_archive"
+            ? "OFF"
+            : "MEC";
+        const prefix = `${prefixCode}-${date}-`;
         const documentNo = await nextDocumentNumber(transaction, prefix);
         const rows = await transaction.query<DocumentRow>(
           `insert into business_order_document_snapshots
@@ -259,13 +273,57 @@ export class BusinessOrderDocumentService {
   }
 }
 
+function buildCustomerSnapshot(
+  source: SourceRow,
+  items: ChargeItemRow[],
+  notes: NoteRow[],
+  ledgerRows: LedgerRow[],
+): BusinessOrderDocumentRenderSnapshot {
+  const transactions = buildTransactions(ledgerRows);
+  const totals = buildFinancialTotals(source, ledgerRows);
+  return {
+    version: 1,
+    kind: "customer_copy",
+    businessOrder: buildBusinessOrderSnapshot(source),
+    charges: buildCharges(
+      source,
+      items,
+      notes.filter((note) => note.kind !== "internal"),
+    ),
+    transactions,
+    totals,
+    approval: {
+      statementZh: "客户签字表示已阅读并认可本联所列施工、收费、金额、备注及提前告知内容。",
+      statementEn: "The customer's signature confirms review and acceptance of the work, charges, amounts, notes and advance notices shown on this copy.",
+    },
+  };
+}
+
 function buildOfficeSnapshot(
   source: SourceRow,
   items: ChargeItemRow[],
   notes: NoteRow[],
   ledgerRows: LedgerRow[],
 ): BusinessOrderDocumentRenderSnapshot {
-  const transactions = ledgerRows.map((row) => ({
+  const transactions = buildTransactions(ledgerRows);
+  const totals = buildFinancialTotals(source, ledgerRows);
+  return {
+    version: 1,
+    kind: "office_archive",
+    presentation: "office_english_primary_v1",
+    businessOrder: buildBusinessOrderSnapshot(source),
+    charges: buildCharges(source, items, notes),
+    transactions,
+    totals,
+    approval: {
+      statementZh: "客户签字表示已阅读并认可本联所列收费项目、金额、备注及提前告知内容。",
+      statementEn: "The customer's signature confirms review and acceptance of the charges, amounts, notes and advance notices shown on this copy.",
+    },
+  };
+}
+
+function buildTransactions(ledgerRows: LedgerRow[]) {
+  return ledgerRows.map((row) => ({
     type: row.type,
     referenceNo: row.reference_no,
     amountMinor: Number(row.amount_minor),
@@ -275,6 +333,9 @@ function buildOfficeSnapshot(
     occurredAt: new Date(row.occurred_at).toISOString(),
     note: row.note,
   }));
+}
+
+function buildFinancialTotals(source: SourceRow, ledgerRows: LedgerRow[]) {
   const totalPaidMinor = ledgerRows
     .filter((row) => row.type === "payment")
     .reduce((total, row) => total + Number(row.amount_minor), 0);
@@ -282,32 +343,24 @@ function buildOfficeSnapshot(
     .filter((row) => row.type === "refund")
     .reduce((total, row) => total + Number(row.amount_minor), 0);
   return {
-    version: 1,
-    kind: "office_archive",
-    presentation: "office_english_primary_v1",
-    businessOrder: {
-      id: Number(source.id),
-      orderNo: source.order_no,
-      plate: source.vehicle_plate_snapshot,
-      vehicleDescription: source.vehicle_description_snapshot,
-      vin: source.vehicle_vin_snapshot,
-      payerName: source.payer_display_name_snapshot,
-      payerPhone: source.payer_phone_snapshot,
-      payerTrn: source.payer_trn_snapshot,
-      payerContactName: source.payer_contact_name_snapshot,
-    },
-    charges: buildCharges(source, items, notes),
-    transactions,
-    totals: {
-      currentDueMinor: Number(source.total_due_minor),
-      totalPaidMinor,
-      totalRefundedMinor,
-      balanceMinor: Number(source.total_due_minor) - totalPaidMinor + totalRefundedMinor,
-    },
-    approval: {
-      statementZh: "客户签字表示已阅读并认可本联所列收费项目、金额、备注及提前告知内容。",
-      statementEn: "The customer's signature confirms review and acceptance of the charges, amounts, notes and advance notices shown on this copy.",
-    },
+    currentDueMinor: Number(source.total_due_minor),
+    totalPaidMinor,
+    totalRefundedMinor,
+    balanceMinor: Number(source.total_due_minor) - totalPaidMinor + totalRefundedMinor,
+  };
+}
+
+function buildBusinessOrderSnapshot(source: SourceRow) {
+  return {
+    id: Number(source.id),
+    orderNo: source.order_no,
+    plate: source.vehicle_plate_snapshot,
+    vehicleDescription: source.vehicle_description_snapshot,
+    vin: source.vehicle_vin_snapshot,
+    payerName: source.payer_display_name_snapshot,
+    payerPhone: source.payer_phone_snapshot,
+    payerTrn: source.payer_trn_snapshot,
+    payerContactName: source.payer_contact_name_snapshot,
   };
 }
 

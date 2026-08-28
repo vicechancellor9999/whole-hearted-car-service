@@ -48,9 +48,9 @@ export function BusinessOrderDocumentView({
 }: {
   document: BusinessOrderDocumentRecord;
 }) {
-  return document.snapshot.kind === "office_archive"
-    ? <OfficeArchiveCopy document={document} snapshot={document.snapshot} />
-    : <MechanicWorkCopy document={document} snapshot={document.snapshot} />;
+  return document.snapshot.kind === "mechanic_work"
+    ? <MechanicWorkCopy document={document} snapshot={document.snapshot} />
+    : <FinancialCopy document={document} snapshot={document.snapshot} />;
 }
 
 function DocumentToolbar({
@@ -96,20 +96,23 @@ function BrandHeader({
   );
 }
 
-function OfficeArchiveCopy({
+function FinancialCopy({
   document,
   snapshot,
 }: {
   document: BusinessOrderDocumentRecord;
-  snapshot: Extract<BusinessOrderDocumentRecord["snapshot"], { kind: "office_archive" }>;
+  snapshot: Extract<BusinessOrderDocumentRecord["snapshot"], {
+    kind: "customer_copy" | "office_archive";
+  }>;
 }) {
+  const isCustomerCopy = snapshot.kind === "customer_copy";
   return (
-    <main className="document-page office-archive-document">
+    <main className={`document-page ${isCustomerCopy ? "customer-copy-document" : "office-archive-document"}`}>
       <DocumentToolbar businessOrderId={document.businessOrderId} />
       <BrandHeader
         documentNo={document.documentNo}
         orderNo={snapshot.businessOrder.orderNo}
-        title="办公室留底联 / Office Archive Copy"
+        title={isCustomerCopy ? "客户联 / Customer Copy" : "办公室留底联 / Office Archive Copy"}
       />
       <section className="document-facts">
         <span>费用承担方 / Payer<strong>{snapshot.businessOrder.payerName}</strong></span>

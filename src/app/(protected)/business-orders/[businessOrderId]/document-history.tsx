@@ -4,6 +4,7 @@ import type { BusinessOrderDocumentRecord } from "@/modules/business-order/busin
 type FormAction = (formData: FormData) => void | Promise<void>;
 
 const kindLabels = {
+  customer_copy: "客户联",
   office_archive: "办公室留底联",
   mechanic_work: "维修工联",
 } as const;
@@ -23,11 +24,16 @@ export function DocumentHistory({
     <section aria-label="Business Order 打印文档" className="bo-panel bo-document-panel">
       <header className="bo-panel-heading">
         <div>
-          <h2>办公室留底联与维修工联</h2>
+          <h2>三联单据</h2>
           <p>每次生成都冻结当时内容；打开旧记录即为补打，不重算。</p>
         </div>
         {canGenerate ? (
           <div className="bo-document-actions">
+            <form action={action}>
+              <input name="operation" type="hidden" value="generate_customer_copy" />
+              <input name="businessOrderId" type="hidden" value={businessOrderId} />
+              <button type="submit">生成客户联</button>
+            </form>
             <form action={action}>
               <input name="operation" type="hidden" value="generate_office_archive" />
               <input name="businessOrderId" type="hidden" value={businessOrderId} />
@@ -42,7 +48,7 @@ export function DocumentHistory({
         ) : null}
       </header>
       {documents.length === 0 ? (
-        <p className="record-empty">尚未生成办公室留底联或维修工联。</p>
+        <p className="record-empty">尚未生成客户联、办公室留底联或维修工联。</p>
       ) : (
         <div className="bo-document-history">
           {documents.map((document) => (

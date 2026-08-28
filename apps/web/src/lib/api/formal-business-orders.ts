@@ -214,14 +214,29 @@ export type FormalBusinessOrderDocument = {
   id: number;
   documentNo: string;
   businessOrderId: number;
-  kind: "office_archive" | "mechanic_work";
+  kind: "customer_copy" | "office_archive" | "mechanic_work";
   chargeVersionId: number;
   chargeVersionNo: number;
   repairRoundId: number | null;
   repairRoundNo: number | null;
   generatedAt: string;
   generatedBy: number;
-  snapshot: FormalOfficeArchiveSnapshot | FormalMechanicWorkSnapshot;
+  snapshot: FormalCustomerCopySnapshot | FormalOfficeArchiveSnapshot | FormalMechanicWorkSnapshot;
+};
+
+export type FormalCustomerCopySnapshot = {
+  version: 1;
+  kind: "customer_copy";
+  businessOrder: FormalReceiptSnapshot["businessOrder"];
+  charges: FormalPrintableCharges;
+  transactions: FormalPrintableTransaction[];
+  totals: {
+    currentDueMinor: number;
+    totalPaidMinor: number;
+    totalRefundedMinor: number;
+    balanceMinor: number;
+  };
+  approval: { statementZh: string; statementEn: string };
 };
 
 export type FormalOfficeArchiveSnapshot = {
@@ -373,6 +388,7 @@ export function formalBusinessOrderStatusLabel(status: FormalBusinessOrderStatus
 }
 
 export function formalDocumentKindLabel(kind: FormalBusinessOrderDocument["kind"]): string {
+  if (kind === "customer_copy") return "客户联";
   return kind === "office_archive" ? "办公室签字留底联" : "维修工联";
 }
 

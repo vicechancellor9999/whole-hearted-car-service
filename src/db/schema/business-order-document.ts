@@ -39,6 +39,24 @@ type OfficeArchiveRenderSnapshot = {
   };
 };
 
+type CustomerCopyRenderSnapshot = {
+  version: 1;
+  kind: "customer_copy";
+  businessOrder: ReceiptRenderSnapshot["businessOrder"];
+  charges: ReceiptRenderSnapshot["charges"];
+  transactions: ReceiptRenderSnapshot["transactions"];
+  totals: {
+    currentDueMinor: number;
+    totalPaidMinor: number;
+    totalRefundedMinor: number;
+    balanceMinor: number;
+  };
+  approval: {
+    statementZh: string;
+    statementEn: string;
+  };
+};
+
 type MechanicWorkRenderSnapshot = {
   version: 1;
   kind: "mechanic_work";
@@ -70,12 +88,13 @@ type MechanicWorkRenderSnapshot = {
 };
 
 export type BusinessOrderDocumentRenderSnapshot =
+  | CustomerCopyRenderSnapshot
   | OfficeArchiveRenderSnapshot
   | MechanicWorkRenderSnapshot;
 
 export const businessOrderDocumentKind = pgEnum(
   "business_order_document_kind",
-  ["office_archive", "mechanic_work"],
+  ["customer_copy", "office_archive", "mechanic_work"],
 );
 
 export const businessOrderDocumentSnapshots = pgTable(
@@ -113,14 +132,16 @@ export const businessOrderDocumentSnapshots = pgTable(
     index("business_order_document_snapshots_round_idx").on(table.repairRoundId),
     check(
       "business_order_document_snapshots_no_kind",
-      sql`(${table.kind} = 'office_archive'
+      sql`(${table.kind} = 'customer_copy'
+            and ${table.documentNo} ~ '^CUS-[0-9]{8}-[0-9]{4}$')
+          or (${table.kind} = 'office_archive'
             and ${table.documentNo} ~ '^OFF-[0-9]{8}-[0-9]{4}$')
           or (${table.kind} = 'mechanic_work'
             and ${table.documentNo} ~ '^MEC-[0-9]{8}-[0-9]{4}$')`,
     ),
     check(
       "business_order_document_snapshots_source_shape",
-      sql`(${table.kind} = 'office_archive'
+      sql`(${table.kind} in ('customer_copy', 'office_archive')
             and ${table.repairRoundId} is null
             and ${table.repairRoundNo} is null)
           or (${table.kind} = 'mechanic_work'

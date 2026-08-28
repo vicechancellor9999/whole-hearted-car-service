@@ -13,6 +13,10 @@ type RouteContext = { params: Promise<{ businessOrderId: string }> };
 type DocumentApiDependencies = {
   readSession(): Promise<{ account: { id: number } } | null>;
   listDocuments(input: { businessOrderId: number; viewerAccountId: number }): Promise<unknown>;
+  generateCustomerCopy(input: {
+    businessOrderId: number;
+    context: BusinessOrderActionContext;
+  }): Promise<unknown>;
   generateOfficeArchive(input: {
     businessOrderId: number;
     context: BusinessOrderActionContext;
@@ -24,7 +28,7 @@ type DocumentApiDependencies = {
 };
 
 const generateSchema = z.object({
-  kind: z.enum(["office_archive", "mechanic_work"]),
+  kind: z.enum(["customer_copy", "office_archive", "mechanic_work"]),
 });
 
 export function createBusinessOrderDocumentsApiHandler(dependencies: DocumentApiDependencies) {
@@ -51,9 +55,11 @@ export function createBusinessOrderDocumentsApiHandler(dependencies: DocumentApi
         businessOrderId,
         context: apiActionContext(request, session.account.id),
       };
-      const document = input.kind === "office_archive"
-        ? await dependencies.generateOfficeArchive(actionInput)
-        : await dependencies.generateMechanicWorkCopy(actionInput);
+      const document = input.kind === "customer_copy"
+        ? await dependencies.generateCustomerCopy(actionInput)
+        : input.kind === "office_archive"
+          ? await dependencies.generateOfficeArchive(actionInput)
+          : await dependencies.generateMechanicWorkCopy(actionInput);
       return NextResponse.json(document, { status: 201 });
     } catch (error) {
       return businessApiError(error, "打印文档操作失败");
@@ -67,6 +73,7 @@ async function handle(request: Request, context: RouteContext) {
     return await createBusinessOrderDocumentsApiHandler({
       readSession: currentSession,
       listDocuments: (input) => runtime.documents.listForBusinessOrder(input),
+      generateCustomerCopy: (input) => runtime.documents.generateCustomerCopy(input),
       generateOfficeArchive: (input) => runtime.documents.generateOfficeArchive(input),
       generateMechanicWorkCopy: (input) => runtime.documents.generateMechanicWorkCopy(input),
     })(request, context);

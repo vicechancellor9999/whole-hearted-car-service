@@ -35,6 +35,7 @@ const migrationPaths = [
   "0018_business_order_number_format.sql",
   "0019_repair_assignment_withdrawal.sql",
   "0020_repair_assignment_withdrawal_projection.sql",
+  "0030_business_order_customer_copy.sql",
 ].map((name) => resolve(process.cwd(), "drizzle", name));
 
 let database: PGlite;
@@ -150,7 +151,10 @@ describe("BusinessOrderDocumentService", () => {
     database = new PGlite();
     await database.waitReady;
     for (const path of migrationPaths) {
-      await database.exec(await readFile(path, "utf8"));
+      const migration = await readFile(path, "utf8");
+      for (const statement of migration.split("--> statement-breakpoint")) {
+        if (statement.trim()) await database.exec(statement);
+      }
     }
     adminId = await seedAccount("超级管理员", "admin", "super_admin");
     frontDeskId = await seedAccount("前台", "front", "front_desk");
@@ -244,6 +248,41 @@ describe("BusinessOrderDocumentService", () => {
       totals: { totalPaidMinor: 300_000 },
     });
     expect(JSON.stringify(reprinted.snapshot)).not.toContain("后来的施工项目");
+  });
+
+  it("builds a customer copy with customer-visible charges and without internal notes", async () => {
+    const { order } = await createChargedOrder();
+    await payments.recordPayment({
+      businessOrderId: order.id,
+      amount: "3000",
+      paymentMethodItemId: cashMethodId,
+      note: "客户预付款",
+      context: context(frontDeskId, "pay-customer-copy", "2026-08-24T14:00:00Z"),
+    });
+
+    const generated = await documents.generateCustomerCopy({
+      businessOrderId: order.id,
+      context: context(frontDeskId, "customer-copy-1", "2026-08-24T14:05:00Z"),
+    });
+
+    expect(generated.documentNo).toBe("CUS-20260824-0001");
+    expect(generated.snapshot).toMatchObject({
+      kind: "customer_copy",
+      businessOrder: {
+        orderNo: order.orderNo,
+        payerName: "张伟",
+        plate: "7012 AB",
+      },
+      charges: {
+        versionNo: 2,
+        items: [{ nameZh: "发动机诊断" }, { nameZh: "机油滤芯" }],
+      },
+      totals: { totalPaidMinor: 300_000 },
+    });
+    const serialized = JSON.stringify(generated.snapshot);
+    expect(serialized).not.toContain("内部审批备注");
+    expect(serialized).not.toContain("Internal approval note");
+    expect(serialized).not.toContain("performance");
   });
 
   it("builds a Chinese mechanic copy without customer, money, payment or performance data", async () => {

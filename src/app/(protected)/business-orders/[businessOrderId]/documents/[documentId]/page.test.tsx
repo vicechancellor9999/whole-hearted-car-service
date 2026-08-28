@@ -125,7 +125,35 @@ const mechanicDocument: BusinessOrderDocumentRecord = {
   },
 };
 
+const officeSnapshot = officeDocument.snapshot as Extract<
+  BusinessOrderDocumentRecord["snapshot"],
+  { kind: "office_archive" }
+>;
+
+const customerDocument: BusinessOrderDocumentRecord = {
+  ...officeDocument,
+  id: 83,
+  documentNo: "CUS-20260824-0001",
+  kind: "customer_copy",
+  snapshot: {
+    ...officeSnapshot,
+    kind: "customer_copy",
+    charges: {
+      ...officeSnapshot.charges,
+      notes: officeSnapshot.charges.notes.filter((note) => note.kind !== "internal"),
+    },
+  },
+};
+
 describe("Business Order formal print documents", () => {
+  it("renders a bilingual customer copy without office-only notes", () => {
+    const { container } = render(<BusinessOrderDocumentView document={customerDocument} />);
+    expect(screen.getByRole("heading", { name: "客户联 / Customer Copy" })).toBeInTheDocument();
+    expect(screen.getByText("发动机诊断 / Engine diagnosis")).toBeInTheDocument();
+    expect(screen.getByText("客户签字 / Customer signature")).toBeInTheDocument();
+    expect(container.textContent).not.toContain("办公室内部备注");
+  });
+
   it("renders the bilingual office archive with charges, finance, notes and signature", () => {
     render(<BusinessOrderDocumentView document={officeDocument} />);
     expect(screen.getByRole("heading", {

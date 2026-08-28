@@ -18,6 +18,7 @@ test("formal Business Order exposes each Receipt and immutable print document", 
   expect(existsSync(resolve(process.cwd(), DOCUMENT_ROUTE))).toBe(true);
   expect(source(RECEIPT_ROUTE)).toMatch(/FormalReceiptPrintSheet/);
   expect(source(DOCUMENT_ROUTE)).toMatch(/FormalBusinessOrderDocumentPrintSheet/);
+  expect(source(DETAIL)).toMatch(/生成客户联/);
   expect(source(DETAIL)).toMatch(/生成办公室签字留底联/);
   expect(source(DETAIL)).toMatch(/生成维修工联/);
   expect(source(DETAIL)).toMatch(/Receipt：\{transaction\.referenceNo\}/);
@@ -26,6 +27,7 @@ test("formal Business Order exposes each Receipt and immutable print document", 
 
 test("print renderer preserves the three-copy business boundaries", () => {
   const print = source(PRINT);
+  expect(print).toMatch(/客户联 \/ Customer Copy/);
   expect(print).toMatch(/本次收款/);
   expect(print).toMatch(/收费项目/);
   expect(print).toMatch(/收付款历史/);

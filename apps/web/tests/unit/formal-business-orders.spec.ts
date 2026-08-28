@@ -36,6 +36,7 @@ test("只有未附退款凭证的非现金退款需要补传", () => {
 });
 
 test("正式打印件使用明确的业务名称", () => {
+  expect(formalDocumentKindLabel("customer_copy")).toBe("客户联");
   expect(formalDocumentKindLabel("office_archive")).toBe("办公室签字留底联");
   expect(formalDocumentKindLabel("mechanic_work")).toBe("维修工联");
 });

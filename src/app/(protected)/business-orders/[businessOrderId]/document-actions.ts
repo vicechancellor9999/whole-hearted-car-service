@@ -22,6 +22,7 @@ export async function businessOrderDocumentAction(formData: FormData): Promise<n
   const actor = requirePermission(session, "business_order.write");
   const businessOrderId = positiveId.parse(formData.get("businessOrderId"));
   const operation = z.enum([
+    "generate_customer_copy",
     "generate_office_archive",
     "generate_mechanic_work",
   ]).parse(formData.get("operation"));
@@ -36,9 +37,11 @@ export async function businessOrderDocumentAction(formData: FormData): Promise<n
   let documentId: number | null = null;
   let error: string | null = null;
   try {
-    const document = operation === "generate_office_archive"
-      ? await runtime.documents.generateOfficeArchive({ businessOrderId, context })
-      : await runtime.documents.generateMechanicWorkCopy({ businessOrderId, context });
+    const document = operation === "generate_customer_copy"
+      ? await runtime.documents.generateCustomerCopy({ businessOrderId, context })
+      : operation === "generate_office_archive"
+        ? await runtime.documents.generateOfficeArchive({ businessOrderId, context })
+        : await runtime.documents.generateMechanicWorkCopy({ businessOrderId, context });
     documentId = document.id;
   } catch (caught) {
     error = toPublicError(caught);

@@ -549,7 +549,7 @@ export function FormalBusinessOrderDetailView({ businessOrderId }: { businessOrd
     }
   };
 
-  const generatePrintDocument = async (kind: "office_archive" | "mechanic_work") => {
+  const generatePrintDocument = async (kind: "customer_copy" | "office_archive" | "mechanic_work") => {
     setBusy(true);
     setError(null);
     setNotice(null);
@@ -977,7 +977,7 @@ export function FormalBusinessOrderDetailView({ businessOrderId }: { businessOrd
         <section id="business-order-documents-workspace" role="tabpanel" hidden={activeWorkspace !== "documents"} className="rounded-2xl border border-line bg-white p-4 shadow-card dark:border-slate-700 dark:bg-slate-900/50 xl:col-span-2">
           <div className="flex flex-wrap items-start justify-between gap-3">
             <div><h2 className="text-sm font-bold">正式打印文件</h2><p className="mt-1 text-xs text-ink-soft">每次生成都会冻结当时的收费、备注、收付款或维修轮次；旧文件打开即为补打。</p></div>
-            {data.capabilities.canWrite ? <div className="flex flex-wrap gap-2"><button disabled={busy} type="button" onClick={() => generatePrintDocument("office_archive")} className="min-h-9 rounded-lg bg-primary px-3 text-xs font-bold text-white disabled:opacity-50">生成办公室签字留底联</button><button disabled={busy} type="button" onClick={() => generatePrintDocument("mechanic_work")} className="min-h-9 rounded-lg border border-primary px-3 text-xs font-bold text-primary disabled:opacity-50">生成维修工联</button></div> : null}
+            {data.capabilities.canWrite ? <div className="flex flex-wrap gap-2"><button disabled={busy} type="button" onClick={() => generatePrintDocument("customer_copy")} className="min-h-9 rounded-lg bg-primary px-3 text-xs font-bold text-white disabled:opacity-50">生成客户联</button><button disabled={busy} type="button" onClick={() => generatePrintDocument("office_archive")} className="min-h-9 rounded-lg border border-primary px-3 text-xs font-bold text-primary disabled:opacity-50">生成办公室签字留底联</button><button disabled={busy} type="button" onClick={() => generatePrintDocument("mechanic_work")} className="min-h-9 rounded-lg border border-primary px-3 text-xs font-bold text-primary disabled:opacity-50">生成维修工联</button></div> : null}
           </div>
           {data.documents.length === 0 ? <p className="mt-3 rounded-xl bg-surface px-3 py-3 text-xs text-ink-soft">尚未生成正式打印文件。</p> : <div className="mt-3 overflow-hidden rounded-xl border border-line">{data.documents.map((document) => <article key={document.id} className="grid items-center gap-2 border-b border-line px-3 py-2.5 text-xs last:border-0 sm:grid-cols-[1fr_.8fr_auto]"><span><strong className="block">{document.documentNo}</strong><small className="text-ink-soft">{formalDocumentKindLabel(document.kind)} · 收费版本 V{document.chargeVersionNo}{document.repairRoundNo ? ` · 第 ${document.repairRoundNo} 轮维修` : ""}</small></span><span className="text-ink-soft">{formatDateTime(document.generatedAt)}</span><Link href={`/orders/business/${businessOrderId}/documents/${document.id}/print`} className="font-bold text-primary">打开 / 补打</Link></article>)}</div>}
         </section>

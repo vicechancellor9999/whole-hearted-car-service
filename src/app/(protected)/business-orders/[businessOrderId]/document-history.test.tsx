@@ -58,7 +58,7 @@ const documents: BusinessOrderDocumentRecord[] = [{
 }];
 
 describe("DocumentHistory", () => {
-  it("generates both formal copies and opens existing snapshots for reprint", () => {
+  it("generates all three formal copies and opens existing snapshots for reprint", () => {
     render(
       <DocumentHistory
         action={action}
@@ -68,6 +68,7 @@ describe("DocumentHistory", () => {
       />,
     );
 
+    expect(screen.getByRole("button", { name: "生成客户联" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "生成办公室留底联" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "生成维修工联" })).toBeInTheDocument();
     expect(screen.getByText("OFF-20260824-0001")).toBeInTheDocument();
