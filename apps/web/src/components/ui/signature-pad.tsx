@@ -118,19 +118,19 @@ export function SignaturePad({ label, onChange, testId = "signature-pad" }: Sign
   return (
     <div>
       <div className="flex items-center justify-between">
-        <span className="text-xs font-semibold text-ink dark:text-slate-200">{label}</span>
+        <span className="text-xs font-semibold text-ink">{label}</span>
         <button
           type="button"
           data-testid={`${testId}-clear`}
           onClick={clear}
           disabled={!hasInk}
-          className="inline-flex items-center gap-1 rounded-md px-2 py-1 text-[11px] font-semibold text-ink-soft hover:bg-slate-100 disabled:opacity-40 dark:text-slate-400 dark:hover:bg-slate-700"
+          className="inline-flex items-center gap-1 rounded-md px-2 py-1 text-[11px] font-semibold text-ink-soft hover:bg-layer-2 disabled:opacity-40"
         >
           <Eraser size={12} />
           清除重签
         </button>
       </div>
-      <div className="relative mt-1 overflow-hidden rounded-lg border border-dashed border-line bg-white dark:border-slate-500">
+      <div className="relative mt-1 overflow-hidden rounded-lg border border-dashed border-line-strong bg-card">
         <canvas
           data-testid={testId}
           ref={canvasRef}
@@ -142,7 +142,7 @@ export function SignaturePad({ label, onChange, testId = "signature-pad" }: Sign
           aria-label={label}
         />
         {!hasInk ? (
-          <div className="pointer-events-none absolute inset-0 flex items-center justify-center gap-1.5 text-[11px] text-ink-faint dark:text-slate-400">
+          <div className="pointer-events-none absolute inset-0 flex items-center justify-center gap-1.5 text-[11px] text-ink-faint">
             <PenLine size={13} />
             在此处手写签名
           </div>

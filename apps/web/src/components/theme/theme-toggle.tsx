@@ -43,7 +43,7 @@ export function ThemeToggle() {
         ref={triggerRef}
         type="button"
         onClick={() => setOpen((value) => !value)}
-        className="flex h-9 w-9 items-center justify-center rounded-lg text-ink-soft transition-colors hover:bg-gray-50 dark:text-slate-300 dark:hover:bg-slate-700"
+        className="flex h-9 w-9 items-center justify-center rounded-lg text-ink-soft transition-colors hover:bg-layer-2"
         aria-label={`主题：${activeOption.label}`}
         aria-haspopup="menu"
         aria-expanded={open}
@@ -55,7 +55,7 @@ export function ThemeToggle() {
         <div
           role="menu"
           aria-label="主题模式"
-          className="absolute right-0 top-11 z-50 w-40 overflow-hidden rounded-xl border border-line bg-white p-1.5 shadow-xl dark:border-slate-700 dark:bg-slate-800"
+          className="absolute right-0 top-11 z-50 w-40 overflow-hidden rounded-xl border border-line bg-card p-1.5 shadow-xl"
         >
           {MODE_OPTIONS.map(({ mode: optionMode, label, Icon }) => {
             const selected = mode === optionMode;
@@ -70,11 +70,11 @@ export function ThemeToggle() {
                   setOpen(false);
                   triggerRef.current?.focus();
                 }}
-                className="flex min-h-10 w-full items-center gap-2 rounded-lg px-3 text-left text-xs font-semibold text-ink hover:bg-gray-50 dark:text-slate-100 dark:hover:bg-slate-700"
+                className="flex min-h-10 w-full items-center gap-2 rounded-lg px-3 text-left text-xs font-semibold text-ink hover:bg-layer-2"
               >
                 <Icon size={15} className="text-ink-soft" />
                 <span className="flex-1">{label}</span>
-                {selected ? <Check size={14} className="text-primary" /> : null}
+                {selected ? <Check size={14} className="text-accent" /> : null}
               </button>
             );
           })}

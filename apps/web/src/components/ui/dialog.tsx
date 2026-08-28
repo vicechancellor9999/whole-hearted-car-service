@@ -138,7 +138,7 @@ export function Dialog({
     <div
       data-testid={dataTestId ? `${dataTestId}-backdrop` : undefined}
       className={cn(
-        "fixed inset-0 z-[100] grid place-items-center bg-slate-950/45 backdrop-blur-[2px] transition-opacity motion-reduce:transition-none",
+        "fixed inset-0 z-[100] grid place-items-center bg-[var(--wh-overlay)] backdrop-blur-[2px] transition-opacity motion-reduce:transition-none",
         mobileFullscreen ? "p-0 sm:p-4" : "p-4",
       )}
       onMouseDown={(event) => {
@@ -154,15 +154,15 @@ export function Dialog({
         tabIndex={-1}
         onKeyDown={handleKeyDown}
         className={cn(
-          "relative max-h-[calc(100vh-2rem)] w-[min(920px,calc(100vw-2rem))] overflow-y-auto rounded-2xl border border-white/80 bg-white shadow-2xl outline-none dark:border-slate-700 dark:bg-slate-800",
+          "relative max-h-[calc(100vh-2rem)] w-[min(920px,calc(100vw-2rem))] overflow-y-auto rounded-2xl border border-line-strong bg-card shadow-2xl outline-none",
           mobileFullscreen
             ? "h-[100dvh] max-h-[100dvh] w-screen rounded-none border-0 sm:h-auto sm:max-h-[calc(100vh-2rem)] sm:w-[min(920px,calc(100vw-2rem))] sm:rounded-2xl sm:border"
             : null,
           className,
         )}
       >
-        <div className="sticky top-0 z-10 flex items-center justify-between gap-3 border-b border-line bg-white/95 px-4 py-3 backdrop-blur-xl dark:bg-slate-800/95 sm:px-5">
-          <h2 id={titleId} className="text-base font-bold text-ink dark:text-slate-100 sm:text-lg">
+        <div className="sticky top-0 z-10 flex items-center justify-between gap-3 border-b border-line bg-card px-4 py-3 sm:px-5">
+          <h2 id={titleId} className="text-base font-bold text-ink sm:text-lg">
             {title}
           </h2>
           <button
@@ -171,7 +171,7 @@ export function Dialog({
             data-testid={closeTestId}
             onClick={onClose}
             aria-label={closeLabel ?? `关闭${title}`}
-            className="grid h-9 w-9 shrink-0 place-items-center rounded-full border border-line bg-white text-ink-soft transition-colors hover:border-primary-200 hover:text-primary focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary dark:bg-slate-900 dark:text-slate-300"
+            className="grid h-9 w-9 shrink-0 place-items-center rounded-full border border-line bg-layer-2 text-ink-soft transition-colors hover:border-line-strong hover:text-accent focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent"
           >
             <X size={17} aria-hidden />
           </button>

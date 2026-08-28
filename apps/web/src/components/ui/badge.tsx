@@ -4,12 +4,12 @@ import type { ReactNode } from "react";
 type Variant = "default" | "success" | "warning" | "danger" | "info" | "neutral";
 
 const variantStyles: Record<Variant, string> = {
-  default: "bg-primary-50 text-primary",
-  success: "bg-emerald-50 text-success",
-  warning: "bg-amber-50 text-warning",
-  danger: "bg-rose-50 text-danger",
-  info: "bg-blue-50 text-blue-500",
-  neutral: "bg-gray-100 text-ink-soft",
+  default: "bg-state-info-subtle text-state-info-text",
+  success: "bg-state-success-subtle text-state-success-text",
+  warning: "bg-state-warning-subtle text-state-warning-text",
+  danger: "bg-state-danger-subtle text-state-danger-text",
+  info: "bg-state-info-subtle text-state-info-text",
+  neutral: "bg-layer-2 text-ink-soft",
 };
 
 interface BadgeProps {

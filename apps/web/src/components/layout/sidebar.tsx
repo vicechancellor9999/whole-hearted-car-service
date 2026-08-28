@@ -100,8 +100,8 @@ function TreeNode({ node, pathname, depth, collapsed, onNavigate }: {
     if (collapsed) {
       return (
         <button type="button" title={label} onClick={() => onNavigate?.()}
-          className={cn("flex w-10 items-center justify-center rounded-xl py-2.5 text-ink-soft hover:bg-gray-100 hover:text-ink dark:hover:bg-slate-700/60",
-            hasActiveChild(node, pathname) && "bg-primary-50 text-primary dark:bg-primary-500/10 dark:text-primary-300")}>
+          className={cn("flex w-10 items-center justify-center rounded-xl py-2.5 text-ink-soft hover:bg-layer-2 hover:text-ink",
+            hasActiveChild(node, pathname) && "bg-[var(--wh-background-selected)] text-accent")}>
           <Icon size={18} />
         </button>
       );
@@ -111,14 +111,14 @@ function TreeNode({ node, pathname, depth, collapsed, onNavigate }: {
         <button type="button" aria-expanded={open} onClick={() => setOpen((value) => !value)}
           className={cn("flex w-full items-center gap-3 rounded-xl px-3 py-2 text-sm transition-colors",
             hasActiveChild(node, pathname)
-              ? "bg-primary-50 font-medium text-primary dark:bg-primary-500/10 dark:text-primary-300"
-              : "text-ink-soft hover:bg-gray-100 hover:text-ink dark:hover:bg-slate-700/60")}>
+              ? "bg-[var(--wh-background-selected)] font-medium text-accent"
+              : "text-ink-soft hover:bg-layer-2 hover:text-ink")}>
           <Icon size={18} className="shrink-0" />
           <span className="flex-1 truncate text-left">{label}</span>
           <ChevronRight size={14} className={cn("shrink-0 text-ink-faint transition-transform", open && "rotate-90")} />
         </button>
         {open ? (
-          <div className={cn("mt-0.5 space-y-0.5", depth === 0 && "ml-3 border-l border-line pl-2 dark:border-slate-700")}>
+          <div className={cn("mt-0.5 space-y-0.5", depth === 0 && "ml-3 border-l border-line pl-2")}>
             {node.children.map((child) => (
               <TreeNode key={child.label + (child.href ?? "")} node={child} pathname={pathname} depth={depth + 1} collapsed={collapsed} onNavigate={onNavigate} />
             ))}
@@ -132,8 +132,8 @@ function TreeNode({ node, pathname, depth, collapsed, onNavigate }: {
   if (collapsed) {
     return (
       <Link href={node.href} title={label} aria-label={label} onClick={onNavigate}
-        className={cn("flex w-10 items-center justify-center rounded-xl py-2.5 text-ink-soft hover:bg-gray-100 hover:text-ink dark:hover:bg-slate-700/60",
-          isActive(node.href, pathname) && "bg-primary-50 text-primary dark:bg-primary-500/10 dark:text-primary-300")}>
+        className={cn("flex w-10 items-center justify-center rounded-xl py-2.5 text-ink-soft hover:bg-layer-2 hover:text-ink",
+          isActive(node.href, pathname) && "bg-[var(--wh-background-selected)] text-accent")}>
         <Icon size={18} />
       </Link>
     );
@@ -142,8 +142,8 @@ function TreeNode({ node, pathname, depth, collapsed, onNavigate }: {
     <Link href={node.href} aria-current={isActive(node.href, pathname) ? "page" : undefined} onClick={onNavigate}
       className={cn("flex items-center gap-3 rounded-xl px-3 py-2 text-sm transition-colors",
         isActive(node.href, pathname)
-          ? "bg-primary-50 font-medium text-primary dark:bg-primary-500/10 dark:text-primary-300"
-          : "text-ink-soft hover:bg-gray-100 hover:text-ink dark:hover:bg-slate-700/60")}>
+          ? "bg-[var(--wh-background-selected)] font-medium text-accent"
+          : "text-ink-soft hover:bg-layer-2 hover:text-ink")}>
       <Icon size={18} className="shrink-0" />
       <span className="truncate">{label}</span>
       {node.badge && node.badge > 0 ? <span aria-label={`${node.badge} 条未读提及`} className="ml-auto rounded-full bg-rose-600 px-2 py-0.5 text-[10px] font-bold text-white">{node.badge > 99 ? "99+" : node.badge}</span> : null}
@@ -216,9 +216,9 @@ export function Sidebar({ variant = "desktop" }: { variant?: "desktop" | "drawer
       data-testid="sidebar"
       className={cn(
         isDrawer
-          ? "flex h-full w-[260px] flex-col overflow-x-hidden bg-white dark:bg-slate-800"
+          ? "flex h-full w-[260px] flex-col overflow-x-hidden bg-shell"
           : "hidden lg:flex",
-        "flex-col overflow-hidden rounded-3xl border border-white/60 bg-white/70 shadow-card-hover backdrop-blur-xl dark:border-slate-700/60 dark:bg-slate-800/70",
+        "flex-col overflow-hidden rounded-3xl border border-line bg-shell shadow-card-hover",
         !isDrawer && "my-3 ml-3 h-[calc(100vh-24px)] transition-all duration-200",
         !isDrawer && (effectiveCollapsed ? "w-[64px]" : "w-[220px]"),
       )}
@@ -232,7 +232,7 @@ export function Sidebar({ variant = "desktop" }: { variant?: "desktop" | "drawer
         )}
         {!isDrawer && !effectiveCollapsed && (
           <button type="button" data-testid="sidebar-collapse" onClick={toggleCollapsed} aria-label="折叠侧边栏"
-            className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-lg text-ink-faint hover:bg-gray-100 hover:text-ink dark:hover:bg-slate-700">
+            className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-lg text-ink-faint hover:bg-layer-2 hover:text-ink">
             <PanelLeftClose size={16} />
           </button>
         )}
@@ -244,10 +244,10 @@ export function Sidebar({ variant = "desktop" }: { variant?: "desktop" | "drawer
         ))}
       </nav>
 
-      <div data-testid="identity-footer" className="border-t border-line p-3 dark:border-slate-700">
+      <div data-testid="identity-footer" className="border-t border-line p-3">
         {!isDrawer && effectiveCollapsed && (
           <button type="button" data-testid="sidebar-collapse" onClick={toggleCollapsed} aria-label="展开侧边栏"
-            className="mx-auto mb-2 flex h-8 w-8 items-center justify-center rounded-lg text-ink-faint hover:bg-gray-100 hover:text-ink dark:hover:bg-slate-700">
+            className="mx-auto mb-2 flex h-8 w-8 items-center justify-center rounded-lg text-ink-faint hover:bg-layer-2 hover:text-ink">
             <PanelLeftOpen size={16} />
           </button>
         )}
@@ -255,7 +255,7 @@ export function Sidebar({ variant = "desktop" }: { variant?: "desktop" | "drawer
         {!effectiveCollapsed && (
           <div className="mt-2 flex items-center gap-2 rounded-lg bg-surface px-3 py-1.5">
             <div className="h-1.5 w-1.5 rounded-full bg-success" />
-            <span className="text-[10px] text-ink-faint dark:text-slate-400">正式登录 · 业务数据接入中</span>
+            <span className="text-[10px] text-ink-faint">正式登录 · 业务数据接入中</span>
           </div>
         )}
       </div>

@@ -195,7 +195,7 @@ export function IdentitySwitcher({ variant = "full" }: IdentitySwitcherProps) {
           <div className="truncate text-[10px] leading-tight text-ink-soft">{current.roleLabel}</div>
         </div>
         <form action="/api/formal/auth/logout" method="post">
-          <button className="rounded-md px-1.5 py-1 text-[10px] font-semibold text-ink-faint hover:bg-gray-100 hover:text-ink" type="submit">退出</button>
+          <button className="rounded-md px-1.5 py-1 text-[10px] font-semibold text-ink-faint hover:bg-layer-2 hover:text-ink" type="submit">退出</button>
         </form>
       </div>
     );
@@ -207,7 +207,7 @@ export function IdentitySwitcher({ variant = "full" }: IdentitySwitcherProps) {
       <button
         onClick={() => setOpen(!open)}
         className={cn(
-          "flex w-full items-center gap-2.5 rounded-lg transition-colors hover:bg-gray-50",
+          "flex w-full items-center gap-2.5 rounded-lg transition-colors hover:bg-layer-2",
           isCompact ? "px-2 py-2" : "px-2 py-1.5"
         )}
       >
@@ -232,11 +232,11 @@ export function IdentitySwitcher({ variant = "full" }: IdentitySwitcherProps) {
       {open && (
         <div
           className={cn(
-            "absolute z-50 w-72 rounded-xl border border-gray-100 bg-white shadow-lg",
+            "absolute z-50 w-72 rounded-xl border border-line bg-card shadow-lg",
             isCompact ? "bottom-full left-0 mb-2" : "right-0 top-12"
           )}
         >
-          <div className="border-b border-gray-100 px-4 py-2.5 text-xs font-semibold uppercase tracking-wide text-ink-faint">
+          <div className="border-b border-line px-4 py-2.5 text-xs font-semibold uppercase tracking-wide text-ink-faint">
             切换身份（预览模式）
           </div>
           <div className="max-h-80 overflow-y-auto py-1">
@@ -245,8 +245,8 @@ export function IdentitySwitcher({ variant = "full" }: IdentitySwitcherProps) {
                 key={id.id}
                 onClick={() => handleSwitch(id.id)}
                 className={cn(
-                  "flex w-full items-center gap-3 px-4 py-2.5 text-left transition-colors hover:bg-gray-50",
-                  current.id === id.id && "bg-primary-50"
+                  "flex w-full items-center gap-3 px-4 py-2.5 text-left transition-colors hover:bg-layer-2",
+                  current.id === id.id && "bg-[var(--wh-background-selected)]"
                 )}
               >
                 <div

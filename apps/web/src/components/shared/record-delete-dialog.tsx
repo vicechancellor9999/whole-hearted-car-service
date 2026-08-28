@@ -178,7 +178,7 @@ export function RecordDeleteButton({
         ref={triggerRef}
         type="button"
         onClick={openPreview}
-        className={className ?? "inline-flex min-h-10 items-center gap-2 rounded-xl border border-rose-200 bg-white px-4 text-sm font-semibold text-rose-600 transition hover:bg-rose-50 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-rose-500 dark:border-rose-900/70 dark:bg-slate-900 dark:text-rose-300 dark:hover:bg-rose-950/40"}
+        className={className ?? "inline-flex min-h-10 items-center gap-2 rounded-xl border border-state-danger-border bg-card px-4 text-sm font-semibold text-state-danger-text transition hover:bg-state-danger-subtle focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-state-danger-border"}
       >
         <Trash2 size={16} aria-hidden />
         <span>删除</span>
@@ -193,7 +193,7 @@ export function RecordDeleteButton({
         className="w-[min(680px,calc(100vw-2rem))]"
       >
         <div className="space-y-5 p-4 sm:p-6">
-          <div className="flex gap-3 rounded-xl border border-amber-200 bg-amber-50 p-4 text-amber-950 dark:border-amber-900/70 dark:bg-amber-950/30 dark:text-amber-100">
+          <div className="flex gap-3 rounded-xl border border-state-warning-border bg-state-warning-subtle p-4 text-state-warning-text">
             <AlertTriangle className="mt-0.5 shrink-0" size={18} aria-hidden />
             <div>
               <p className="text-sm font-bold">删除后无法恢复</p>
@@ -209,23 +209,23 @@ export function RecordDeleteButton({
           ) : null}
 
           {errorMessage ? (
-            <p role="alert" className="rounded-xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm font-semibold text-rose-700 dark:border-rose-900/70 dark:bg-rose-950/30 dark:text-rose-200">
+            <p role="alert" className="rounded-xl border border-state-danger-border bg-state-danger-subtle px-4 py-3 text-sm font-semibold text-state-danger-text">
               {errorMessage}
             </p>
           ) : null}
 
           {preview ? (
             <>
-              <section aria-label="删除范围" className="rounded-xl border border-line p-4 dark:border-slate-700">
-                <h3 className="text-sm font-bold text-ink dark:text-slate-100">本次删除范围</h3>
-                <p className="mt-2 rounded-lg bg-slate-50 px-3 py-2 font-mono text-sm font-semibold text-ink dark:bg-slate-900 dark:text-slate-100">
+              <section aria-label="删除范围" className="rounded-xl border border-line p-4">
+                <h3 className="text-sm font-bold text-ink">本次删除范围</h3>
+                <p className="mt-2 rounded-lg bg-layer-2 px-3 py-2 font-mono text-sm font-semibold text-ink">
                   {record.recordNo}
                 </p>
                 {preview.selectableLinkedRecords.length > 0 ? (
                   <div className="mt-3 space-y-2">
-                    <p className="text-xs text-ink-soft dark:text-slate-400">关联主记录需要逐项勾选，然后重新检查。</p>
+                    <p className="text-xs text-ink-soft">关联主记录需要逐项勾选，然后重新检查。</p>
                     {preview.selectableLinkedRecords.map((linked) => (
-                      <label key={recordKey(linked)} className="flex min-h-11 cursor-pointer items-center gap-3 rounded-lg border border-line px-3 py-2 text-sm dark:border-slate-700">
+                      <label key={recordKey(linked)} className="flex min-h-11 cursor-pointer items-center gap-3 rounded-lg border border-line px-3 py-2 text-sm">
                         <input
                           type="checkbox"
                           checked={selectedRecords.some((item) => recordKey(item) === recordKey(linked))}
@@ -263,9 +263,9 @@ export function RecordDeleteButton({
                   onConfirm={() => void confirm()}
                 />
               ) : (
-                <section className="rounded-xl border border-rose-200 bg-rose-50 p-4 dark:border-rose-900/70 dark:bg-rose-950/25">
-                  <h3 className="text-sm font-bold text-rose-700 dark:text-rose-200">当前记录无法删除</h3>
-                  <ul className="mt-2 space-y-2 text-sm text-rose-700 dark:text-rose-200">
+                <section className="rounded-xl border border-state-danger-border bg-state-danger-subtle p-4">
+                  <h3 className="text-sm font-bold text-state-danger-text">当前记录无法删除</h3>
+                  <ul className="mt-2 space-y-2 text-sm text-state-danger-text">
                     {preview.blockers.map((blocker) => (
                       <li key={`${blocker.code}:${blocker.linkedRecord?.recordNo ?? "root"}`}>
                         {blocker.label}{blocker.linkedRecord ? ` · ${blocker.linkedRecord.recordNo}` : ""}
@@ -314,11 +314,11 @@ function DeletionConfirmation({
   return (
     <section className="space-y-4">
       {dependentEntries.length > 0 ? (
-        <div className="rounded-xl bg-slate-50 p-4 dark:bg-slate-900/70">
-          <h3 className="text-xs font-bold uppercase tracking-wide text-ink-soft dark:text-slate-400">随主记录删除</h3>
+        <div className="rounded-xl bg-layer-2 p-4">
+          <h3 className="text-xs font-bold uppercase tracking-wide text-ink-soft">随主记录删除</h3>
           <div className="mt-2 flex flex-wrap gap-2">
             {dependentEntries.map(([name, count]) => (
-              <span key={name} className="rounded-full border border-line bg-white px-3 py-1 text-xs font-semibold dark:border-slate-700 dark:bg-slate-800">
+              <span key={name} className="rounded-full border border-line bg-card px-3 py-1 text-xs font-semibold">
                 {dependentLabels[name] ?? name} {count}
               </span>
             ))}
@@ -326,33 +326,33 @@ function DeletionConfirmation({
         </div>
       ) : null}
       {preview.releasedIdentityKinds.length > 0 ? (
-        <p className="text-xs text-ink-soft dark:text-slate-400">
+        <p className="text-xs text-ink-soft">
           删除后将释放：{preview.releasedIdentityKinds.map((kind) => identityLabels[kind]).join("、")}
         </p>
       ) : null}
-      <label className="block text-sm font-semibold text-ink dark:text-slate-100">
+      <label className="block text-sm font-semibold text-ink">
         删除原因
         <select
           value={reasonCode}
           onChange={(event) => onReasonCode(event.target.value as DeletionReasonCode | "")}
-          className="mt-2 min-h-11 w-full rounded-xl border border-line bg-white px-3 dark:border-slate-700 dark:bg-slate-900"
+          className="mt-2 min-h-11 w-full rounded-xl border border-line bg-layer-2 px-3 text-ink"
         >
           <option value="">请选择</option>
           {reasonOptions.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}
         </select>
       </label>
       {reasonCode === "other" ? (
-        <label className="block text-sm font-semibold text-ink dark:text-slate-100">
+        <label className="block text-sm font-semibold text-ink">
           原因说明
           <textarea
             value={reasonNote}
             maxLength={1000}
             onChange={(event) => onReasonNote(event.target.value)}
-            className="mt-2 min-h-24 w-full rounded-xl border border-line bg-white p-3 dark:border-slate-700 dark:bg-slate-900"
+            className="mt-2 min-h-24 w-full rounded-xl border border-line bg-layer-2 p-3 text-ink"
           />
         </label>
       ) : null}
-      <label className="block text-sm font-semibold text-ink dark:text-slate-100">
+      <label className="block text-sm font-semibold text-ink">
         输入记录编号确认
         <span className="ml-2 font-mono text-xs text-ink-soft">{recordNo}</span>
         <input
@@ -360,11 +360,11 @@ function DeletionConfirmation({
           onChange={(event) => onConfirmationRecordNo(event.target.value)}
           autoComplete="off"
           spellCheck={false}
-          className="mt-2 min-h-11 w-full rounded-xl border border-line bg-white px-3 font-mono dark:border-slate-700 dark:bg-slate-900"
+          className="mt-2 min-h-11 w-full rounded-xl border border-line bg-layer-2 px-3 font-mono text-ink"
         />
       </label>
-      <div className="flex flex-col-reverse gap-2 border-t border-line pt-4 sm:flex-row sm:justify-end dark:border-slate-700">
-        <button type="button" disabled={busy} onClick={onCancel} className="min-h-11 rounded-xl border border-line px-5 text-sm font-semibold disabled:opacity-50 dark:border-slate-700">取消</button>
+      <div className="flex flex-col-reverse gap-2 border-t border-line pt-4 sm:flex-row sm:justify-end">
+        <button type="button" disabled={busy} onClick={onCancel} className="min-h-11 rounded-xl border border-line px-5 text-sm font-semibold disabled:opacity-50">取消</button>
         <button type="button" disabled={!canConfirm} onClick={onConfirm} className="min-h-11 rounded-xl bg-rose-600 px-5 text-sm font-bold text-white hover:bg-rose-700 disabled:cursor-not-allowed disabled:opacity-40">
           {busy ? "正在删除…" : "确认删除"}
         </button>

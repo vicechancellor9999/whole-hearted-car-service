@@ -143,6 +143,39 @@ test("comfort dark mode exposes the approved progressively lighter layers", asyn
   });
 });
 
+for (const theme of ["light", "dark"] as const) {
+  test(`shared application chrome uses semantic layers in ${theme} mode`, async ({ page }) => {
+    await usePerformanceIdentity(page, "superadmin");
+    await page.addInitScript((selectedTheme) => {
+      localStorage.setItem("wh_theme_mode", selectedTheme);
+    }, theme);
+    await page.goto("/employees");
+
+    const expected = theme === "light"
+      ? {
+        canvas: "rgb(233, 238, 243)",
+        sidebar: "rgb(224, 231, 238)",
+        header: "rgb(248, 250, 252)",
+      }
+      : {
+        canvas: "rgb(39, 44, 51)",
+        sidebar: "rgb(35, 40, 47)",
+        header: "rgb(50, 56, 65)",
+      };
+
+    await expect(page.getByTestId("app-shell")).toBeVisible();
+    await expect(page.getByTestId("page-header")).toBeVisible();
+    expect(await page.evaluate(() => {
+      const color = (selector: string) => getComputedStyle(document.querySelector(selector)!).backgroundColor;
+      return {
+        canvas: color('[data-testid="app-shell"]'),
+        sidebar: color('[data-testid="sidebar"]'),
+        header: color('[data-testid="page-header"]'),
+      };
+    })).toEqual(expected);
+  });
+}
+
 test("formal print sheets remain white paper with dark ink inside dark theme", async ({ page }) => {
   await usePerformanceIdentity(page, "superadmin");
   await page.addInitScript(() => {

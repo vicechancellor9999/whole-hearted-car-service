@@ -28,7 +28,7 @@ export function Logo({ className, collapsed }: LogoProps) {
           >
             {companyName}
           </span>
-          <span className="text-[9px] text-ink-faint dark:text-slate-400">
+          <span className="text-[9px] text-ink-faint">
             综合管理系统
           </span>
         </div>

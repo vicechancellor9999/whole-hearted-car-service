@@ -15,8 +15,8 @@ export function LiveClock() {
   if (!now) {
     return (
       <div data-testid="live-clock">
-        <div className="text-xl font-bold text-ink dark:text-slate-100">—</div>
-        <div className="text-xs text-ink-soft dark:text-slate-400">—</div>
+        <div className="text-xl font-bold text-ink">—</div>
+        <div className="text-xs text-ink-soft">—</div>
       </div>
     );
   }
@@ -31,10 +31,10 @@ export function LiveClock() {
 
   return (
     <div data-testid="live-clock">
-      <div className="text-xl font-bold text-ink tabular-nums dark:text-slate-100">
+      <div className="text-xl font-bold text-ink tabular-nums">
         {year}年{month}月{day}日
       </div>
-      <div className="text-xs text-ink-soft tabular-nums dark:text-slate-400">
+      <div className="text-xs text-ink-soft tabular-nums">
         {weekdays[now.getDay()]} {hours}:{minutes}:{seconds}
       </div>
     </div>

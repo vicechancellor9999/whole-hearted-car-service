@@ -16,15 +16,15 @@ export function PagePlaceholder({ title, titleEn, description, breadcrumb }: Pla
         <PageHeader breadcrumb={breadcrumb} title={title} description={description} />
         <Card>
           <CardBody className="flex flex-col items-center justify-center py-20">
-            <div className="flex h-16 w-16 items-center justify-center rounded-2xl bg-primary-50 dark:bg-slate-700">
-              <Construction size={32} className="text-primary dark:text-primary-400" />
+            <div className="flex h-16 w-16 items-center justify-center rounded-2xl bg-state-info-subtle">
+              <Construction size={32} className="text-state-info-text" />
             </div>
-            <h2 className="mt-4 text-lg font-semibold text-ink dark:text-slate-100">页面开发中</h2>
-            <p className="mt-2 max-w-md text-center text-sm text-ink-soft dark:text-slate-400">
+            <h2 className="mt-4 text-lg font-semibold text-ink">页面开发中</h2>
+            <p className="mt-2 max-w-md text-center text-sm text-ink-soft">
               {description}
             </p>
-            <p className="mt-1 text-xs text-ink-faint dark:text-slate-400">{titleEn}</p>
-            <p className="mt-4 text-xs text-ink-faint dark:text-slate-500">
+            <p className="mt-1 text-xs text-ink-faint">{titleEn}</p>
+            <p className="mt-4 text-xs text-ink-faint">
               下一阶段将逐页实现此模块
             </p>
           </CardBody>

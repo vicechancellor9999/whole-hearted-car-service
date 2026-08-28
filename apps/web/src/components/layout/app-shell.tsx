@@ -23,11 +23,15 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   if (pathname?.startsWith("/login") || pathname?.startsWith("/pc-not-available")) return children;
 
   return (
-    <div className="flex h-screen overflow-hidden" data-shell-path={pathname}>
+    <div
+      className="flex h-screen overflow-hidden bg-page text-ink"
+      data-shell-path={pathname}
+      data-testid="app-shell"
+    >
       <Sidebar />
       <div className="flex flex-1 flex-col overflow-hidden">
         <MobileTopBar onOpenNav={openNav} />
-        <main className="flex-1 overflow-y-auto">{children}</main>
+        <main className="flex-1 overflow-y-auto bg-page">{children}</main>
       </div>
       {navOpen ? <MobileNavDrawer onClose={closeNav} /> : null}
     </div>
