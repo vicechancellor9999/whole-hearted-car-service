@@ -159,4 +159,6 @@ pnpm start:candidate
 6. `398f96f feat: balance legacy product surfaces`
 7. `3b60282 test: align business order theme expectations`
 
-交付验证：Web 全量单元测试 `1011/1011` 通过；主题与打印 E2E `12/12` 通过；主题与 Business Order 联合 E2E `18/18` 通过；Web 类型检查和生产构建通过；修改范围 lint 为 0 错误。生产构建已在 3220 重启，Next.js 监听进程工作目录为候选仓库 `apps/web`，PostgreSQL 继续监听 55433 并使用候选 `.runtime/postgresql`，`/login` 返回 HTTP 200。亮暗登录页截图位于 `apps/web/docs/screenshots/theme-20260828/`。
+交付验证：Web 全量单元测试 `1011/1011` 通过；主题与打印 E2E `12/12` 通过；主题与 Business Order 联合 E2E `18/18` 通过；Web 类型检查和生产构建通过；修改范围 lint 为 0 错误。生产构建已在 3220 重启，Next.js 监听进程工作目录为候选仓库 `apps/web`，PostgreSQL 继续监听 55433 并使用候选 `.runtime/postgresql`，`/login` 返回 HTTP 200。
+
+用户复核后确认首版暗色仍缺少可见层级。根因不是主题开关，而是两项调色实现错误：暗色画布与主卡片明度过近；遗留 `dark:bg-slate-*` 工具类在 CSS 级联中仍可能保留原始深蓝黑色，并且 `slate-900` 曾被错误映射为侧栏色。修正后的暗色层级为 `#2B3037 → #3A424C → #46515D → #556271`，侧栏独立使用 `#24292F`；遗留工具类只在应用壳内强制映射到对应语义层，正式打印件不受影响。新增回归测试直接读取实际计算色，阻止内容卡片再次沉入侧栏或原始 `slate` 黑色。修正后主题与打印 E2E `13/13`、主题与 Business Order 联合 E2E `19/19`、Web 类型检查、修改测试 lint 和生产构建通过；3220 已切换到修正后的生产构建。

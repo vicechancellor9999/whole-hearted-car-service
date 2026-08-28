@@ -259,13 +259,13 @@ test("业务单详情在舒适暗色下使用渐进式应用层级", async ({ pa
     };
   });
 
-  expect(surfaces.page.backgroundColor).toBe("rgb(39, 44, 51)");
+  expect(surfaces.page.backgroundColor).toBe("rgb(43, 48, 55)");
   expect(surfaces.page.colorScheme).toBe("dark");
-  expect(surfaces.title.color).toBe("rgb(238, 242, 246)");
-  expect(surfaces.tabs.backgroundColor).toBe("rgb(50, 56, 65)");
-  expect(surfaces.operations.backgroundColor).toBe("rgb(50, 56, 65)");
-  expect(surfaces.repair.backgroundColor).toBe("rgb(50, 56, 65)");
-  expect(surfaces.finance.backgroundColor).toBe("rgb(50, 56, 65)");
+  expect(surfaces.title.color).toBe("rgb(245, 247, 250)");
+  expect(surfaces.tabs.backgroundColor).toBe("rgb(58, 66, 76)");
+  expect(surfaces.operations.backgroundColor).toBe("rgb(58, 66, 76)");
+  expect(surfaces.repair.backgroundColor).toBe("rgb(58, 66, 76)");
+  expect(surfaces.finance.backgroundColor).toBe("rgb(58, 66, 76)");
 });
 
 test("取消交单失败后保留已输入原因和打开的表单", async ({ page }) => {

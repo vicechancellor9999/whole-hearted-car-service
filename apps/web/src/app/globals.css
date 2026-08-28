@@ -68,12 +68,12 @@ textarea {
   background-color: var(--wh-layer-2);
 }
 
-.dark .dark\:bg-slate-950 { background-color: var(--wh-background); }
-.dark .dark\:bg-slate-900 { background-color: var(--wh-shell); }
-.dark .dark\:bg-slate-800 { background-color: var(--wh-layer-1); }
-.dark .dark\:bg-slate-700,
-.dark .dark\:bg-slate-600 { background-color: var(--wh-layer-2); }
-.dark :is(
+.dark [data-testid="app-shell"] .dark\:bg-slate-950 { background-color: var(--wh-background) !important; }
+.dark [data-testid="app-shell"] .dark\:bg-slate-900 { background-color: var(--wh-layer-1) !important; }
+.dark [data-testid="app-shell"] .dark\:bg-slate-800 { background-color: var(--wh-layer-2) !important; }
+.dark [data-testid="app-shell"] .dark\:bg-slate-700,
+.dark [data-testid="app-shell"] .dark\:bg-slate-600 { background-color: var(--wh-layer-3) !important; }
+.dark [data-testid="app-shell"] :is(
   .dark\:bg-slate-950\/50,
   .dark\:bg-slate-950\/20,
   .dark\:bg-slate-900\/90,
@@ -84,8 +84,8 @@ textarea {
   .dark\:bg-slate-900\/35,
   .dark\:bg-slate-900\/30,
   .dark\:bg-slate-900\/20
-) { background-color: color-mix(in srgb, var(--wh-shell) 88%, transparent); }
-.dark :is(
+) { background-color: color-mix(in srgb, var(--wh-layer-1) 92%, transparent) !important; }
+.dark [data-testid="app-shell"] :is(
   .dark\:bg-slate-800\/95,
   .dark\:bg-slate-800\/90,
   .dark\:bg-slate-800\/85,
@@ -95,23 +95,23 @@ textarea {
   .dark\:bg-slate-800\/40,
   .dark\:bg-slate-800\/25,
   .dark\:bg-slate-800\/20
-) { background-color: color-mix(in srgb, var(--wh-layer-1) 92%, transparent); }
-.dark :is(
+) { background-color: color-mix(in srgb, var(--wh-layer-2) 94%, transparent) !important; }
+.dark [data-testid="app-shell"] :is(
   .dark\:bg-slate-700\/90,
   .dark\:bg-slate-700\/40,
   .dark\:bg-slate-700\/30,
   .dark\:bg-slate-700\/20
-) { background-color: color-mix(in srgb, var(--wh-layer-2) 90%, transparent); }
-.dark .dark\:text-slate-100,
-.dark .dark\:text-slate-200 { color: var(--wh-text-primary); }
-.dark .dark\:text-slate-300,
-.dark .dark\:text-slate-400 { color: var(--wh-text-secondary); }
-.dark .dark\:text-slate-500 { color: var(--wh-text-tertiary); }
-.dark .dark\:border-slate-600 { border-color: var(--wh-border-strong); }
-.dark .dark\:border-slate-700,
-.dark .dark\:border-slate-700\/60 { border-color: var(--wh-border-subtle); }
-.dark .dark\:divide-slate-700 > :not([hidden]) ~ :not([hidden]) {
-  border-color: var(--wh-border-subtle);
+) { background-color: color-mix(in srgb, var(--wh-layer-3) 94%, transparent) !important; }
+.dark [data-testid="app-shell"] .dark\:text-slate-100,
+.dark [data-testid="app-shell"] .dark\:text-slate-200 { color: var(--wh-text-primary) !important; }
+.dark [data-testid="app-shell"] .dark\:text-slate-300,
+.dark [data-testid="app-shell"] .dark\:text-slate-400 { color: var(--wh-text-secondary) !important; }
+.dark [data-testid="app-shell"] .dark\:text-slate-500 { color: var(--wh-text-tertiary) !important; }
+.dark [data-testid="app-shell"] .dark\:border-slate-600 { border-color: var(--wh-border-strong) !important; }
+.dark [data-testid="app-shell"] .dark\:border-slate-700,
+.dark [data-testid="app-shell"] .dark\:border-slate-700\/60 { border-color: var(--wh-border-subtle) !important; }
+.dark [data-testid="app-shell"] .dark\:divide-slate-700 > :not([hidden]) ~ :not([hidden]) {
+  border-color: var(--wh-border-subtle) !important;
 }
 
 .dark .border-gray-50 {

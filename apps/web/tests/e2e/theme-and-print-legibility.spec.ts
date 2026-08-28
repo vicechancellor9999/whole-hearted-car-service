@@ -129,18 +129,41 @@ test("comfort dark mode exposes the approved progressively lighter layers", asyn
   await page.goto("/login");
 
   expect(await readResolvedPalette(page)).toEqual({
-    "--wh-background": "#272c33",
-    "--wh-shell": "#23282f",
-    "--wh-layer-1": "#323841",
-    "--wh-layer-2": "#3a414b",
-    "--wh-layer-3": "#444c57",
-    "--wh-border-subtle": "#49515c",
-    "--wh-border-strong": "#687281",
-    "--wh-text-primary": "#eef2f6",
-    "--wh-text-secondary": "#b6c0cc",
-    "--wh-text-tertiary": "#909ba9",
+    "--wh-background": "#2b3037",
+    "--wh-shell": "#24292f",
+    "--wh-layer-1": "#3a424c",
+    "--wh-layer-2": "#46515d",
+    "--wh-layer-3": "#556271",
+    "--wh-border-subtle": "#5f6c7c",
+    "--wh-border-strong": "#7b899a",
+    "--wh-text-primary": "#f5f7fa",
+    "--wh-text-secondary": "#d7dde4",
+    "--wh-text-tertiary": "#a8b1bd",
     "--wh-accent": "#8db9e8",
   });
+});
+
+test("legacy dark surfaces rise through the semantic ladder instead of sinking into shell chrome", async ({ page }) => {
+  await page.addInitScript(() => localStorage.setItem("wh_theme_mode", "dark"));
+  await page.goto("/login");
+
+  expect(await page.evaluate(() => {
+    const host = document.createElement("div");
+    host.dataset.testid = "app-shell";
+    const primary = document.createElement("div");
+    const nested = document.createElement("div");
+    const selected = document.createElement("div");
+    primary.className = "dark:bg-slate-900";
+    nested.className = "dark:bg-slate-800";
+    selected.className = "dark:bg-slate-700";
+    host.append(primary, nested, selected);
+    document.body.append(host);
+    return [primary, nested, selected].map((node) => getComputedStyle(node).backgroundColor);
+  })).toEqual([
+    "rgb(58, 66, 76)",
+    "rgb(70, 81, 93)",
+    "rgb(85, 98, 113)",
+  ]);
 });
 
 for (const theme of ["light", "dark"] as const) {
@@ -158,9 +181,9 @@ for (const theme of ["light", "dark"] as const) {
         header: "rgb(248, 250, 252)",
       }
       : {
-        canvas: "rgb(39, 44, 51)",
-        sidebar: "rgb(35, 40, 47)",
-        header: "rgb(50, 56, 65)",
+        canvas: "rgb(43, 48, 55)",
+        sidebar: "rgb(36, 41, 47)",
+        header: "rgb(58, 66, 76)",
       };
 
     await expect(page.getByTestId("app-shell")).toBeVisible();
@@ -181,7 +204,7 @@ for (const theme of ["light", "dark"] as const) {
       return { backgroundColor: style.backgroundColor, borderColor: style.borderColor };
     })).toEqual({
       backgroundColor: expected.header,
-      borderColor: theme === "light" ? "rgb(212, 219, 228)" : "rgb(73, 81, 92)",
+      borderColor: theme === "light" ? "rgb(212, 219, 228)" : "rgb(95, 108, 124)",
     });
   });
 }
@@ -202,7 +225,7 @@ test("business order workspace inherits comfort dark instead of overriding the a
     };
   })).toEqual({
     backgroundColor: "rgba(0, 0, 0, 0)",
-    color: "rgb(238, 242, 246)",
+    color: "rgb(245, 247, 250)",
     colorScheme: "dark",
   });
 });

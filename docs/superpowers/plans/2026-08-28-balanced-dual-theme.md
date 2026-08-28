@@ -19,13 +19,12 @@ The delivered implementation uses the approved semantic token ladder for the app
 Verification completed against the final build:
 
 - Web unit suite: `1011/1011` passed.
-- Theme and print E2E: `12/12` passed.
-- Theme plus Business Order E2E: `18/18` passed.
+- Theme and print E2E: `13/13` passed after the dark-surface correction.
+- Theme plus Business Order E2E: `19/19` passed.
 - Web typecheck: passed.
 - Production build: passed on Next.js 16.3.2.
 - Touched-file lint: 0 errors; the token CSS file is outside ESLint's configured file types.
 - Runtime: Next.js on `127.0.0.1:3220`, PostgreSQL on `127.0.0.1:55433`, `/login` HTTP 200.
-- Real production login screenshots: `apps/web/docs/screenshots/theme-20260828/login-light.png` and `login-dark.png`.
 
 The task checklists below preserve the original implementation sequence. This delivery record is the authoritative result and acceptance evidence.
 
@@ -323,7 +322,7 @@ git commit -m "refactor: apply semantic theme to shared ui"
 
 - [ ] **Step 1: Replace the Business Order color assertions**
 
-For explicit dark mode, assert page background `rgb(39, 44, 51)`, card background `rgb(50, 56, 65)`, nested surface `rgb(58, 65, 75)`, primary text `rgb(238, 242, 246)`, and a visible subtle border. Repeat key hierarchy assertions in explicit light mode using the approved light values.
+For explicit dark mode, assert page background `rgb(43, 48, 55)`, card background `rgb(58, 66, 76)`, nested surface `rgb(70, 81, 93)`, selected surface `rgb(85, 98, 113)`, primary text `rgb(245, 247, 250)`, and a visible subtle border. Repeat key hierarchy assertions in explicit light mode using the approved light values.
 
 - [ ] **Step 2: Run Business Order theme E2E and confirm RED**
 
