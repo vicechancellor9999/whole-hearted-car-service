@@ -1,69 +1,85 @@
 "use client";
 
 import { createContext, useContext, useEffect, useSyncExternalStore, type ReactNode } from "react";
+import {
+  THEME_CHANGE_EVENT,
+  THEME_MODE_STORAGE_KEY,
+  THEME_STORAGE_KEY,
+  readThemeMode,
+  resolveTheme,
+  type ResolvedTheme,
+  type ThemeMode,
+} from "./theme-contract";
 
-type Theme = "light" | "dark";
+const DARK_QUERY = "(prefers-color-scheme: dark)";
 
-const THEME_STORAGE_KEY = "wh_theme";
-const THEME_SOURCE_STORAGE_KEY = "wh_theme_source";
-const THEME_CHANGE_EVENT = "wh:theme-change";
-
-function storedTheme(): Theme {
-  const stored = localStorage.getItem(THEME_STORAGE_KEY);
-  const source = localStorage.getItem(THEME_SOURCE_STORAGE_KEY);
-  return stored === "dark" && source === "user" ? "dark" : "light";
+interface ThemeContextValue {
+  mode: ThemeMode;
+  theme: ResolvedTheme;
+  setMode: (mode: ThemeMode) => void;
 }
 
-function currentTheme(): Theme {
-  if (typeof document === "undefined") return "light";
+const ThemeContext = createContext<ThemeContextValue>({
+  mode: "system",
+  theme: "light",
+  setMode: () => {},
+});
+
+function currentResolvedTheme(): ResolvedTheme {
   return document.documentElement.classList.contains("dark") ? "dark" : "light";
 }
 
-function applyTheme(theme: Theme, explicit: boolean) {
-  if (explicit) localStorage.setItem(THEME_SOURCE_STORAGE_KEY, "user");
+function currentSnapshot(): `${ThemeMode}:${ResolvedTheme}` {
+  return `${readThemeMode(localStorage)}:${currentResolvedTheme()}`;
+}
+
+function applyThemeMode(mode: ThemeMode, persistMode: boolean) {
+  const theme = resolveTheme(mode, window.matchMedia(DARK_QUERY).matches);
+  if (persistMode) localStorage.setItem(THEME_MODE_STORAGE_KEY, mode);
   localStorage.setItem(THEME_STORAGE_KEY, theme);
   document.documentElement.classList.toggle("dark", theme === "dark");
+  document.documentElement.style.colorScheme = theme;
   window.dispatchEvent(new Event(THEME_CHANGE_EVENT));
 }
 
 function subscribeTheme(onStoreChange: () => void) {
+  const media = window.matchMedia(DARK_QUERY);
+  const onThemeChange = () => onStoreChange();
+  const onMediaChange = () => {
+    const mode = readThemeMode(localStorage);
+    if (mode === "system") applyThemeMode(mode, false);
+  };
   const onStorage = (event: StorageEvent) => {
-    if (event.key !== THEME_STORAGE_KEY && event.key !== THEME_SOURCE_STORAGE_KEY) return;
-    document.documentElement.classList.toggle("dark", storedTheme() === "dark");
-    onStoreChange();
+    if (event.key !== THEME_MODE_STORAGE_KEY && event.key !== THEME_STORAGE_KEY) return;
+    applyThemeMode(readThemeMode(localStorage), false);
   };
-  window.addEventListener(THEME_CHANGE_EVENT, onStoreChange);
+
+  window.addEventListener(THEME_CHANGE_EVENT, onThemeChange);
   window.addEventListener("storage", onStorage);
+  media.addEventListener("change", onMediaChange);
   return () => {
-    window.removeEventListener(THEME_CHANGE_EVENT, onStoreChange);
+    window.removeEventListener(THEME_CHANGE_EVENT, onThemeChange);
     window.removeEventListener("storage", onStorage);
+    media.removeEventListener("change", onMediaChange);
   };
 }
-
-interface ThemeContextValue {
-  theme: Theme;
-  toggle: () => void;
-  setTheme: (t: Theme) => void;
-}
-
-const ThemeContext = createContext<ThemeContextValue>({
-  theme: "light",
-  toggle: () => {},
-  setTheme: () => {},
-});
 
 export function ThemeProvider({ children }: { children: ReactNode }) {
-  const theme = useSyncExternalStore<Theme>(subscribeTheme, currentTheme, () => "light");
+  const snapshot = useSyncExternalStore(
+    subscribeTheme,
+    currentSnapshot,
+    () => "system:light" as const,
+  );
+  const separator = snapshot.indexOf(":");
+  const mode = snapshot.slice(0, separator) as ThemeMode;
+  const theme = snapshot.slice(separator + 1) as ResolvedTheme;
 
   useEffect(() => {
-    applyTheme(storedTheme(), false);
+    applyThemeMode(readThemeMode(localStorage), false);
   }, []);
 
-  const toggle = () => applyTheme(theme === "light" ? "dark" : "light", true);
-  const setTheme = (nextTheme: Theme) => applyTheme(nextTheme, true);
-
   return (
-    <ThemeContext.Provider value={{ theme, toggle, setTheme }}>
+    <ThemeContext.Provider value={{ mode, theme, setMode: (nextMode) => applyThemeMode(nextMode, true) }}>
       {children}
     </ThemeContext.Provider>
   );

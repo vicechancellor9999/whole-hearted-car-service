@@ -3,46 +3,91 @@ import { usePerformanceIdentity } from "./helpers/performance-session";
 
 test.use({ colorScheme: "dark" });
 
-test("fresh browser origins start in the approved light theme", async ({ page }) => {
+test("new origins follow the operating-system theme", async ({ page }) => {
   await page.addInitScript(() => {
-    localStorage.removeItem("wh_theme");
-    localStorage.removeItem("wh_theme_source");
-  });
-
-  await page.goto("/login");
-
-  await expect(page.locator("html")).not.toHaveClass(/dark/);
-  await expect.poll(() => page.evaluate(() => localStorage.getItem("wh_theme"))).toBe("light");
-});
-
-test("legacy automatic dark preference is migrated back to light", async ({ page }) => {
-  await page.addInitScript(() => {
-    localStorage.setItem("wh_theme", "dark");
-    localStorage.removeItem("wh_theme_source");
-  });
-
-  await page.goto("/login");
-
-  await expect(page.locator("html")).not.toHaveClass(/dark/);
-  await expect.poll(() => page.evaluate(() => localStorage.getItem("wh_theme"))).toBe("light");
-});
-
-test("an explicit user dark-theme choice is preserved", async ({ page }) => {
-  await page.addInitScript(() => {
-    localStorage.setItem("wh_theme", "dark");
-    localStorage.setItem("wh_theme_source", "user");
+    localStorage.clear();
   });
 
   await page.goto("/login");
 
   await expect(page.locator("html")).toHaveClass(/dark/);
+  await expect.poll(() => page.evaluate(() => localStorage.getItem("wh_theme_mode"))).toBe("system");
+  await expect.poll(() => page.evaluate(() => localStorage.getItem("wh_theme"))).toBe("dark");
+});
+
+test("legacy automatic preference migrates to system mode", async ({ page }) => {
+  await page.addInitScript(() => {
+    localStorage.setItem("wh_theme", "dark");
+    localStorage.removeItem("wh_theme_source");
+    localStorage.removeItem("wh_theme_mode");
+  });
+
+  await page.goto("/login");
+
+  await expect(page.locator("html")).toHaveClass(/dark/);
+  await expect.poll(() => page.evaluate(() => localStorage.getItem("wh_theme_mode"))).toBe("system");
+});
+
+test("legacy explicit dark choice migrates to dark mode", async ({ page }) => {
+  await page.addInitScript(() => {
+    localStorage.setItem("wh_theme", "dark");
+    localStorage.setItem("wh_theme_source", "user");
+    localStorage.removeItem("wh_theme_mode");
+  });
+
+  await page.goto("/login");
+
+  await expect(page.locator("html")).toHaveClass(/dark/);
+  await expect.poll(() => page.evaluate(() => localStorage.getItem("wh_theme_mode"))).toBe("dark");
+});
+
+test("explicit light mode remains light on a dark operating system", async ({ page }) => {
+  await page.addInitScript(() => {
+    localStorage.setItem("wh_theme_mode", "light");
+  });
+
+  await page.goto("/login");
+
+  await expect(page.locator("html")).not.toHaveClass(/dark/);
+  await expect.poll(() => page.evaluate(() => localStorage.getItem("wh_theme"))).toBe("light");
+});
+
+test("system mode responds to operating-system theme changes", async ({ page }) => {
+  await page.addInitScript(() => {
+    localStorage.setItem("wh_theme_mode", "system");
+  });
+  await page.emulateMedia({ colorScheme: "light" });
+  await page.goto("/login");
+  await expect(page.locator("html")).not.toHaveClass(/dark/);
+
+  await page.emulateMedia({ colorScheme: "dark" });
+
+  await expect(page.locator("html")).toHaveClass(/dark/);
+  await expect.poll(() => page.evaluate(() => localStorage.getItem("wh_theme"))).toBe("dark");
+});
+
+test("theme control exposes system light and dark modes", async ({ page }) => {
+  await usePerformanceIdentity(page, "superadmin");
+  await page.addInitScript(() => {
+    localStorage.setItem("wh_theme_mode", "system");
+  });
+  await page.goto("/employees");
+
+  const trigger = page.getByRole("button", { name: "主题：跟随系统" });
+  await trigger.click();
+  const menu = page.getByRole("menu", { name: "主题模式" });
+  await expect(menu.getByRole("menuitemradio", { name: "跟随系统" })).toHaveAttribute("aria-checked", "true");
+  await expect(menu.getByRole("menuitemradio", { name: "柔和亮色" })).toBeVisible();
+  await menu.getByRole("menuitemradio", { name: "舒适暗色" }).click();
+
+  await expect(page.locator("html")).toHaveClass(/dark/);
+  await expect.poll(() => page.evaluate(() => localStorage.getItem("wh_theme_mode"))).toBe("dark");
 });
 
 test("formal print sheets remain white paper with dark ink inside dark theme", async ({ page }) => {
   await usePerformanceIdentity(page, "superadmin");
   await page.addInitScript(() => {
-    localStorage.setItem("wh_theme", "dark");
-    localStorage.setItem("wh_theme_source", "user");
+    localStorage.setItem("wh_theme_mode", "dark");
   });
   await page.route("**/api/formal/business-orders/7/documents/5", (route) => route.fulfill({
     status: 200,

@@ -17,11 +17,21 @@ export const metadata: Metadata = {
 const noFlashScript = `
 (function() {
   try {
-    var t = localStorage.getItem('wh_theme');
-    var source = localStorage.getItem('wh_theme_source');
-    if (t !== 'dark' || source !== 'user') t = 'light';
-    if (t === 'dark') document.documentElement.classList.add('dark');
+    var mode = localStorage.getItem('wh_theme_mode');
+    if (mode !== 'system' && mode !== 'light' && mode !== 'dark') {
+      var t = localStorage.getItem('wh_theme');
+      var source = localStorage.getItem('wh_theme_source');
+      mode = source === 'user' && (t === 'light' || t === 'dark') ? t : 'system';
+      localStorage.setItem('wh_theme_mode', mode);
+      localStorage.removeItem('wh_theme_source');
+    }
+    var resolved = mode === 'system'
+      ? (window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light')
+      : mode;
+    localStorage.setItem('wh_theme', resolved);
+    if (resolved === 'dark') document.documentElement.classList.add('dark');
     else document.documentElement.classList.remove('dark');
+    document.documentElement.style.colorScheme = resolved;
   } catch(e) {}
 })();
 `;
