@@ -29,7 +29,7 @@ beforeEach(async () => {
   `);
   const migration = await readFile(resolve(process.cwd(), "drizzle/0031_business_order_messages.sql"), "utf8");
   for (const statement of migration.split("--> statement-breakpoint")) {
-    if (statement.trim()) await database.exec(statement);
+    if (statement.trim() && !statement.includes("business_order_document_snapshots")) await database.exec(statement);
   }
   await database.exec(`
     insert into staff_accounts (display_name, role) values ('前台', 'front_desk'), ('老板', 'owner');
