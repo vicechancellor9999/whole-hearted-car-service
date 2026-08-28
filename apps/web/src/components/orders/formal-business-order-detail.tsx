@@ -2,8 +2,13 @@
 
 import { FormEvent, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
+import { usePathname, useSearchParams } from "next/navigation";
 import { AlertCircle, RefreshCw } from "lucide-react";
 import { FormalInspectionCreateDialog } from "@/components/orders/formal-inspection-create-dialog";
+import {
+  FormalBusinessOrderTabs,
+  parseBusinessOrderWorkspace,
+} from "@/components/orders/formal-business-order-tabs";
 import { RecordDeleteButton } from "@/components/shared/record-delete-dialog";
 import { fetchFormalInspectionReports, type FormalInspectionListItem } from "@/lib/api/formal-inspections";
 import {
@@ -361,6 +366,13 @@ function ChargeSection({
 }
 
 export function FormalBusinessOrderDetailView({ businessOrderId }: { businessOrderId: number }) {
+  const pathname = usePathname();
+  const searchParams = useSearchParams();
+  const activeWorkspace = parseBusinessOrderWorkspace(searchParams.get("tab"));
+  const workspaceSearchParams = useMemo(
+    () => new URLSearchParams(searchParams.toString()),
+    [searchParams],
+  );
   const [data, setData] = useState<FormalBusinessOrderDetail | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
@@ -852,7 +864,14 @@ export function FormalBusinessOrderDetailView({ businessOrderId }: { businessOrd
         {notice ? <p role="status" className="rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm font-semibold text-emerald-700">{notice}</p> : null}
         {error ? <p role="alert" className="rounded-xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm font-semibold text-rose-700">{error}</p> : null}
 
-        {rounds && masterData ? <section className="rounded-2xl border border-line bg-white p-4 shadow-card dark:border-slate-700 dark:bg-slate-900/50">
+        <FormalBusinessOrderTabs
+          pathname={pathname}
+          searchParams={workspaceSearchParams}
+          active={activeWorkspace}
+        />
+
+        <div className="grid items-start gap-3 xl:grid-cols-[minmax(0,2fr)_minmax(340px,1fr)]">
+        {rounds && masterData ? <section id="business-order-repair-workspace" hidden={activeWorkspace !== "operations"} className="rounded-2xl border border-line bg-white p-4 shadow-card dark:border-slate-700 dark:bg-slate-900/50 xl:col-start-2 xl:row-start-1">
           <div className="flex flex-wrap items-start justify-between gap-3"><div><h2 className="text-sm font-bold">第 {rounds.current.roundNo} 轮维修</h2><p className="mt-1 text-xs text-ink-soft">{rounds.current.source === "after_sales" ? `售后回厂：${rounds.current.afterSalesIssue}` : "首次维修"} · 每轮记录和正式交单时间独立保留</p></div><div className="flex flex-wrap items-center gap-2"><button type="button" onClick={() => setHistoryOpen(true)} className="min-h-8 rounded-lg border border-line px-3 text-xs font-bold">查看整单历史</button><span className="rounded-full bg-primary-50 px-3 py-1 text-xs font-bold text-primary">{formalBusinessOrderStatusLabel(rounds.current.status)}</span>{(["assigned", "in_repair", "return_pending_review"] as const).includes(rounds.current.status as "assigned" | "in_repair" | "return_pending_review") ? <button disabled={busy} type="button" onClick={withdrawCurrentAssignment} className="min-h-8 rounded-lg border border-rose-300 px-3 text-xs font-bold text-rose-700 disabled:opacity-40">撤回派单</button> : null}</div></div>
           {rounds.current.status === "waiting_assignment" ? <form className="mt-3" onSubmit={(event) => { event.preventDefault(); const confirmed = ledger.totalPaidMinor > 0 || window.confirm("本单尚无收款信息。是否已经与客户确认好业务内容？选择取消则不派单。 "); if (!confirmed) return; void submitRoundAction({ action: "assign", businessOrderVersion: order.version, teamId: Number(selectedTeamId), customerConfirmed: true }, "已派给维修班组"); }}><fieldset><legend className="text-xs font-bold">选择维修班组</legend><div className="mt-2 flex flex-wrap gap-2">{masterData.teams.filter((team) => team.isActive).map((team) => <label key={team.id} className={`cursor-pointer rounded-lg border px-4 py-3 text-xs font-bold transition ${selectedTeamId === String(team.id) ? "border-primary bg-primary text-white" : "border-line bg-white text-ink"}`}><input type="radio" name="teamId" value={team.id} required checked={selectedTeamId === String(team.id)} onChange={(event) => setSelectedTeamId(event.target.value)} className="sr-only" />{team.name}</label>)}</div></fieldset><div className="mt-3 flex flex-wrap gap-2"><button disabled={busy || !selectedTeamId} className="min-h-10 rounded-lg bg-primary px-4 text-xs font-bold text-white disabled:opacity-40">派单</button>{masterData.teams.every((team) => !team.isActive) ? <Link href={`/dictionaries?returnTo=${encodeURIComponent(`/orders/business/${businessOrderId}`)}#teams`} className="min-h-10 rounded-lg border border-primary px-4 py-2.5 text-xs font-bold text-primary">先新增维修班组</Link> : null}</div></form> : null}
           {rounds.current.status === "waiting_assignment" && rounds.current.source === "after_sales" && rounds.current.assignedTeamId === null ? <div className="mt-3 flex flex-wrap items-center justify-between gap-3 rounded-xl border border-rose-200 bg-rose-50 px-3 py-2"><p className="text-xs text-rose-800">如果本轮是误触创建，并且尚未产生任何实际记录，可以撤销并回到上一轮已交单状态。</p><button disabled={busy} type="button" onClick={cancelAccidentalAfterSalesRound} className="min-h-9 rounded-lg border border-rose-400 bg-white px-3 text-xs font-bold text-rose-700 disabled:opacity-40">撤销本轮</button></div> : null}
@@ -947,7 +966,15 @@ export function FormalBusinessOrderDetailView({ businessOrderId }: { businessOrd
 
         {historyOpen && rounds && masterData ? <RepairHistoryDialog rounds={rounds} masterData={masterData} onClose={() => setHistoryOpen(false)} /> : null}
 
-        <section className="rounded-2xl border border-line bg-white p-4 shadow-card dark:border-slate-700 dark:bg-slate-900/50">
+        <section id="business-order-history-workspace" role="tabpanel" hidden={activeWorkspace !== "history"} className="rounded-2xl border border-line bg-white p-4 shadow-card dark:border-slate-700 dark:bg-slate-900/50 xl:col-span-2">
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <div><h2 className="text-sm font-bold">Business Order 全部历史与修改记录</h2><p className="mt-1 text-xs text-ink-soft">维修轮次、收费财务和文件操作按正式审计事实保留。</p></div>
+            <button type="button" onClick={() => setHistoryOpen(true)} className="min-h-9 rounded-lg bg-primary px-4 text-xs font-bold text-white">查看完整时间线</button>
+          </div>
+          <p className="mt-3 rounded-xl bg-surface px-3 py-3 text-xs text-ink-soft">完整时间线沿用现有正式历史视图；下一步将直接展开在本工作区内。</p>
+        </section>
+
+        <section id="business-order-documents-workspace" role="tabpanel" hidden={activeWorkspace !== "documents"} className="rounded-2xl border border-line bg-white p-4 shadow-card dark:border-slate-700 dark:bg-slate-900/50 xl:col-span-2">
           <div className="flex flex-wrap items-start justify-between gap-3">
             <div><h2 className="text-sm font-bold">正式打印文件</h2><p className="mt-1 text-xs text-ink-soft">每次生成都会冻结当时的收费、备注、收付款或维修轮次；旧文件打开即为补打。</p></div>
             {data.capabilities.canWrite ? <div className="flex flex-wrap gap-2"><button disabled={busy} type="button" onClick={() => generatePrintDocument("office_archive")} className="min-h-9 rounded-lg bg-primary px-3 text-xs font-bold text-white disabled:opacity-50">生成办公室签字留底联</button><button disabled={busy} type="button" onClick={() => generatePrintDocument("mechanic_work")} className="min-h-9 rounded-lg border border-primary px-3 text-xs font-bold text-primary disabled:opacity-50">生成维修工联</button></div> : null}
@@ -955,7 +982,7 @@ export function FormalBusinessOrderDetailView({ businessOrderId }: { businessOrd
           {data.documents.length === 0 ? <p className="mt-3 rounded-xl bg-surface px-3 py-3 text-xs text-ink-soft">尚未生成正式打印文件。</p> : <div className="mt-3 overflow-hidden rounded-xl border border-line">{data.documents.map((document) => <article key={document.id} className="grid items-center gap-2 border-b border-line px-3 py-2.5 text-xs last:border-0 sm:grid-cols-[1fr_.8fr_auto]"><span><strong className="block">{document.documentNo}</strong><small className="text-ink-soft">{formalDocumentKindLabel(document.kind)} · 收费版本 V{document.chargeVersionNo}{document.repairRoundNo ? ` · 第 ${document.repairRoundNo} 轮维修` : ""}</small></span><span className="text-ink-soft">{formatDateTime(document.generatedAt)}</span><Link href={`/orders/business/${businessOrderId}/documents/${document.id}/print`} className="font-bold text-primary">打开 / 补打</Link></article>)}</div>}
         </section>
 
-        <section className="rounded-2xl border border-line bg-white p-4 shadow-card dark:border-slate-700 dark:bg-slate-900/50">
+        <section id="business-order-operations-workspace" role="tabpanel" hidden={activeWorkspace !== "operations"} className="rounded-2xl border border-line bg-white p-4 shadow-card dark:border-slate-700 dark:bg-slate-900/50 xl:col-start-1 xl:row-span-2 xl:row-start-1">
           <div className="flex flex-wrap items-end justify-between gap-2"><div><h2 className="text-sm font-bold">收费项目</h2><p className="mt-1 text-xs text-ink-soft">版本 V{charges.versionNo} · 单价与小计均为含税金额</p></div>{data.capabilities.canWrite ? <div className="flex flex-wrap gap-2"><button type="button" onClick={() => setNaturalLanguageOpen((open) => !open)} className="min-h-9 rounded-lg border border-primary px-3 text-xs font-bold text-primary">自然语言录入</button><button type="button" onClick={beginChargeEditing} className="min-h-9 rounded-lg bg-primary px-3 text-xs font-bold text-white">编辑收费项目</button></div> : <span className="text-xs text-ink-soft">{charges.reason}</span>}</div>
 
           {naturalLanguageOpen ? <div className="mt-3 rounded-xl border border-primary/30 bg-primary-50 p-3"><label className="text-xs font-bold">自然语言输入<textarea value={naturalLanguageText} onChange={(event) => setNaturalLanguageText(event.target.value)} placeholder={"例如：更换前刹车片一套 12000，工时 5000\n客户反馈：刹车异响\n施工说明：先检查再更换\n提前告知：追加项目须再次确认"} className="mt-2 min-h-28 w-full rounded-lg border border-line bg-white p-3 text-sm" /></label><div className="mt-2 flex gap-2"><button type="button" disabled={!naturalLanguageText.trim() || naturalLanguageBusy} onClick={() => void stageNaturalLanguage()} className="min-h-9 rounded-lg bg-primary px-3 text-xs font-bold text-white disabled:opacity-40">{naturalLanguageBusy ? "AI 整理中…" : "AI 整理到收费草稿"}</button><button type="button" onClick={() => { setNaturalLanguageOpen(false); setNaturalLanguageText(""); }} className="min-h-9 rounded-lg border border-line px-3 text-xs font-bold">取消</button></div><p className="mt-2 text-[11px] text-ink-soft">后台 AI 同时整理收费项目、客户反馈、施工说明、责任说明和提前告知；由前台核对后保存。AI 不可用时会明确提示采用本地规则。</p></div> : null}
@@ -970,7 +997,7 @@ export function FormalBusinessOrderDetailView({ businessOrderId }: { businessOrd
           </form> : <><ChargeSection charges={charges} kind="labor" unitLabels={unitLabels} /><ChargeSection charges={charges} kind="part" unitLabels={unitLabels} /><ChargeSection charges={charges} kind="other" unitLabels={unitLabels} /><div className="mt-4 grid gap-2 border-t border-line pt-3 text-xs sm:grid-cols-2 lg:grid-cols-4"><span>收费原价<strong className="mt-1 block">{formatFormalMoney(charges.totals.grossMinor)}</strong></span><span>工时折扣合计<strong className="mt-1 block text-rose-600">−{formatFormalMoney(groupedDiscounts.laborDiscountMinor)}</strong></span><span>配件折扣合计<strong className="mt-1 block text-rose-600">−{formatFormalMoney(groupedDiscounts.partDiscountMinor)}</strong></span><span>折后应收（含 15% GCT）<strong className="mt-1 block text-base">{formatFormalMoney(charges.totals.totalDueMinor)}</strong><small>其中 GCT {formatFormalMoney(charges.totals.includedGctMinor)}</small></span></div>{charges.notes.length > 0 ? <div className="mt-4 rounded-xl bg-amber-50 p-3 text-xs text-amber-950"><strong>备注 / 责任义务与提前告知</strong>{charges.notes.map((note) => <p key={note.id} className="mt-1">{note.contentZh ?? ""}{note.contentEn ? ` / ${note.contentEn}` : ""}</p>)}</div> : null}</>}
         </section>
 
-        <section className="rounded-2xl border border-line bg-white p-4 shadow-card dark:border-slate-700 dark:bg-slate-900/50">
+        <section id="business-order-finance-workspace" hidden={activeWorkspace !== "operations"} className="rounded-2xl border border-line bg-white p-4 shadow-card dark:border-slate-700 dark:bg-slate-900/50 xl:col-start-2 xl:row-start-2">
           <div className="flex flex-wrap items-start justify-between gap-3"><div><h2 className="text-sm font-bold">逐笔收付款与 Receipt</h2><p className="mt-1 text-xs text-ink-soft">每次收款、退款都是独立且不可修改的事实；余额由历史自动计算。</p></div><div className="flex gap-2">{data.capabilities.canRecordPayment ? <button type="button" onClick={() => { setPaymentFormOpen((open) => !open); setRefundFormOpen(false); }} className="min-h-9 rounded-lg bg-emerald-600 px-3 text-xs font-bold text-white">登记收款</button> : null}{data.capabilities.canRefund ? <button type="button" onClick={() => { setRefundFormOpen((open) => !open); setPaymentFormOpen(false); }} className="min-h-9 rounded-lg border border-rose-400 px-3 text-xs font-bold text-rose-700">生成退款</button> : null}</div></div>
           {isFinanciallySettled ? <div className="mt-3 rounded-xl border-2 border-emerald-300 bg-emerald-100 px-4 py-3 text-sm font-black text-emerald-900">财务已结清 · 当前未结余额 {formatFormalMoney(0)}</div> : null}
           <div className="mt-3 grid grid-cols-2 gap-2 lg:grid-cols-4"><span className="rounded-xl bg-surface p-3 text-xs">折后应收<strong className="mt-1 block text-base">{formatFormalMoney(ledger.currentDueMinor)}</strong></span><span className="rounded-xl bg-emerald-50 p-3 text-xs">累计收款<strong className="mt-1 block text-base text-emerald-700">{formatFormalMoney(ledger.totalPaidMinor)}</strong></span><span className="rounded-xl bg-rose-50 p-3 text-xs">累计退款<strong className="mt-1 block text-base text-rose-700">{formatFormalMoney(ledger.totalRefundedMinor)}</strong></span><span className={`rounded-xl p-3 text-xs ${isFinanciallySettled ? "border border-emerald-300 bg-emerald-100 text-emerald-900" : "bg-amber-50"}`}>{isFinanciallySettled ? "未结余额 / 已结清" : "未结余额"}<strong className={`mt-1 block text-base ${isFinanciallySettled ? "text-emerald-800" : "text-amber-800"}`}>{formatFormalMoney(ledger.balanceMinor)}</strong></span></div>
@@ -984,6 +1011,11 @@ export function FormalBusinessOrderDetailView({ businessOrderId }: { businessOrd
             return <article key={`${transaction.type}-${transaction.id}`} className="grid gap-2 border-b border-line p-3 text-xs last:border-0 lg:grid-cols-[1.2fr_.7fr_.8fr_1.6fr]"><span><strong className="block">{transaction.type === "payment" ? "收款" : "退款"} · {transaction.referenceNo}</strong><small className="text-ink-soft">{formatDateTime(transaction.occurredAt)} · {transaction.methodLabelZh}</small></span><strong className={transaction.type === "refund" ? "text-rose-600" : "text-emerald-600"}>{transaction.type === "refund" ? "−" : "+"}{formatFormalMoney(transaction.amountMinor)}</strong><span>{transaction.note ?? refund?.reason ?? "无备注"}</span><span>{refund ? <span className="flex flex-col items-start gap-2"><Link href={`/orders/business/${businessOrderId}/refund/${refund.id}/print`} className="font-bold text-primary">打印退款签收单</Link>{formalRefundNeedsProof(refund) ? <form onSubmit={(event) => submitProof(event, refund.id)} className="flex w-full items-center gap-2"><input aria-label={`退款 ${refund.refundNo} 实际凭证`} name="proof" type="file" accept="image/jpeg,image/png,image/webp,application/pdf" required className="min-w-0 flex-1 text-[10px]" /><button disabled={busy} className="shrink-0 rounded-md border border-primary px-2 py-1 font-semibold text-primary">补传转账凭证</button></form> : refund.paymentMethodCode !== "cash" ? <span className="font-semibold text-emerald-700">转账凭证已归档</span> : null}{formalRefundHasSignedAcknowledgement(refund) ? <span className="font-semibold text-emerald-700">已上传签字后的退款签收单</span> : <form onSubmit={(event) => submitSignedAcknowledgement(event, refund.id)} className="flex w-full items-center gap-2"><input aria-label={`退款 ${refund.refundNo} 上传签字后的退款签收单`} name="signedAcknowledgement" type="file" accept="image/jpeg,image/png,image/webp,application/pdf" required className="min-w-0 flex-1 text-[10px]" /><button disabled={busy} className="shrink-0 rounded-md border border-primary px-2 py-1 font-semibold text-primary">上传签收单</button></form>}</span> : transaction.receiptId ? <span className="flex flex-wrap items-center gap-x-3 gap-y-1"><strong className="w-full">Receipt：{transaction.referenceNo}</strong><Link href={`/orders/business/${businessOrderId}/receipt/${transaction.receiptId}/print?copy=zh`} className="font-semibold text-primary">中文 Receipt</Link><Link href={`/orders/business/${businessOrderId}/receipt/${transaction.receiptId}/print?copy=en`} className="font-semibold text-primary">English Receipt</Link></span> : null}</span></article>;
           })}</div>}</div>
         </section>
+        <section id="business-order-messages-workspace" role="tabpanel" hidden={activeWorkspace !== "messages"} className="rounded-2xl border border-line bg-white p-4 shadow-card dark:border-slate-700 dark:bg-slate-900/50 xl:col-span-2">
+          <h2 className="text-sm font-bold">沟通交流</h2>
+          <p className="mt-2 rounded-xl bg-surface px-3 py-4 text-xs text-ink-soft">内部留言、@ 提及和未读提醒正在接入正式数据库。本工作区已预留，不会影响现有业务操作。</p>
+        </section>
+        </div>
       </div>
       {inspectionCreateOpen ? <FormalInspectionCreateDialog vehicleId={order.vehicleId} sourceBusinessOrderId={businessOrderId} onClose={() => setInspectionCreateOpen(false)} onCreated={() => { setInspectionCreateOpen(false); refresh(); }} /> : null}
     </div>
