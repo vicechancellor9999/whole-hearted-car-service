@@ -206,7 +206,7 @@ export class RecordDeletionService {
           reason: input.reasonCode,
           after: {
             actorRole: actor.role,
-            reasonNote: input.reasonNote,
+            reasonNoteProvided: input.reasonNote !== null,
             previewFingerprint: input.previewFingerprint,
             deletedRecordCount: input.selectedRecords.length,
             deletedRecords: input.selectedRecords.map((record) => ({

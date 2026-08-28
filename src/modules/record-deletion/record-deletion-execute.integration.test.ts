@@ -108,7 +108,7 @@ describe("RecordDeletionService execute", () => {
       root: selectedRecords[0],
       selectedRecords,
       reasonCode: "test_data" as const,
-      reasonNote: "误建测试记录",
+      reasonNote: "误建测试记录，电话 +1 876 555 0199，车牌 PRIVATE99",
       confirmationRecordNo: fixture.customerNo,
       previewFingerprint: preview.previewFingerprint,
       requestId: "delete-execute-1",
@@ -154,12 +154,13 @@ describe("RecordDeletionService execute", () => {
     expect(audit.rows).toHaveLength(1);
     expect(audit.rows[0]?.after_state).toMatchObject({
       actorRole: "front_desk",
-      reasonNote: "误建测试记录",
+      reasonNoteProvided: true,
       previewFingerprint: input.previewFingerprint,
       deletedRecordCount: 2,
     });
+    expect(audit.rows[0]?.after_state).not.toHaveProperty("reasonNote");
     expect(audit.rows[0]?.serialized.toLowerCase()).not.toMatch(
-      /full_name|phone|trn|plate|vin|address|待删除客户|del101|123456789/,
+      /full_name|phone|trn|plate|vin|address|待删除客户|del101|123456789|876 555 0199|private99/,
     );
   });
 
