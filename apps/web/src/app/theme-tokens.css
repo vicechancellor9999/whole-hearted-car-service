@@ -1,0 +1,88 @@
+:root {
+  --wh-background: #e9eef3;
+  --wh-shell: #e0e7ee;
+  --wh-layer-1: #f8fafc;
+  --wh-layer-2: #edf1f5;
+  --wh-layer-3: #e4eaf0;
+  --wh-border-subtle: #d4dbe4;
+  --wh-border-strong: #aeb9c7;
+  --wh-text-primary: #202936;
+  --wh-text-secondary: #647083;
+  --wh-text-tertiary: #8490a0;
+  --wh-accent: #356da8;
+  --wh-accent-solid: #356da8;
+  --wh-accent-on-solid: #ffffff;
+  --wh-background-hover: #dde5ed;
+  --wh-background-active: #d1dbe5;
+  --wh-background-selected: #dce8f5;
+  --wh-overlay: rgba(32, 41, 54, 0.42);
+
+  --wh-success-subtle: #e4f3ed;
+  --wh-success-border: #9bcfbd;
+  --wh-success-text: #167054;
+  --wh-warning-subtle: #f8efd7;
+  --wh-warning-border: #dec172;
+  --wh-warning-text: #765a13;
+  --wh-danger-subtle: #f7e8e8;
+  --wh-danger-border: #d9a5aa;
+  --wh-danger-text: #a5343e;
+  --wh-info-subtle: #e3edf9;
+  --wh-info-border: #a9c3e2;
+  --wh-info-text: #315f98;
+
+  --wh-skeleton-1: #e6ebf0;
+  --wh-skeleton-2: #d7dee6;
+  --wh-scrollbar: #b8c3cf;
+  --wh-scrollbar-hover: #8f9cab;
+
+  /* Compatibility aliases while product surfaces migrate to semantic layers. */
+  --wh-page-bg: var(--wh-background);
+  --wh-card-bg: var(--wh-layer-1);
+  --wh-text: var(--wh-text-primary);
+  --wh-text-soft: var(--wh-text-secondary);
+  --wh-text-faint: var(--wh-text-tertiary);
+  --wh-border: var(--wh-border-subtle);
+  --wh-surface: var(--wh-layer-2);
+  --wh-gray-50: var(--wh-layer-1);
+  --wh-gray-100: var(--wh-layer-2);
+  --wh-gray-200: var(--wh-border-subtle);
+  --wh-primary-50: var(--wh-info-subtle);
+}
+
+.dark {
+  --wh-background: #272c33;
+  --wh-shell: #23282f;
+  --wh-layer-1: #323841;
+  --wh-layer-2: #3a414b;
+  --wh-layer-3: #444c57;
+  --wh-border-subtle: #49515c;
+  --wh-border-strong: #687281;
+  --wh-text-primary: #eef2f6;
+  --wh-text-secondary: #b6c0cc;
+  --wh-text-tertiary: #909ba9;
+  --wh-accent: #8db9e8;
+  --wh-accent-solid: #356da8;
+  --wh-accent-on-solid: #ffffff;
+  --wh-background-hover: #3f4650;
+  --wh-background-active: #4a525e;
+  --wh-background-selected: #344b66;
+  --wh-overlay: rgba(12, 15, 19, 0.62);
+
+  --wh-success-subtle: #254c40;
+  --wh-success-border: #3e7967;
+  --wh-success-text: #8dd5b9;
+  --wh-warning-subtle: #554825;
+  --wh-warning-border: #8a7136;
+  --wh-warning-text: #efd286;
+  --wh-danger-subtle: #573237;
+  --wh-danger-border: #8e4f57;
+  --wh-danger-text: #f2a0a6;
+  --wh-info-subtle: #344b66;
+  --wh-info-border: #52769d;
+  --wh-info-text: #a6caef;
+
+  --wh-skeleton-1: #343a43;
+  --wh-skeleton-2: #454d58;
+  --wh-scrollbar: #56606c;
+  --wh-scrollbar-hover: #6d7886;
+}

@@ -8,6 +8,16 @@ const config: Config = {
   theme: {
     extend: {
       colors: {
+        page: "var(--wh-background)",
+        shell: "var(--wh-shell)",
+        card: "var(--wh-layer-1)",
+        "layer-2": "var(--wh-layer-2)",
+        "layer-3": "var(--wh-layer-3)",
+        accent: {
+          DEFAULT: "var(--wh-accent)",
+          solid: "var(--wh-accent-solid)",
+          foreground: "var(--wh-accent-on-solid)",
+        },
         primary: {
           DEFAULT: "#3d6fae",
           50: "#eef4fb",
@@ -21,8 +31,9 @@ const config: Config = {
           800: "#1f3b5f",
           900: "#162b46",
         },
-        line: "var(--wh-border)",
-        surface: "var(--wh-surface)",
+        line: "var(--wh-border-subtle)",
+        "line-strong": "var(--wh-border-strong)",
+        surface: "var(--wh-layer-2)",
         ink: {
           DEFAULT: "var(--wh-text)",
           soft: "var(--wh-text-soft)",
@@ -31,6 +42,20 @@ const config: Config = {
         success: "#10b981",
         warning: "#f59e0b",
         danger: "#ef4444",
+        state: {
+          "success-subtle": "var(--wh-success-subtle)",
+          "success-border": "var(--wh-success-border)",
+          "success-text": "var(--wh-success-text)",
+          "warning-subtle": "var(--wh-warning-subtle)",
+          "warning-border": "var(--wh-warning-border)",
+          "warning-text": "var(--wh-warning-text)",
+          "danger-subtle": "var(--wh-danger-subtle)",
+          "danger-border": "var(--wh-danger-border)",
+          "danger-text": "var(--wh-danger-text)",
+          "info-subtle": "var(--wh-info-subtle)",
+          "info-border": "var(--wh-info-border)",
+          "info-text": "var(--wh-info-text)",
+        },
         purple: {
           500: "#7a5af8",
           50: "#f4f0ff",

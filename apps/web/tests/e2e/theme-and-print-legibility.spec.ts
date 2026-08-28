@@ -3,6 +3,27 @@ import { usePerformanceIdentity } from "./helpers/performance-session";
 
 test.use({ colorScheme: "dark" });
 
+const paletteKeys = [
+  "--wh-background",
+  "--wh-shell",
+  "--wh-layer-1",
+  "--wh-layer-2",
+  "--wh-layer-3",
+  "--wh-border-subtle",
+  "--wh-border-strong",
+  "--wh-text-primary",
+  "--wh-text-secondary",
+  "--wh-text-tertiary",
+  "--wh-accent",
+] as const;
+
+async function readResolvedPalette(page: import("@playwright/test").Page) {
+  return page.evaluate((keys) => {
+    const style = getComputedStyle(document.documentElement);
+    return Object.fromEntries(keys.map((key) => [key, style.getPropertyValue(key).trim().toLowerCase()]));
+  }, paletteKeys);
+}
+
 test("new origins follow the operating-system theme", async ({ page }) => {
   await page.addInitScript(() => {
     localStorage.clear();
@@ -82,6 +103,44 @@ test("theme control exposes system light and dark modes", async ({ page }) => {
 
   await expect(page.locator("html")).toHaveClass(/dark/);
   await expect.poll(() => page.evaluate(() => localStorage.getItem("wh_theme_mode"))).toBe("dark");
+});
+
+test("soft light mode exposes the approved balanced surface ladder", async ({ page }) => {
+  await page.addInitScript(() => localStorage.setItem("wh_theme_mode", "light"));
+  await page.goto("/login");
+
+  expect(await readResolvedPalette(page)).toEqual({
+    "--wh-background": "#e9eef3",
+    "--wh-shell": "#e0e7ee",
+    "--wh-layer-1": "#f8fafc",
+    "--wh-layer-2": "#edf1f5",
+    "--wh-layer-3": "#e4eaf0",
+    "--wh-border-subtle": "#d4dbe4",
+    "--wh-border-strong": "#aeb9c7",
+    "--wh-text-primary": "#202936",
+    "--wh-text-secondary": "#647083",
+    "--wh-text-tertiary": "#8490a0",
+    "--wh-accent": "#356da8",
+  });
+});
+
+test("comfort dark mode exposes the approved progressively lighter layers", async ({ page }) => {
+  await page.addInitScript(() => localStorage.setItem("wh_theme_mode", "dark"));
+  await page.goto("/login");
+
+  expect(await readResolvedPalette(page)).toEqual({
+    "--wh-background": "#272c33",
+    "--wh-shell": "#23282f",
+    "--wh-layer-1": "#323841",
+    "--wh-layer-2": "#3a414b",
+    "--wh-layer-3": "#444c57",
+    "--wh-border-subtle": "#49515c",
+    "--wh-border-strong": "#687281",
+    "--wh-text-primary": "#eef2f6",
+    "--wh-text-secondary": "#b6c0cc",
+    "--wh-text-tertiary": "#909ba9",
+    "--wh-accent": "#8db9e8",
+  });
 });
 
 test("formal print sheets remain white paper with dark ink inside dark theme", async ({ page }) => {

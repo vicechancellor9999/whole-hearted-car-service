@@ -1,45 +1,8 @@
+@import "./theme-tokens.css";
+
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
-
-/* ============================================================
-   Theme Variables
-   ============================================================ */
-:root {
-  --wh-page-bg: #f3f6fb;
-  --wh-card-bg: #ffffff;
-  --wh-text: #1a1a2e;
-  --wh-text-soft: #6b7280;
-  --wh-text-faint: #9ca3af;
-  --wh-border: #e5e7eb;
-  --wh-surface: #f6f7fa;
-  --wh-gray-50: #f9fafb;
-  --wh-gray-100: #f3f4f6;
-  --wh-gray-200: #e5e7eb;
-  --wh-primary-50: #eef4fb;
-  --wh-skeleton-1: #f0f0f0;
-  --wh-skeleton-2: #e0e0e0;
-  --wh-scrollbar: #cbd5e1;
-  --wh-scrollbar-hover: #94a3b8;
-}
-
-.dark {
-  --wh-page-bg: #0f172a;
-  --wh-card-bg: #1e293b;
-  --wh-text: #f1f5f9;
-  --wh-text-soft: #94a3b8;
-  --wh-text-faint: #64748b;
-  --wh-border: #334155;
-  --wh-surface: #151e2e;
-  --wh-gray-50: #1e293b;
-  --wh-gray-100: #334155;
-  --wh-gray-200: #334155;
-  --wh-primary-50: rgba(61, 111, 174, 0.18);
-  --wh-skeleton-1: #1e293b;
-  --wh-skeleton-2: #334155;
-  --wh-scrollbar: #334155;
-  --wh-scrollbar-hover: #475569;
-}
 
 * {
   box-sizing: border-box;
