@@ -4,6 +4,7 @@ import { FormEvent, useCallback, useEffect, useMemo, useRef, useState } from "re
 import Link from "next/link";
 import { AlertCircle, RefreshCw } from "lucide-react";
 import { FormalInspectionCreateDialog } from "@/components/orders/formal-inspection-create-dialog";
+import { RecordDeleteButton } from "@/components/shared/record-delete-dialog";
 import { fetchFormalInspectionReports, type FormalInspectionListItem } from "@/lib/api/formal-inspections";
 import {
   appendFormalRefundProof,
@@ -832,7 +833,16 @@ export function FormalBusinessOrderDetailView({ businessOrderId }: { businessOrd
         <header className="rounded-[22px] border border-[#dbe7f7] bg-[linear-gradient(110deg,#eef6ff,#f8fbff)] p-4 shadow-card dark:border-slate-700 dark:bg-slate-900">
           <div className="flex flex-wrap items-start justify-between gap-3">
             <div><Link href="/orders/business" className="text-xs font-semibold text-primary">← 返回 Business Order 列表</Link><h1 className="mt-2 text-2xl font-bold text-ink dark:text-slate-100">{order.orderNo}</h1><p className="mt-1 text-sm text-ink-soft">{order.vehicle.plate} · {order.vehicle.description}{order.vehicle.vin ? ` · VIN ${order.vehicle.vin}` : ""}</p><p className="mt-2 flex flex-wrap gap-x-3 gap-y-1 text-xs text-ink-soft">{payerMeta.map((value) => <span key={value}>{value}</span>)}</p></div>
-            <div className="flex flex-wrap items-center gap-2">{isFinanciallySettled ? <span className="rounded-full border border-emerald-300 bg-emerald-100 px-4 py-2 text-xs font-black text-emerald-800 shadow-sm">财务已结清</span> : null}<span className="rounded-full bg-white px-3 py-1.5 text-xs font-bold text-primary shadow-sm dark:bg-slate-800">{order.voided ? "已作废" : formalBusinessOrderStatusLabel(order.status)}</span></div>
+            <div className="flex flex-wrap items-center gap-2">
+              {isFinanciallySettled ? <span className="rounded-full border border-emerald-300 bg-emerald-100 px-4 py-2 text-xs font-black text-emerald-800 shadow-sm">财务已结清</span> : null}
+              <span className="rounded-full bg-white px-3 py-1.5 text-xs font-bold text-primary shadow-sm dark:bg-slate-800">{order.voided ? "已作废" : formalBusinessOrderStatusLabel(order.status)}</span>
+              <RecordDeleteButton
+                record={{ kind: "business_order", recordNo: order.orderNo, version: order.version }}
+                title="删除业务单"
+                returnTo="/orders/business"
+                className="inline-flex min-h-9 items-center gap-1.5 rounded-lg border border-rose-200 bg-white px-3 text-xs font-semibold text-rose-600 hover:bg-rose-50 dark:border-rose-900/70 dark:bg-slate-800 dark:text-rose-300"
+              />
+            </div>
           </div>
           <div className="mt-4 grid grid-cols-5 gap-1.5">
             {PROGRESS.map(([status, label], index) => <div key={status} className={`rounded-md border px-2 py-2 text-center text-[11px] font-semibold ${index < progressIndex ? "border-primary bg-primary text-white" : index === progressIndex ? "border-amber-400 bg-amber-300 text-amber-950" : "border-line bg-white/70 text-ink-soft dark:bg-slate-800"}`}>{index + 1} {label}</div>)}

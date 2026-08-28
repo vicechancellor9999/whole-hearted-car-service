@@ -26,6 +26,7 @@ import { QUICK_BO_STATUS_LABELS, type QuickOrder } from "@/lib/orders/quick-orde
 import { formatPhoneE164 } from "@/lib/customers/phone";
 import { cn, formatDateTime, formatJMDFull } from "@/lib/utils";
 import { PageHeader } from "@/components/layout/page-header";
+import { RecordDeleteButton } from "@/components/shared/record-delete-dialog";
 import { VehicleStatusBadge } from "./badges";
 import { customerDisplayName } from "./customer-list";
 import {
@@ -251,14 +252,21 @@ export function VehicleDetailPage({ vehicleId }: VehicleDetailPageProps) {
           titleTestId="vehicle-detail-heading"
           description={`${vehicle.makeZh ? `${vehicle.makeZh} ` : ""}${vehicle.make} ${vehicle.modelZh && vehicle.modelZh !== vehicle.model ? `${vehicle.modelZh} ` : ""}${vehicle.model} · ${vehicle.id}`}
           action={
-            <button
-              type="button"
-              onClick={() => setEditing(true)}
-              data-testid="vehicle-edit-btn"
-              className="inline-flex min-h-10 shrink-0 items-center justify-center gap-1.5 rounded-lg bg-primary px-4 text-sm font-semibold text-white transition-colors hover:bg-primary-600"
-            >
-              <Pencil size={14} aria-hidden />编辑
-            </button>
+            <div className="flex flex-wrap items-center justify-end gap-2">
+              {isFormalCustomerVehicleApiEnabled ? <RecordDeleteButton
+                record={{ kind: "vehicle", recordNo: vehicle.id, version: vehicle.revision }}
+                title="删除车辆档案"
+                returnTo="/vehicles"
+              /> : null}
+              <button
+                type="button"
+                onClick={() => setEditing(true)}
+                data-testid="vehicle-edit-btn"
+                className="inline-flex min-h-10 shrink-0 items-center justify-center gap-1.5 rounded-lg bg-primary px-4 text-sm font-semibold text-white transition-colors hover:bg-primary-600"
+              >
+                <Pencil size={14} aria-hidden />编辑
+              </button>
+            </div>
           }
         />
         {backLink}

@@ -24,6 +24,7 @@ import { deriveCustomerRiskLevel, deriveProfileCompleteness } from "@/lib/custom
 import { formatPhoneE164 } from "@/lib/customers/phone";
 import { cn, formatDate, formatDateTime, formatJMDFull } from "@/lib/utils";
 import { PageHeader } from "@/components/layout/page-header";
+import { RecordDeleteButton } from "@/components/shared/record-delete-dialog";
 import {
   ChannelBadge,
   CustomerStatusBadge,
@@ -201,14 +202,25 @@ export function CustomerDetailPage({ customerId }: CustomerDetailPageProps) {
           titleTestId="customer-detail-heading"
           description={`${organization ? "机构客户" : "个人客户"} · ${customer.id} · 建立于 ${formatDate(customer.createdAt)}`}
           action={
-            <button
-              type="button"
-              onClick={() => setEditing(true)}
-              data-testid="customer-edit-btn"
-              className="inline-flex min-h-10 shrink-0 items-center justify-center gap-1.5 rounded-lg bg-primary px-4 text-sm font-semibold text-white transition-colors hover:bg-primary-600"
-            >
-              <Pencil size={14} aria-hidden />编辑正式资料
-            </button>
+            <div className="flex flex-wrap items-center justify-end gap-2">
+              {isFormalCustomerVehicleApiEnabled ? <RecordDeleteButton
+                record={{
+                  kind: organization ? "company_customer" : "personal_customer",
+                  recordNo: customer.id,
+                  version: customer.revision,
+                }}
+                title="删除客户档案"
+                returnTo="/customers"
+              /> : null}
+              <button
+                type="button"
+                onClick={() => setEditing(true)}
+                data-testid="customer-edit-btn"
+                className="inline-flex min-h-10 shrink-0 items-center justify-center gap-1.5 rounded-lg bg-primary px-4 text-sm font-semibold text-white transition-colors hover:bg-primary-600"
+              >
+                <Pencil size={14} aria-hidden />编辑正式资料
+              </button>
+            </div>
           }
         />
         <div className="mb-3 flex items-center justify-between gap-2">
