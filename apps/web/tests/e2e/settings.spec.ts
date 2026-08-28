@@ -78,77 +78,86 @@ async function resetSettingsProbe(page: Page): Promise<void> {
   });
 }
 
-async function stubVehicleDocumentAiSettings(page: Page): Promise<void> {
-  await page.route("**/api/ai/vehicle-document/settings", async (route) => {
-    if (route.request().method() !== "GET") {
-      await route.continue();
+async function stubAiSettings(page: Page): Promise<void> {
+  type ProviderId = "deepseek" | "openai" | "google" | "compatible";
+  type StubSettings = {
+    version: number;
+    providers: Record<ProviderId, { enabled: boolean; hasKey: boolean; keyMask: string | null; baseUrl: string | null }>;
+    routes: Record<string, { enabled: boolean; autoFallback: boolean; steps: Array<{ provider: string; model: string }> }>;
+    updatedAt: string | null;
+    recentEvents: unknown[];
+  };
+  const settings: StubSettings = {
+    version: 2,
+    providers: {
+      deepseek: { enabled: true, hasKey: false, keyMask: null, baseUrl: null },
+      openai: { enabled: true, hasKey: true, keyMask: "••••1234", baseUrl: null },
+      google: { enabled: true, hasKey: false, keyMask: null, baseUrl: null },
+      compatible: { enabled: false, hasKey: false, keyMask: null, baseUrl: null },
+    },
+    routes: {
+      text: { enabled: true, autoFallback: true, steps: [{ provider: "deepseek", model: "deepseek-chat" }, { provider: "openai", model: "gpt-4.1-mini" }] },
+      customer_license: { enabled: true, autoFallback: true, steps: [{ provider: "openai", model: "gpt-4.1" }, { provider: "google", model: "document-text" }] },
+      vehicle_document: { enabled: true, autoFallback: true, steps: [{ provider: "openai", model: "gpt-4.1-mini" }, { provider: "google", model: "document-text" }] },
+    },
+    updatedAt: null,
+    recentEvents: [],
+  };
+  await page.route("**/api/ai/settings", async (route) => {
+    if (route.request().method() === "POST") {
+      await route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ ok: true }) });
       return;
     }
-    await route.fulfill({
-      status: 200,
-      contentType: "application/json",
-      body: JSON.stringify({
-        provider: "openai",
-        openAiModel: "gpt-4.1-nano",
-        hasOpenAiKey: false,
-        hasGoogleKey: false,
-        openAiKeyMask: null,
-        googleKeyMask: null,
-        updatedAt: null,
-      }),
-    });
+    if (route.request().method() === "PUT") {
+      const body = route.request().postDataJSON() as {
+        providers?: Partial<Record<ProviderId, { enabled?: boolean; apiKey?: string; baseUrl?: string }>>;
+        routes?: StubSettings["routes"];
+      };
+      if (body.routes) settings.routes = body.routes;
+      for (const id of Object.keys(settings.providers) as Array<keyof typeof settings.providers>) {
+        const update = body.providers?.[id] as { enabled?: boolean; apiKey?: string; baseUrl?: string } | undefined;
+        if (!update) continue;
+        settings.providers[id].enabled = update.enabled ?? settings.providers[id].enabled;
+        if (update.apiKey) { settings.providers[id].hasKey = true; settings.providers[id].keyMask = `••••${update.apiKey.slice(-4)}`; }
+        if (id === "compatible") settings.providers[id].baseUrl = update.baseUrl || null;
+      }
+    }
+    await route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify(settings) });
+  });
+}
+
+async function stubEmptyMasterData(page: Page): Promise<void> {
+  await page.route("**/api/formal/master-data", async (route) => {
+    await route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ dictionaries: [], staff: [], teams: [], payrollParameters: [], teamCommissionRates: [] }) });
   });
 }
 
 test.beforeEach(async ({ page }) => {
   await usePerformanceIdentity(page, "superadmin");
-  await stubVehicleDocumentAiSettings(page);
+  await stubAiSettings(page);
 });
 
 test.afterEach(async ({ page }) => {
   await assertNoPerformanceRuntimeErrors(page);
 });
 
-test.describe("AI 安全首屏", () => {
-  test.use({ javaScriptEnabled: false });
-
-  test("服务器首屏也显示 AI 已关闭", async ({ page }) => {
-    await page.goto("/settings");
-    await expect(page.getByTestId("settings-ai-provider")).toHaveValue("off");
-    await expect(page.getByText("已关闭", { exact: true })).toBeVisible();
-  });
-});
-
-test("系统设置：AI 默认关闭，可明确启用并持久化设置（#5）", async ({ page }) => {
+test("系统设置：统一展示四个服务商和三条任务路线，密钥不写入浏览器", async ({ page }) => {
+  await stubEmptyMasterData(page);
   await page.goto("/settings");
   await expect(page.getByRole("heading", { level: 1, name: "系统设置" })).toBeVisible();
-  const card = page.getByTestId("settings-ai-card");
-  await expect(card).toBeVisible();
-  await expect(card).toContainText("AI 服务（DeepSeek）");
-
-  // 新浏览器默认关闭，且不预填任何凭据。
-  await expect(page.getByTestId("settings-ai-provider")).toHaveValue("off");
-  const keyValue = await page.getByTestId("settings-ai-key").inputValue();
-  expect(keyValue).toBe("");
-  await expect(page.getByTestId("settings-ai-test")).toBeDisabled();
-
-  // 用户明确启用后，测试值才可保存到当前浏览器上下文。
-  await page.getByTestId("settings-ai-provider").selectOption("deepseek");
-  await page.getByTestId("settings-ai-key").fill("sk-my-new-key-123");
-  await page.getByTestId("settings-ai-save").click();
-  await expect(page.getByTestId("settings-ai-saved")).toContainText("已保存");
-  const stored = await page.evaluate(() => {
-    const raw = localStorage.getItem("wh_ai_settings_v1");
-    return raw ? (JSON.parse(raw) as { provider: string; apiKey: string }) : null;
-  });
-  expect(stored?.apiKey).toBe("sk-my-new-key-123");
-
-  // 关闭 AI → 测试连接按钮禁用
-  await page.getByTestId("settings-ai-provider").selectOption("off");
-  await page.getByTestId("settings-ai-save").click();
-  await expect(page.getByTestId("settings-ai-test")).toBeDisabled();
-  const storedOff = await page.evaluate(() => JSON.parse(localStorage.getItem("wh_ai_settings_v1") ?? "{}") as { provider: string });
-  expect(storedOff.provider).toBe("off");
+  await expect(page.getByTestId("ai-service-center")).toBeVisible();
+  for (const provider of ["deepseek", "openai", "google", "compatible"]) await expect(page.getByTestId(`ai-provider-${provider}`)).toBeVisible();
+  for (const task of ["text", "customer_license", "vehicle_document"]) await expect(page.getByTestId(`ai-route-${task}`)).toBeVisible();
+  await page.getByTestId("ai-provider-deepseek").locator('input[type="password"]').fill("sk-my-new-key-123");
+  await page.getByTestId("ai-center-save").click();
+  await expect(page.getByTestId("ai-center-notice")).toContainText("已保存");
+  expect(await page.evaluate(() => localStorage.getItem("wh_ai_settings_v1"))).toBeNull();
+  await page.setViewportSize({ width: 1920, height: 1600 });
+  await page.getByTestId("ai-service-center").screenshot({ path: "../qa/visual/ai-service-center-desktop.png" });
+  await page.setViewportSize({ width: 390, height: 844 });
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth)).toBe(true);
+  await page.getByTestId("ai-service-center").scrollIntoViewIfNeeded();
+  await page.screenshot({ path: "../qa/visual/ai-service-center-mobile.png" });
 });
 
 test("绩效参数入口：设置全厂默认、维修组特殊比例并恢复默认", async ({ page }) => {
@@ -217,34 +226,15 @@ test("绩效参数入口：设置全厂默认、维修组特殊比例并恢复�
 });
 
 
-test("AI 模型下拉：默认快速模型，可选最强推理模型并持久化（8/18 老板问）", async ({ page }) => {
+test("AI 任务路线：模型可修改且服务顺序可调整", async ({ page }) => {
+  await stubEmptyMasterData(page);
   await page.goto("/settings");
-  const modelSelect = page.getByTestId("settings-ai-model");
-  // 默认快速模型
-  await expect(modelSelect).toHaveValue("deepseek-chat");
-  await expect(modelSelect.locator("option")).toHaveCount(3);
-  await expect(modelSelect.locator('option[value="deepseek-reasoner"]')).toHaveCount(1);
-
-  // 切到最强推理模型 → 保存 → localStorage 持久化
-  await modelSelect.selectOption("deepseek-reasoner");
-  await page.getByTestId("settings-ai-save").click();
-  await expect(page.getByTestId("settings-ai-saved")).toContainText("已保存");
-  const storedReasoner = await page.evaluate(() => {
-    const raw = localStorage.getItem("wh_ai_settings_v1");
-    return raw ? (JSON.parse(raw) as { model: string }) : null;
-  });
-  expect(storedReasoner?.model).toBe("deepseek-reasoner");
-
-  // 自定义模型名：出现输入框，保存任意模型名
-  await modelSelect.selectOption("custom");
-  await expect(page.getByTestId("settings-ai-model-custom")).toBeVisible();
-  await page.getByTestId("settings-ai-model-custom").fill("deepseek-chat");
-  await page.getByTestId("settings-ai-save").click();
-  const storedCustom = await page.evaluate(() => {
-    const raw = localStorage.getItem("wh_ai_settings_v1");
-    return raw ? (JSON.parse(raw) as { model: string }) : null;
-  });
-  expect(storedCustom?.model).toBe("deepseek-chat");
+  const route = page.getByTestId("ai-route-text");
+  await route.getByLabel("文本拆单与翻译第1模型").fill("deepseek-reasoner");
+  await route.getByRole("button", { name: "下移" }).first().click();
+  await expect(route.getByLabel("文本拆单与翻译第1服务")).toHaveValue("openai");
+  await page.getByTestId("ai-center-save").click();
+  await expect(page.getByTestId("ai-center-notice")).toContainText("已保存");
 });
 
 test("重置演示偏好只清偏好，不清业务账本或无关设置", async ({ page }) => {

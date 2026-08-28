@@ -32,6 +32,7 @@ export default defineConfig({
     timeout: 120_000,
     env: {
       PORT: port,
+      NEXT_DIST_DIR: ".next-e2e",
       NEXT_PUBLIC_FORMAL_AUTH: "false",
       npm_config_cache:
         "/Volumes/公司文件/Whole Hearted Car Service 综合管理系统_协作开发/.cache/npm",

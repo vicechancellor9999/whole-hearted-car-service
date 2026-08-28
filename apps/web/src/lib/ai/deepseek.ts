@@ -1,5 +1,3 @@
-import { loadAiSettings } from "./settings";
-
 export interface DeepseekMessage {
   readonly role: "system" | "user" | "assistant";
   readonly content: string;
@@ -13,16 +11,10 @@ export async function deepseekChat(input: {
   messages: ReadonlyArray<DeepseekMessage>;
   json?: boolean;
 }): Promise<string> {
-  const settings = loadAiSettings();
-  if (settings.provider !== "deepseek" || !settings.apiKey.trim()) {
-    throw new Error("AI 服务未启用（系统设置里可关闭）");
-  }
   const response = await fetch("/api/ai/chat", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({
-      apiKey: settings.apiKey,
-      model: settings.model,
       messages: input.messages,
       json: input.json === true,
     }),

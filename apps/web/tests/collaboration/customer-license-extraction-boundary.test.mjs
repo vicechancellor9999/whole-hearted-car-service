@@ -161,6 +161,8 @@ test("active packages and runtime contain no provider SDK, secret literal, direc
     "src/app/settings/page.tsx",
     "src/lib/server/customer-driver-license-recognizer.ts",
     "src/lib/server/vehicle-document-ai-settings.ts",
+    "src/lib/server/ai-provider-connection.ts",
+    "src/lib/server/ai-service-settings.ts",
   ]);
   const matches = [];
   for (const file of trackedFiles("src", "scripts", "package.json")) {

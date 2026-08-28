@@ -1,12 +1,13 @@
 "use client";
 
-import { Camera, FileImage, Keyboard, ScanLine, ShieldCheck } from "lucide-react";
+import { Camera, ClipboardPaste, FileImage, Keyboard, ScanLine, ShieldCheck, Upload } from "lucide-react";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { LicenseImageEditor } from "@/components/customers/license-image-editor";
 import { recognizeFormalCustomerLicense } from "@/lib/customers/formal-customer-license-client";
 import type { CustomerLicenseRecognition } from "@/lib/customers/customer-driver-license-recognition";
 import type { LicenseImageTransform } from "@/lib/customers/license-extraction/image-input";
 import { cn } from "@/lib/utils";
+import { isEditablePasteTarget, selectSingleDocumentImage } from "@/lib/customers/document-image-selection";
 
 export type FormalCustomerLicenseValue = {
   file: File | null;
@@ -52,6 +53,7 @@ export function FormalCustomerLicenseSection({
   const [imageUrl, setImageUrl] = useState<string | null>(null);
   const [recognitionState, setRecognitionState] = useState<"idle" | "running" | "success" | "error">("idle");
   const [error, setError] = useState<string | null>(null);
+  const [dragging, setDragging] = useState(false);
   const abortRef = useRef<AbortController | null>(null);
   const attemptRef = useRef(0);
   const revisionRef = useRef(0);
@@ -94,14 +96,27 @@ export function FormalCustomerLicenseSection({
     onChange(next);
   }, [onChange]);
 
-  const chooseFile = (file: File | null) => {
-    if (!file) return;
-    if (!(["image/jpeg", "image/png"].includes(file.type)) || file.size <= 0 || file.size > 12 * 1024 * 1024) {
-      setError("仅支持 12 MB 以内的有效 JPEG 或 PNG 驾驶证图片");
+  const chooseFiles = useCallback((files: Iterable<File>) => {
+    const selection = selectSingleDocumentImage(files);
+    if ("error" in selection) {
+      setError(selection.error);
       return;
     }
-    update({ ...emptyFormalCustomerLicense(), file, mode: value.mode });
-  };
+    update({ ...emptyFormalCustomerLicense(), file: selection.file, mode: value.mode });
+  }, [update, value.mode]);
+
+  useEffect(() => {
+    if (disabled) return;
+    const onPaste = (event: ClipboardEvent) => {
+      if (isEditablePasteTarget(event.target)) return;
+      const files = Array.from(event.clipboardData?.files ?? []).filter((file) => file.type.startsWith("image/"));
+      if (!files.length) return;
+      event.preventDefault();
+      chooseFiles(files);
+    };
+    window.addEventListener("paste", onPaste);
+    return () => window.removeEventListener("paste", onPaste);
+  }, [chooseFiles, disabled]);
 
   const recognize = async () => {
     if (!value.file) return;
@@ -164,17 +179,28 @@ export function FormalCustomerLicenseSection({
         </div>
 
         {!imageUrl ? (
-          <label className="flex min-h-32 cursor-pointer flex-col items-center justify-center rounded-2xl border border-dashed border-primary/35 bg-surface px-4 text-center dark:bg-slate-900/50">
-            <Camera size={22} className="text-primary" aria-hidden />
-            <strong className="mt-2 text-sm text-ink dark:text-slate-100">拍摄或选择驾驶证正面</strong>
+          <label
+            data-testid="formal-customer-license-dropzone"
+            onDragEnter={(event) => { event.preventDefault(); setDragging(true); }}
+            onDragOver={(event) => { event.preventDefault(); event.dataTransfer.dropEffect = "copy"; setDragging(true); }}
+            onDragLeave={(event) => { event.preventDefault(); if (!event.currentTarget.contains(event.relatedTarget as Node | null)) setDragging(false); }}
+            onDrop={(event) => { event.preventDefault(); setDragging(false); chooseFiles(event.dataTransfer.files); }}
+            className={cn(
+              "flex min-h-36 cursor-pointer flex-col items-center justify-center rounded-2xl border border-dashed px-4 text-center transition-colors dark:bg-slate-900/50",
+              dragging ? "border-primary bg-primary-50 ring-2 ring-primary/20" : "border-primary/35 bg-surface",
+            )}
+          >
+            {dragging ? <Upload size={24} className="text-primary" aria-hidden /> : <Camera size={22} className="text-primary" aria-hidden />}
+            <strong className="mt-2 text-sm text-ink dark:text-slate-100">拖拽、粘贴、拍摄或选择驾驶证正面</strong>
+            <span className="mt-1 inline-flex items-center gap-1 text-[11px] text-ink-soft"><ClipboardPaste size={13} aria-hidden />支持 Command/Ctrl + V · JPEG/PNG · 12 MB 以内</span>
             <span className="mt-1 text-[11px] text-ink-soft">资料只提交到正式系统</span>
-            <input type="file" accept="image/jpeg,image/png" capture="environment" data-testid="formal-customer-license-file" onChange={(event) => chooseFile(event.target.files?.[0] ?? null)} className="sr-only" />
+            <input type="file" accept="image/jpeg,image/png" capture="environment" data-testid="formal-customer-license-file" onChange={(event) => chooseFiles(event.target.files ?? [])} className="sr-only" />
           </label>
         ) : (
           <div className="space-y-3">
             <div className="flex flex-wrap items-center justify-between gap-2">
               <span className="inline-flex items-center gap-2 text-xs font-semibold text-ink-soft"><FileImage size={15} aria-hidden />已加载证件正面</span>
-              <label className="cursor-pointer rounded-lg border border-primary px-3 py-2 text-xs font-bold text-primary">更换图片<input type="file" accept="image/jpeg,image/png" capture="environment" onChange={(event) => chooseFile(event.target.files?.[0] ?? null)} className="sr-only" /></label>
+              <label className="cursor-pointer rounded-lg border border-primary px-3 py-2 text-xs font-bold text-primary">更换图片<input type="file" accept="image/jpeg,image/png" capture="environment" onChange={(event) => chooseFiles(event.target.files ?? [])} className="sr-only" /></label>
             </div>
             <LicenseImageEditor imageUrl={imageUrl} transform={value.transform} disabled={recognitionState === "running"} onChange={(transform) => update({ ...value, transform, attested: false })} />
           </div>

@@ -54,6 +54,8 @@ export async function prepareCustomerDriverLicenseImage(
     const prepared = await sharp(oriented)
       .extract(crop)
       .resize({ width: 1600, height: 1600, fit: "inside", withoutEnlargement: true })
+      .normalize({ lower: 1, upper: 99 })
+      .sharpen({ sigma: 0.8, m1: 0.8, m2: 1.5 })
       .jpeg({ quality: 90, chromaSubsampling: "4:4:4" })
       .toBuffer({ resolveWithObject: true });
     return {

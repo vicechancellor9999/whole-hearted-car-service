@@ -1,55 +1,85 @@
 import { NextResponse } from "next/server";
+import { currentSession } from "@formal/modules/auth/current-session";
 import { isReasoningModel } from "@/lib/ai/settings";
+import { executeAiTask, type AiAttemptContext } from "@/lib/server/ai-route-executor";
+import { recordAiServiceEvent } from "@/lib/server/ai-service-events";
 
 export const runtime = "nodejs";
 
-const DEEPSEEK_ENDPOINT = "https://api.deepseek.com/chat/completions";
+type Message = { role: "system" | "user" | "assistant"; content: string };
 
-/**
- * DeepSeek 服务端代理（老板 2026-08-18 要求接入）：
- * 浏览器把密钥连同消息发到这里，服务端转发，浏览器不直连 DeepSeek。
- * 原型阶段密钥存浏览器 localStorage；正式系统密钥只允许放服务端环境变量。
- */
 export async function POST(request: Request) {
-  const body = await request.json().catch(() => null) as {
-    apiKey?: string; model?: string; messages?: Array<{ role: string; content: string }>; json?: boolean;
-  } | null;
-  const apiKey = typeof body?.apiKey === "string" ? body.apiKey.trim() : "";
-  const messages = Array.isArray(body?.messages) ? body.messages : [];
-  if (!apiKey) return NextResponse.json({ error: "未配置 DeepSeek 密钥" }, { status: 400 });
-  if (messages.length === 0) return NextResponse.json({ error: "对话内容不能为空" }, { status: 400 });
-
-  const model = typeof body?.model === "string" && body.model.trim() ? body.model.trim() : "deepseek-chat";
-  // 推理模型（deepseek-reasoner）不接受 temperature/max_tokens/response_format，且思考耗时长：
-  // 代理按模型自动适配参数与超时，老板在设置里切到最强模型即可用。
-  const reasoning = isReasoningModel(model);
-  let upstream: Response;
   try {
-    upstream = await fetch(DEEPSEEK_ENDPOINT, {
-      method: "POST",
-      headers: { "Content-Type": "application/json", Authorization: `Bearer ${apiKey}` },
-      body: JSON.stringify(reasoning
-        ? { model, messages, max_tokens: 4_000 }
-        : {
-            model,
-            messages,
-            temperature: 0.2,
-            max_tokens: 2_000,
-            ...(body?.json === true ? { response_format: { type: "json_object" } } : {}),
-          }),
-      signal: AbortSignal.timeout(reasoning ? 120_000 : 30_000),
+    if (!await currentSession()) return NextResponse.json({ error: "请先登录" }, { status: 401 });
+  } catch {
+    return NextResponse.json({ error: "登录服务暂时不可用" }, { status: 503 });
+  }
+  const body = await request.json().catch(() => null) as { messages?: unknown; json?: unknown } | null;
+  const messages = normalizeMessages(body?.messages);
+  if (!messages.length) return NextResponse.json({ error: "对话内容不能为空" }, { status: 400 });
+  const expectsJson = body?.json === true;
+  try {
+    const result = await executeAiTask({
+      task: "text",
+      attempt: (context) => requestChat(context, messages, expectsJson),
+      assess: (content) => ({ acceptable: validContent(content, expectsJson), score: validContent(content, expectsJson) ? 1 : 0 }),
+      recordEvent: recordAiServiceEvent,
     });
+    return NextResponse.json({ content: result.value });
   } catch (error) {
-    return NextResponse.json({ error: error instanceof Error ? error.message : "AI 服务不可达" }, { status: 502 });
+    if (error instanceof DOMException && error.name === "AbortError") return NextResponse.json({ error: "请求已取消" }, { status: 499 });
+    return NextResponse.json({ error: "AI 服务暂时不可用，系统将使用本地规则" }, { status: 502 });
   }
+}
 
-  const payload = await upstream.json().catch(() => null) as {
-    choices?: Array<{ message?: { content?: string } }>;
-    error?: { message?: string };
-  } | null;
-  if (!upstream.ok) {
-    return NextResponse.json({ error: payload?.error?.message ?? `DeepSeek ${upstream.status}` }, { status: 502 });
+function validContent(content: string, expectsJson: boolean): boolean {
+  if (!content.trim()) return false;
+  if (!expectsJson) return true;
+  try {
+    const parsed = JSON.parse(content) as unknown;
+    return Boolean(parsed && typeof parsed === "object" && !Array.isArray(parsed));
+  } catch {
+    return false;
   }
-  const content = payload?.choices?.[0]?.message?.content ?? "";
-  return NextResponse.json({ content });
+}
+
+function normalizeMessages(value: unknown): Message[] {
+  if (!Array.isArray(value) || value.length > 30) return [];
+  const result: Message[] = [];
+  for (const item of value) {
+    if (!item || typeof item !== "object") return [];
+    const role = (item as { role?: unknown }).role;
+    const content = (item as { content?: unknown }).content;
+    if ((role !== "system" && role !== "user" && role !== "assistant") || typeof content !== "string" || !content.trim() || content.length > 30_000) return [];
+    result.push({ role, content });
+  }
+  return result;
+}
+
+async function requestChat(context: AiAttemptContext, messages: Message[], json: boolean): Promise<string> {
+  if (context.provider === "google") throw new Error("Google Vision does not support text chat");
+  const baseUrl = context.provider === "deepseek"
+    ? "https://api.deepseek.com/v1"
+    : context.provider === "openai"
+      ? "https://api.openai.com/v1"
+      : context.baseUrl;
+  if (!baseUrl) throw new Error("compatible endpoint missing");
+  const reasoning = context.provider === "deepseek" && isReasoningModel(context.model);
+  const response = await fetch(`${baseUrl.replace(/\/$/, "")}/chat/completions`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", Authorization: `Bearer ${context.apiKey}` },
+    body: JSON.stringify(reasoning
+      ? { model: context.model, messages, max_tokens: 4_000 }
+      : {
+          model: context.model,
+          messages,
+          temperature: 0.2,
+          max_tokens: 2_000,
+          ...(json ? { response_format: { type: "json_object" } } : {}),
+        }),
+    signal: AbortSignal.timeout(reasoning ? 120_000 : 30_000),
+  });
+  const payload = await response.json().catch(() => null) as { choices?: Array<{ message?: { content?: string } }> } | null;
+  if (!response.ok) throw Object.assign(new Error("upstream chat failed"), { status: response.status });
+  return payload?.choices?.[0]?.message?.content?.trim() ?? "";
 }

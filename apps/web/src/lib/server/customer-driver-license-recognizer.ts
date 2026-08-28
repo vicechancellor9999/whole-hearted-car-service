@@ -3,8 +3,11 @@ import {
   type CustomerLicenseRecognition,
 } from "@/lib/customers/customer-driver-license-recognition";
 import type { PreparedCustomerDriverLicenseImage } from "@/lib/server/customer-driver-license-image";
+import { executeAiTask, type AiAttemptContext } from "@/lib/server/ai-route-executor";
+import type { AiRouteEvent } from "@/lib/server/ai-route-executor";
+import { recordAiServiceEvent } from "@/lib/server/ai-service-events";
+import type { AiServiceSettings } from "@/lib/server/ai-service-settings";
 import {
-  getVehicleDocumentAiCredential,
   type OpenAiVehicleVisionModel,
   type VehicleDocumentAiProvider,
 } from "@/lib/server/vehicle-document-ai-settings";
@@ -29,17 +32,63 @@ export async function recognizeCustomerDriverLicense(
     fetcher?: typeof fetch;
     now?: Date;
     signal?: AbortSignal;
+    settings?: AiServiceSettings;
+    recordEvent?: (event: AiRouteEvent) => Promise<void>;
   } = {},
 ): Promise<CustomerLicenseRecognition> {
-  const credential = options.credential ?? await getVehicleDocumentAiCredential();
   const fetcher = options.fetcher ?? fetch;
   const signal = options.signal
     ? AbortSignal.any([options.signal, AbortSignal.timeout(60_000)])
     : AbortSignal.timeout(60_000);
-  const fields = credential.provider === "openai"
-    ? await recognizeWithOpenAi(image, credential, fetcher, signal)
-    : await recognizeWithGoogle(image, credential, fetcher, signal);
-  return recognitionFromFields(fields, options.now);
+  if (options.credential) {
+    const fields = options.credential.provider === "openai"
+      ? await recognizeWithOpenAi(image, options.credential, fetcher, signal)
+      : await recognizeWithGoogle(image, options.credential, fetcher, signal);
+    return recognitionFromFields(fields, options.now);
+  }
+  const routed = await executeAiTask({
+    task: "customer_license",
+    attempt: async (context) => recognitionFromFields(
+      await recognizeWithContext(image, context, fetcher, signal),
+      options.now,
+    ),
+    assess: (value) => {
+      const score = Object.values(value.status).filter((status) => status === "extracted").length;
+      return { acceptable: score === 4, score };
+    },
+    settings: options.settings,
+    recordEvent: options.recordEvent ?? recordAiServiceEvent,
+  });
+  return routed.value;
+}
+
+async function recognizeWithContext(
+  image: PreparedCustomerDriverLicenseImage,
+  context: AiAttemptContext,
+  fetcher: typeof fetch,
+  signal: AbortSignal,
+): Promise<Record<string, unknown>> {
+  if (context.provider === "google") {
+    return recognizeWithGoogle(image, { provider: "google", apiKey: context.apiKey, openAiModel: "gpt-4.1-nano" }, fetcher, signal);
+  }
+  if (context.provider === "openai") {
+    return recognizeWithOpenAi(image, { provider: "openai", apiKey: context.apiKey, openAiModel: openAiModel(context.model) }, fetcher, signal);
+  }
+  if (context.provider === "compatible" && context.baseUrl) {
+    return recognizeWithOpenAi(
+      image,
+      { provider: "openai", apiKey: context.apiKey, openAiModel: openAiModel(context.model) },
+      fetcher,
+      signal,
+      `${context.baseUrl}/responses`,
+      context.model,
+    );
+  }
+  throw new Error("provider does not support customer license vision");
+}
+
+function openAiModel(model: string): OpenAiVehicleVisionModel {
+  return model === "gpt-4.1" || model === "gpt-4.1-mini" || model === "gpt-4.1-nano" ? model : "gpt-4.1";
 }
 
 export function parseJamaicaDriverLicenseText(text: string): Record<string, unknown> {
@@ -68,12 +117,14 @@ async function recognizeWithOpenAi(
   credential: Credential,
   fetcher: typeof fetch,
   signal: AbortSignal,
+  endpoint = "https://api.openai.com/v1/responses",
+  modelOverride?: string,
 ): Promise<Record<string, unknown>> {
-  const response = await fetcher("https://api.openai.com/v1/responses", {
+  const response = await fetcher(endpoint, {
     method: "POST",
     headers: { "Content-Type": "application/json", Authorization: `Bearer ${credential.apiKey}` },
     body: JSON.stringify({
-      model: credential.openAiModel,
+      model: modelOverride ?? credential.openAiModel,
       store: false,
       input: [{
         role: "user",
@@ -109,7 +160,7 @@ async function recognizeWithOpenAi(
     signal,
   });
   const payload = await response.json().catch(() => null) as unknown;
-  if (!response.ok) throw new Error("customer license OpenAI request failed");
+  if (!response.ok) throw Object.assign(new Error("customer license OpenAI request failed"), { status: response.status });
   const content = responseText(payload);
   if (!content) throw new Error("customer license OpenAI response missing");
   return exactProviderFields(JSON.parse(content));
@@ -140,7 +191,7 @@ async function recognizeWithGoogle(
     error?: unknown;
   } | null;
   if (!response.ok || payload?.error || payload?.responses?.[0]?.error) {
-    throw new Error("customer license Google request failed");
+    throw Object.assign(new Error("customer license Google request failed"), { status: response.status });
   }
   const text = payload?.responses?.[0]?.fullTextAnnotation?.text;
   return parseJamaicaDriverLicenseText(typeof text === "string" ? text : "");

@@ -73,6 +73,11 @@ export function getUnifiedRuntimeConfig(
     NEXT_PUBLIC_USE_MOCK: "false",
     VEHICLE_DOCUMENT_AI_SETTINGS_PATH: source.VEHICLE_DOCUMENT_AI_SETTINGS_PATH
       ?? path.join(resolvedProjectRoot, ".runtime", "vehicle-document-ai-settings.json"),
+    AI_SERVICE_SETTINGS_PATH: source.AI_SERVICE_SETTINGS_PATH
+      ?? source.VEHICLE_DOCUMENT_AI_SETTINGS_PATH
+      ?? path.join(resolvedProjectRoot, ".runtime", "vehicle-document-ai-settings.json"),
+    AI_SERVICE_EVENTS_PATH: source.AI_SERVICE_EVENTS_PATH
+      ?? path.join(resolvedProjectRoot, ".runtime", "ai-service-events.jsonl"),
   };
   delete childEnvironment.FORMAL_BACKEND_ORIGIN;
 

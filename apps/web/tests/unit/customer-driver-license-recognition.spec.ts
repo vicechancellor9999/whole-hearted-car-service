@@ -7,6 +7,7 @@ import {
   parseJamaicaDriverLicenseText,
   recognizeCustomerDriverLicense,
 } from "../../src/lib/server/customer-driver-license-recognizer";
+import type { AiServiceSettings } from "../../src/lib/server/ai-service-settings";
 
 test("customer driver license DTO rejects extra keys and downgrades invalid fields", () => {
   expect(() => validateCustomerLicenseRecognition({
@@ -107,4 +108,41 @@ test("customer driver license Google parser is deterministic and leaves missing 
       address: "manual_required",
     },
   });
+});
+
+test("customer driver license falls back when the first provider returns incomplete fields", async () => {
+  const settings: AiServiceSettings = {
+    version: 2,
+    providers: {
+      deepseek: { enabled: false, apiKey: null, baseUrl: null },
+      openai: { enabled: true, apiKey: "openai-private", baseUrl: null },
+      google: { enabled: true, apiKey: "google-private", baseUrl: null },
+      compatible: { enabled: false, apiKey: null, baseUrl: null },
+    },
+    routes: {
+      text: { enabled: false, autoFallback: true, steps: [] },
+      customer_license: { enabled: true, autoFallback: true, steps: [
+        { provider: "openai", model: "gpt-4.1" },
+        { provider: "google", model: "document-text" },
+      ] },
+      vehicle_document: { enabled: false, autoFallback: true, steps: [] },
+    },
+    updatedAt: new Date(0).toISOString(),
+  };
+  const calls: string[] = [];
+  const result = await recognizeCustomerDriverLicense({
+    buffer: Buffer.from("prepared-image"), mimeType: "image/jpeg", width: 100, height: 60,
+  }, {
+    settings,
+    recordEvent: async () => {},
+    now: new Date("2026-08-27T00:00:00Z"),
+    fetcher: async (input) => {
+      const url = String(input);
+      calls.push(url);
+      if (url.includes("openai.com")) return Response.json({ output_text: JSON.stringify({ name: "DAVID BROWN", birthDate: null, sex: null, address: null }) });
+      return Response.json({ responses: [{ fullTextAnnotation: { text: "NAME: DAVID BROWN\nDATE OF BIRTH: 02/01/1984\nSEX: M\nADDRESS: 4 KING STREET" } }] });
+    },
+  });
+  expect(calls).toHaveLength(2);
+  expect(result.fields).toEqual({ name: "DAVID BROWN", birthDate: "1984-01-02", sex: "M", address: "4 KING STREET" });
 });

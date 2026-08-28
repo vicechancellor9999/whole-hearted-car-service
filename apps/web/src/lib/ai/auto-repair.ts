@@ -1,5 +1,4 @@
 import { deepseekChat } from "./deepseek";
-import { aiEnabled } from "./settings";
 import type { ParsedInspectionItem } from "../orders/ir-nl-parse";
 import type { ParsedChargeEntry, ParsedChargeNote, ParsedQuickItem } from "../orders/nl-parse";
 
@@ -45,7 +44,6 @@ export interface AiParsedQuickItem {
 }
 
 export async function aiParseQuickOrder(rawInput: string): Promise<AiParsedQuickItem[] | null> {
-  if (!aiEnabled()) return null;
   try {
     const content = await deepseekChat({
       json: true,
@@ -94,7 +92,7 @@ const FORMAL_CHARGE_PARSE_SYSTEM = `你是牙买加 Kingston 汽修厂（Whole H
  * 一次模型调用同时返回收费项目和版本化备注；任何结构异常都整批回退本地规则器。
  */
 export async function aiParseFormalChargeEntry(rawInput: string): Promise<ParsedChargeEntry | null> {
-  if (!rawInput.trim() || !aiEnabled()) return null;
+  if (!rawInput.trim()) return null;
   try {
     const content = await deepseekChat({
       json: true,
@@ -191,7 +189,6 @@ export type AiParsedInspectionItem = ParsedInspectionItem & {
 };
 
 export async function aiParseInspectionNaturalLanguage(rawText: string): Promise<AiParsedInspectionItem[] | null> {
-  if (!aiEnabled()) return null;
   try {
     const content = await deepseekChat({
       json: true,
@@ -267,7 +264,6 @@ const TRANSLATE_SYSTEM = `你是牙买加 Kingston 汽修厂的翻译，把中�
 要求：自然、简短、口语化；金额与单位照抄；只输出译文，不要解释。`;
 
 export async function aiTranslateRepair(zhText: string): Promise<string | null> {
-  if (!aiEnabled()) return null;
   try {
     const content = await deepseekChat({
       messages: [
@@ -310,7 +306,6 @@ export async function aiOrganizeInspectionReport(input: {
     nextStepZh?: string;
   }>;
 }): Promise<AiOrganizedInspectionReport | null> {
-  if (!aiEnabled()) return null;
   try {
     const user = JSON.stringify({
       rawText: input.rawText,
