@@ -1,8 +1,15 @@
+import { createHash } from "node:crypto";
 import type {
   AuthSqlDatabase,
   AuthSqlExecutor,
 } from "@formal/modules/auth/session-repository";
-import { recordDeleteDenied, recordNotFound } from "@formal/modules/record-deletion/record-deletion-errors";
+import { writeAuditEvent } from "@formal/modules/audit/audit-service";
+import {
+  deletionPreviewStale,
+  deletionRequestConflict,
+  recordDeleteDenied,
+  recordNotFound,
+} from "@formal/modules/record-deletion/record-deletion-errors";
 import {
   evaluateDeletionGraph,
   type BusinessOrderDeletionFact,
@@ -14,6 +21,8 @@ import {
 } from "@formal/modules/record-deletion/record-deletion-policy";
 import type {
   RecordDeletionPreview,
+  RecordDeletionExecuteInput,
+  RecordDeletionResult,
   RecordKind,
   RecordLocator,
   RecordReference,
@@ -24,6 +33,13 @@ export type PreviewDeletionInput = {
   root: RecordLocator;
   selectedRecords?: RecordLocator[];
   actorAccountId: number;
+};
+
+export type RecordDeletionActionContext = {
+  actorAccountId: number;
+  now?: Date;
+  ipAddress?: string | null;
+  userAgent?: string | null;
 };
 
 type ResolvedRecord = RecordReference & { id: number };
@@ -81,6 +97,113 @@ export class RecordDeletionService {
 
     return evaluateDeletionGraph(root, selectedLocators, facts);
   }
+
+  async execute(
+    input: RecordDeletionExecuteInput & RecordDeletionActionContext,
+  ): Promise<RecordDeletionResult> {
+    const payloadHash = deletionPayloadHash(input);
+    return this.database.transaction(async (transaction) => {
+      await requireRecordDeletePermission(transaction, input.actorAccountId);
+      const prior = await transaction.query<{
+        actor_account_id: number;
+        payload_hash: string;
+        result: RecordDeletionResult | string;
+      }>(
+        `select actor_account_id, payload_hash, result
+         from record_deletion_receipts
+         where request_id = $1
+         for update`,
+        [input.requestId],
+      );
+      if (prior[0]) {
+        if (Number(prior[0].actor_account_id) !== input.actorAccountId
+            || prior[0].payload_hash !== payloadHash) {
+          throw deletionRequestConflict();
+        }
+        return parseDeletionResult(prior[0].result);
+      }
+
+      const root = await resolveRecord(transaction, input.root, true);
+      if (!root) throw recordNotFound();
+      const selected = await Promise.all(
+        input.selectedRecords.map((locator) => resolveRecord(transaction, locator, true)),
+      );
+      if (selected.some((record) => record === null)) throw deletionPreviewStale();
+      const selectedRecords = selected as ResolvedRecord[];
+      const facts = await loadDeletionFacts(transaction, root, selectedRecords);
+      const preview = evaluateDeletionGraph(root, input.selectedRecords, facts);
+      if (!preview.eligible || preview.previewFingerprint !== input.previewFingerprint) {
+        throw deletionPreviewStale();
+      }
+
+      const provisional: RecordDeletionResult = {
+        requestId: input.requestId,
+        root: input.root,
+        deletedRecords: [],
+        dependentCounts: {},
+        releasedIdentityKinds: [],
+        fileCleanupPending: 0,
+      };
+      await transaction.query(
+        `insert into record_deletion_receipts
+          (request_id, actor_account_id, payload_hash, root_kind,
+           root_record_no, reason_code, result, created_at)
+         values ($1, $2, $3, $4, $5, $6, $7::jsonb, $8)`,
+        [
+          input.requestId,
+          input.actorAccountId,
+          payloadHash,
+          input.root.kind,
+          input.root.recordNo,
+          input.reasonCode,
+          JSON.stringify(provisional),
+          input.now ?? new Date(),
+        ],
+      );
+      await transaction.query(
+        `select set_config('app.record_deletion_request_id', $1, true)`,
+        [input.requestId],
+      );
+
+      const fileCleanupPending = await deleteSelectedGraph(
+        transaction,
+        selectedRecords,
+        input.requestId,
+      );
+      const result: RecordDeletionResult = {
+        requestId: input.requestId,
+        root: input.root,
+        deletedRecords: input.selectedRecords,
+        dependentCounts: preview.dependentCounts,
+        releasedIdentityKinds: preview.releasedIdentityKinds,
+        fileCleanupPending,
+      };
+      await writeAuditEvent(transaction, {
+        occurredAt: input.now,
+        actorAccountId: input.actorAccountId,
+        eventType: "record.deleted",
+        objectType: input.root.kind,
+        objectId: input.root.recordNo,
+        reason: input.reasonCode,
+        after: {
+          deletedRecords: input.selectedRecords.map((record) => ({
+            kind: record.kind,
+            recordNo: record.recordNo,
+          })),
+          dependentCounts: preview.dependentCounts,
+          fileCleanupPending,
+        },
+        requestId: input.requestId,
+        ipAddress: input.ipAddress,
+        userAgent: input.userAgent,
+      });
+      await transaction.query(
+        `update record_deletion_receipts set result = $2::jsonb where request_id = $1`,
+        [input.requestId, JSON.stringify(result)],
+      );
+      return result;
+    });
+  }
 }
 
 async function requireRecordDeletePermission(
@@ -103,6 +226,7 @@ async function requireRecordDeletePermission(
 async function resolveRecord(
   executor: AuthSqlExecutor,
   locator: RecordLocator,
+  lock = false,
 ): Promise<ResolvedRecord | null> {
   let rows: Array<CustomerRow | VehicleRow | OrderRow | InspectionRow>;
   switch (locator.kind) {
@@ -110,35 +234,35 @@ async function resolveRecord(
       rows = await executor.query<CustomerRow>(
         `select id, customer_no as record_no, version,
                 normalized_phone as phone_value, trn
-         from personal_customers where customer_no = $1 limit 1`,
+         from personal_customers where customer_no = $1 limit 1${lock ? " for update" : ""}`,
         [locator.recordNo],
       );
       break;
     case "company_customer":
       rows = await executor.query<CustomerRow>(
         `select id, company_no as record_no, version, phone as phone_value, trn
-         from company_accounts where company_no = $1 limit 1`,
+         from company_accounts where company_no = $1 limit 1${lock ? " for update" : ""}`,
         [locator.recordNo],
       );
       break;
     case "vehicle":
       rows = await executor.query<VehicleRow>(
         `select id, vehicle_no as record_no, version, normalized_plate, vin
-         from vehicles where vehicle_no = $1 limit 1`,
+         from vehicles where vehicle_no = $1 limit 1${lock ? " for update" : ""}`,
         [locator.recordNo],
       );
       break;
     case "business_order":
       rows = await executor.query<OrderRow>(
         `select id, order_no as record_no, version, status
-         from business_orders where order_no = $1 limit 1`,
+         from business_orders where order_no = $1 limit 1${lock ? " for update" : ""}`,
         [locator.recordNo],
       );
       break;
     case "inspection_report":
       rows = await executor.query<InspectionRow>(
         `select id, report_no as record_no, version, status
-         from inspection_reports where report_no = $1 limit 1`,
+         from inspection_reports where report_no = $1 limit 1${lock ? " for update" : ""}`,
         [locator.recordNo],
       );
       break;
@@ -485,4 +609,269 @@ function recordKey(record: RecordLocator): string {
 
 function numberAt(row: Record<string, number>, key: string): number {
   return Number(row[key] ?? 0);
+}
+
+function deletionPayloadHash(
+  input: RecordDeletionExecuteInput & RecordDeletionActionContext,
+): string {
+  const payload = {
+    actorAccountId: input.actorAccountId,
+    root: input.root,
+    selectedRecords: [...input.selectedRecords].sort((left, right) =>
+      recordKey(left).localeCompare(recordKey(right))),
+    reasonCode: input.reasonCode,
+    reasonNote: input.reasonNote,
+    confirmationRecordNo: input.confirmationRecordNo,
+    previewFingerprint: input.previewFingerprint,
+  };
+  return createHash("sha256").update(JSON.stringify(payload)).digest("hex");
+}
+
+function parseDeletionResult(value: RecordDeletionResult | string): RecordDeletionResult {
+  return typeof value === "string"
+    ? JSON.parse(value) as RecordDeletionResult
+    : value;
+}
+
+async function deleteSelectedGraph(
+  transaction: AuthSqlExecutor,
+  records: ResolvedRecord[],
+  requestId: string,
+): Promise<number> {
+  const inspectionIds = idsFor(records, "inspection_report");
+  const orderIds = idsFor(records, "business_order");
+  const vehicleIds = idsFor(records, "vehicle");
+  const personalCustomerIds = idsFor(records, "personal_customer");
+  const companyCustomerIds = idsFor(records, "company_customer");
+  const candidateFileIds = new Set<number>();
+
+  if (inspectionIds.length > 0) {
+    const paperFiles = await transaction.query<{ file_id: number }>(
+      `select paper_photo_file_id as file_id
+       from inspection_reports
+       where id = any($1::bigint[]) and paper_photo_file_id is not null`,
+      [inspectionIds],
+    );
+    paperFiles.forEach((row) => candidateFileIds.add(Number(row.file_id)));
+    await authorizeRowsFromQuery(
+      transaction,
+      requestId,
+      "inspection_report_findings",
+      `select id::text from inspection_report_findings
+       where inspection_report_id = any($2::bigint[])`,
+      [inspectionIds],
+    );
+    await transaction.query(
+      `delete from inspection_report_findings
+       where inspection_report_id = any($1::bigint[])`,
+      [inspectionIds],
+    );
+    await transaction.query(
+      `delete from inspection_reports where id = any($1::bigint[])`,
+      [inspectionIds],
+    );
+  }
+
+  if (orderIds.length > 0) {
+    for (const [tableName, source] of [
+      [
+        "business_order_charge_items",
+        `select item.id::text
+         from business_order_charge_items as item
+         join business_order_charge_versions as charge
+           on charge.id = item.charge_version_id
+         where charge.business_order_id = any($2::bigint[])`,
+      ],
+      [
+        "business_order_notes",
+        `select note.id::text
+         from business_order_notes as note
+         join business_order_charge_versions as charge
+           on charge.id = note.charge_version_id
+         where charge.business_order_id = any($2::bigint[])`,
+      ],
+      [
+        "business_order_charge_versions",
+        `select id::text from business_order_charge_versions
+         where business_order_id = any($2::bigint[])`,
+      ],
+    ] as const) {
+      await authorizeRowsFromQuery(
+        transaction,
+        requestId,
+        tableName,
+        source,
+        [orderIds],
+      );
+    }
+    await transaction.query(
+      `delete from business_order_charge_items
+       where charge_version_id in (
+         select id from business_order_charge_versions
+         where business_order_id = any($1::bigint[])
+       )`,
+      [orderIds],
+    );
+    await transaction.query(
+      `delete from business_order_notes
+       where charge_version_id in (
+         select id from business_order_charge_versions
+         where business_order_id = any($1::bigint[])
+       )`,
+      [orderIds],
+    );
+    await transaction.query(
+      `delete from business_order_charge_versions
+       where business_order_id = any($1::bigint[])`,
+      [orderIds],
+    );
+    await transaction.query(
+      `delete from repair_rounds where business_order_id = any($1::bigint[])`,
+      [orderIds],
+    );
+    await transaction.query(
+      `delete from business_orders where id = any($1::bigint[])`,
+      [orderIds],
+    );
+  }
+
+  if (vehicleIds.length > 0) {
+    const attachmentFiles = await transaction.query<{ file_id: number }>(
+      `select file_id from vehicle_attachments
+       where vehicle_id = any($1::bigint[])`,
+      [vehicleIds],
+    );
+    attachmentFiles.forEach((row) => candidateFileIds.add(Number(row.file_id)));
+    await authorizeRowsFromQuery(
+      transaction,
+      requestId,
+      "vehicle_attachments",
+      `select vehicle_id::text || ':' || file_id::text
+       from vehicle_attachments where vehicle_id = any($2::bigint[])`,
+      [vehicleIds],
+    );
+    await transaction.query(
+      `delete from vehicle_attachments where vehicle_id = any($1::bigint[])`,
+      [vehicleIds],
+    );
+    await authorizeRowsFromQuery(
+      transaction,
+      requestId,
+      "vehicle_owner_history",
+      `select id::text from vehicle_owner_history
+       where vehicle_id = any($2::bigint[])`,
+      [vehicleIds],
+    );
+    await transaction.query(
+      `delete from vehicle_owner_history where vehicle_id = any($1::bigint[])`,
+      [vehicleIds],
+    );
+    await transaction.query(
+      `delete from vehicles where id = any($1::bigint[])`,
+      [vehicleIds],
+    );
+  }
+
+  if (personalCustomerIds.length > 0 || companyCustomerIds.length > 0) {
+    const licenseParameters = [personalCustomerIds, companyCustomerIds];
+    const licenseFiles = await transaction.query<{ file_id: number }>(
+      `select file_id from customer_driver_license_records
+       where personal_customer_id = any($1::bigint[])
+          or company_account_id = any($2::bigint[])`,
+      licenseParameters,
+    );
+    licenseFiles.forEach((row) => candidateFileIds.add(Number(row.file_id)));
+    await authorizeRowsFromQuery(
+      transaction,
+      requestId,
+      "customer_driver_license_records",
+      `select id::text from customer_driver_license_records
+       where personal_customer_id = any($2::bigint[])
+          or company_account_id = any($3::bigint[])`,
+      licenseParameters,
+    );
+    await transaction.query(
+      `delete from customer_driver_license_records
+       where personal_customer_id = any($1::bigint[])
+          or company_account_id = any($2::bigint[])`,
+      licenseParameters,
+    );
+    await transaction.query(
+      `delete from company_contacts
+       where personal_customer_id = any($1::bigint[])
+          or company_id = any($2::bigint[])`,
+      licenseParameters,
+    );
+    if (personalCustomerIds.length > 0) {
+      await transaction.query(
+        `delete from personal_customers where id = any($1::bigint[])`,
+        [personalCustomerIds],
+      );
+    }
+    if (companyCustomerIds.length > 0) {
+      await transaction.query(
+        `delete from company_accounts where id = any($1::bigint[])`,
+        [companyCustomerIds],
+      );
+    }
+  }
+
+  if (candidateFileIds.size === 0) return 0;
+  const orphanFiles = await transaction.query<{ id: number; storage_key: string }>(
+    `select file.id, file.storage_key
+     from stored_files as file
+     where file.id = any($1::bigint[])
+       and not exists (select 1 from vehicle_attachments where file_id = file.id)
+       and not exists (select 1 from customer_driver_license_records where file_id = file.id)
+       and not exists (select 1 from repair_round_intake_photos where file_id = file.id)
+       and not exists (select 1 from refund_evidence_files where file_id = file.id)
+       and not exists (select 1 from inspection_reports where paper_photo_file_id = file.id)
+     order by file.id`,
+    [[...candidateFileIds]],
+  );
+  for (const file of orphanFiles) {
+    await transaction.query(
+      `insert into record_deletion_file_tasks (storage_key)
+       values ($1)
+       on conflict do nothing`,
+      [file.storage_key],
+    );
+    await transaction.query(
+      `insert into record_deletion_authorized_rows
+        (request_id, table_name, row_key)
+       values ($1, 'stored_files', $2)
+       on conflict do nothing`,
+      [requestId, String(file.id)],
+    );
+  }
+  if (orphanFiles.length > 0) {
+    await transaction.query(
+      `delete from stored_files where id = any($1::bigint[])`,
+      [orphanFiles.map((file) => Number(file.id))],
+    );
+  }
+  return orphanFiles.length;
+}
+
+async function authorizeRowsFromQuery(
+  transaction: AuthSqlExecutor,
+  requestId: string,
+  tableName: string,
+  rowKeyQuery: string,
+  parameters: readonly unknown[],
+): Promise<void> {
+  await transaction.query(
+    `insert into record_deletion_authorized_rows
+      (request_id, table_name, row_key)
+     select $1, $${parameters.length + 2}, scoped.row_key
+     from (${rowKeyQuery}) as scoped(row_key)
+     on conflict do nothing`,
+    [requestId, ...parameters, tableName],
+  );
+}
+
+function idsFor(records: ResolvedRecord[], kind: RecordKind): number[] {
+  return records
+    .filter((record) => record.kind === kind)
+    .map((record) => record.id);
 }
