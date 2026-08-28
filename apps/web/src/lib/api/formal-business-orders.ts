@@ -224,6 +224,24 @@ export type FormalBusinessOrderDocument = {
   snapshot: FormalCustomerCopySnapshot | FormalOfficeArchiveSnapshot | FormalMechanicWorkSnapshot;
 };
 
+export type FormalBusinessOrderDocumentRevision = {
+  id: number;
+  documentId: number;
+  revisionNo: number;
+  fieldOverrides: Record<string, string>;
+  rendererVersion: string;
+  fileId: number;
+  contentSha256: string;
+  createdAt: string;
+  createdBy: number;
+};
+
+export type FormalBusinessOrderDocumentDetail = {
+  document: FormalBusinessOrderDocument;
+  revisions: FormalBusinessOrderDocumentRevision[];
+  latestRevisionNo: number;
+};
+
 export type FormalCustomerCopySnapshot = {
   version: 1;
   kind: "customer_copy";
@@ -546,4 +564,33 @@ export function generateFormalDocument(
     headers: { "content-type": "application/json" },
     body: JSON.stringify({ kind }),
   });
+}
+
+export function fetchFormalDocumentDetail(
+  businessOrderId: number,
+  documentId: number,
+): Promise<FormalBusinessOrderDocumentDetail> {
+  return formalJson(`/api/formal/business-orders/${businessOrderId}/documents/${documentId}/revisions`);
+}
+
+export function createFormalDocumentRevision(
+  businessOrderId: number,
+  documentId: number,
+  input: { expectedLatestRevisionNo: number; fieldOverrides: Record<string, string> },
+): Promise<FormalBusinessOrderDocumentRevision> {
+  return formalJson(`/api/formal/business-orders/${businessOrderId}/documents/${documentId}/revisions`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify(input),
+  });
+}
+
+export function formalDocumentRevisionFileUrl(
+  businessOrderId: number,
+  documentId: number,
+  revisionId: number,
+  download = false,
+) {
+  const url = `/api/formal/business-orders/${businessOrderId}/documents/${documentId}/revisions/${revisionId}/file`;
+  return download ? `${url}?download=1` : url;
 }

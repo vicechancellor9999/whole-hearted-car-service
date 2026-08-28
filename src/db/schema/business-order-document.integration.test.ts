@@ -20,6 +20,8 @@ const migrationPaths = [
   "0013_formal_handoffs.sql",
   "0014_payments_receipts_refunds.sql",
   "0015_business_order_documents.sql",
+  "0030_business_order_customer_copy.sql",
+  "0035_business_order_document_revisions.sql",
 ].map((name) => resolve(process.cwd(), "drizzle", name));
 
 let database: PGlite;
@@ -121,6 +123,50 @@ describe("Business Order document snapshot schema", () => {
       "delete from business_order_document_snapshots where id = $1",
       [mechanicId],
     )).rejects.toThrow(/append-only/i);
+  });
+
+  it("keeps PDF-backed document revisions append-only and sequential per snapshot", async () => {
+    const documentId = Number((await database.query<{ id: number }>(
+      `insert into business_order_document_snapshots
+        (document_no, business_order_id, kind, charge_version_id,
+         charge_version_no, render_snapshot, generated_at, generated_by)
+       values ('OFF-20260824-0001', $1, 'office_archive', $2, 1,
+               '{"version":1,"kind":"office_archive"}'::jsonb,
+               '2026-08-24T15:00:00Z', $3)
+       returning id`,
+      [businessOrderId, chargeVersionId, accountId],
+    )).rows[0].id);
+    const fileId = Number((await database.query<{ id: number }>(
+      `insert into stored_files
+        (storage_key, original_name, media_type, size_bytes, sha256_hex, uploaded_by)
+       values ('business-order-documents/OFF-R1.pdf', 'OFF-R1.pdf', 'application/pdf', 8, $1, $2)
+       returning id`,
+      ["a".repeat(64), accountId],
+    )).rows[0].id);
+    const revisionId = Number((await database.query<{ id: number }>(
+      `insert into business_order_document_revisions
+        (document_snapshot_id, revision_no, field_overrides, renderer_version,
+         file_id, content_sha256, created_at, created_by)
+       values ($1, 1, '{"header.title":"Office copy"}'::jsonb, 'bo-a4-v1',
+               $2, $3, '2026-08-24T15:01:00Z', $4)
+       returning id`,
+      [documentId, fileId, "a".repeat(64), accountId],
+    )).rows[0].id);
+    await expect(database.query(
+      "update business_order_document_revisions set renderer_version = 'changed' where id = $1",
+      [revisionId],
+    )).rejects.toThrow(/append-only/i);
+    await expect(database.query(
+      "delete from business_order_document_revisions where id = $1",
+      [revisionId],
+    )).rejects.toThrow(/append-only/i);
+    await expect(database.query(
+      `insert into business_order_document_revisions
+        (document_snapshot_id, revision_no, field_overrides, renderer_version,
+         file_id, content_sha256, created_at, created_by)
+       values ($1, 1, '{}'::jsonb, 'bo-a4-v1', $2, $3, now(), $4)`,
+      [documentId, fileId, "a".repeat(64), accountId],
+    )).rejects.toMatchObject({ code: "23505" });
   });
 
   it("matches the document prefix and repair-round source to its kind", async () => {

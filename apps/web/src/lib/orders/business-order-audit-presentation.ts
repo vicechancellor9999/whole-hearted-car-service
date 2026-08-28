@@ -173,6 +173,16 @@ export function businessOrderAuditSummary(
     const size = typeof values.sizeBytes === "number" ? formatBytes(values.sizeBytes) : "未知大小";
     return `上传${category}附件（${format}，${size}）`;
   }
+  if (eventType === "business_order.document_generated") {
+    return typeof values.documentNo === "string"
+      ? `生成正式打印文件 ${values.documentNo}`
+      : "生成正式打印文件";
+  }
+  if (eventType === "business_order.document_revision_created") {
+    const documentNo = typeof values.documentNo === "string" ? ` ${values.documentNo}` : "";
+    const revision = typeof values.revisionNo === "number" ? ` R${values.revisionNo}` : "";
+    return `保存打印单据修订${documentNo}${revision}`;
+  }
   if (eventType === "business_order.attachment_linked_to_message") {
     return `将 ${countArray(values.attachmentIds)} 份附件加入业务单留言`;
   }

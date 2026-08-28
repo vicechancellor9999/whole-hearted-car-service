@@ -126,11 +126,15 @@ test("收费编辑与保存占用同一个标题操作位置", () => {
   expect(source).toMatch(/新增备注/);
 });
 
-test("单据工作区提供页面内预览、系统打印和业务附件中心", () => {
+test("单据工作区提供真实 A4 PDF 预览、编辑、下载、系统打印和业务附件中心", () => {
   const source = detail();
   expect(source).toMatch(/FormalBusinessOrderDocumentsWorkspace/);
   const workspace = component("orders/formal-business-order-documents-workspace.tsx");
-  expect(workspace).toMatch(/单据预览/);
+  expect(workspace).toMatch(/PDF 预览/);
+  expect(workspace).toMatch(/编辑文字/);
+  expect(workspace).toMatch(/下载 PDF/);
+  expect(workspace).toMatch(/PdfCanvasPreview/);
+  expect(workspace).not.toMatch(/<iframe/);
   expect(workspace).toMatch(/系统打印/);
   expect(workspace).toMatch(/业务附件/);
 });

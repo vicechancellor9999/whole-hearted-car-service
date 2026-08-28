@@ -1,10 +1,14 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useRef, useState, type ClipboardEvent, type DragEvent } from "react";
-import { ExternalLink, FileText, LoaderCircle, Paperclip, Printer, Upload } from "lucide-react";
+import { useCallback, useEffect, useMemo, useState, type ClipboardEvent, type DragEvent } from "react";
+import { Download, FileText, LoaderCircle, Paperclip, Printer, Save, Upload } from "lucide-react";
 import {
+  createFormalDocumentRevision,
+  fetchFormalDocumentDetail,
   formalDocumentKindLabel,
+  formalDocumentRevisionFileUrl,
   type FormalBusinessOrderDocument,
+  type FormalBusinessOrderDocumentDetail,
 } from "@/lib/api/formal-business-orders";
 import {
   fetchFormalBusinessOrderAttachments,
@@ -13,6 +17,9 @@ import {
   type FormalBusinessOrderAttachmentCategory,
 } from "@/lib/api/formal-business-order-attachments";
 import { formatDateTime } from "@/lib/utils";
+import { PdfCanvasPreview } from "@/components/orders/pdf-canvas-preview";
+import { printPdfBytes } from "@/lib/orders/ir-pdf-print";
+import { applyDocumentOverrides, buildBusinessOrderDocumentContent } from "@formal/modules/business-order/business-order-document-content";
 
 const ATTACHMENT_CATEGORY_LABELS: Record<FormalBusinessOrderAttachmentCategory, string> = {
   customer_signature: "客户签字",
@@ -43,7 +50,13 @@ export function FormalBusinessOrderDocumentsWorkspace({
   const [caption, setCaption] = useState("");
   const [attachmentBusy, setAttachmentBusy] = useState(false);
   const [attachmentError, setAttachmentError] = useState<string | null>(null);
-  const previewRef = useRef<HTMLIFrameElement>(null);
+  const [detail, setDetail] = useState<FormalBusinessOrderDocumentDetail | null>(null);
+  const [selectedRevisionId, setSelectedRevisionId] = useState<number | null>(null);
+  const [pdfBytes, setPdfBytes] = useState<Uint8Array | null>(null);
+  const [fieldOverrides, setFieldOverrides] = useState<Record<string, string>>({});
+  const [documentBusy, setDocumentBusy] = useState(false);
+  const [documentError, setDocumentError] = useState<string | null>(null);
+  const [view, setView] = useState<"edit" | "preview">("edit");
 
   const loadAttachments = useCallback(async () => {
     setAttachmentError(null);
@@ -104,8 +117,78 @@ export function FormalBusinessOrderDocumentsWorkspace({
     ? selectedDocumentId
     : newestDocumentId;
   const selectedDocument = documents.find((document) => document.id === effectiveSelectedDocumentId) ?? null;
-  const previewUrl = selectedDocument ? `/orders/business/${businessOrderId}/documents/${selectedDocument.id}/print?embed=1` : null;
-  const printUrl = selectedDocument ? `/orders/business/${businessOrderId}/documents/${selectedDocument.id}/print` : null;
+  const selectedRevision = detail?.revisions.find((revision) => revision.id === selectedRevisionId)
+    ?? detail?.revisions.at(-1) ?? null;
+  const editableContent = detail
+    ? applyDocumentOverrides(buildBusinessOrderDocumentContent(detail.document.snapshot), fieldOverrides)
+    : null;
+
+  useEffect(() => {
+    if (!selectedDocument) {
+      setDetail(null); setPdfBytes(null); setSelectedRevisionId(null); setFieldOverrides({});
+      return;
+    }
+    let active = true;
+    setDocumentBusy(true); setDocumentError(null);
+    void fetchFormalDocumentDetail(businessOrderId, selectedDocument.id)
+      .then((next) => {
+        if (!active) return;
+        const latest = next.revisions.at(-1) ?? null;
+        setDetail(next); setSelectedRevisionId(latest?.id ?? null);
+        setFieldOverrides(latest?.fieldOverrides ?? {});
+      })
+      .catch((caught) => { if (active) setDocumentError(caught instanceof Error ? caught.message : "单据版本读取失败"); })
+      .finally(() => { if (active) setDocumentBusy(false); });
+    return () => { active = false; };
+  }, [businessOrderId, selectedDocument]);
+
+  useEffect(() => {
+    if (!selectedDocument || !selectedRevision) { setPdfBytes(null); return; }
+    let active = true;
+    setDocumentBusy(true); setDocumentError(null);
+    void fetch(formalDocumentRevisionFileUrl(businessOrderId, selectedDocument.id, selectedRevision.id), { cache: "no-store" })
+      .then(async (response) => {
+        if (!response.ok) throw new Error("PDF 文件读取失败");
+        const bytes = new Uint8Array(await response.arrayBuffer());
+        if (active) setPdfBytes(bytes);
+      })
+      .catch((caught) => { if (active) setDocumentError(caught instanceof Error ? caught.message : "PDF 文件读取失败"); })
+      .finally(() => { if (active) setDocumentBusy(false); });
+    return () => { active = false; };
+  }, [businessOrderId, selectedDocument, selectedRevision]);
+
+  const selectRevision = (revisionId: number) => {
+    const revision = detail?.revisions.find((item) => item.id === revisionId);
+    setSelectedRevisionId(revisionId);
+    setFieldOverrides(revision?.fieldOverrides ?? {});
+  };
+
+  const saveRevision = async () => {
+    if (!detail || !canWrite) return;
+    setDocumentBusy(true); setDocumentError(null);
+    try {
+      const revision = await createFormalDocumentRevision(businessOrderId, detail.document.id, {
+        expectedLatestRevisionNo: detail.latestRevisionNo,
+        fieldOverrides,
+      });
+      const next = await fetchFormalDocumentDetail(businessOrderId, detail.document.id);
+      setDetail(next); setSelectedRevisionId(revision.id); setFieldOverrides(revision.fieldOverrides);
+      setView("preview");
+    } catch (caught) {
+      setDocumentError(caught instanceof Error ? caught.message : "保存打印版本失败");
+    } finally { setDocumentBusy(false); }
+  };
+
+  const printCurrent = async () => {
+    if (!pdfBytes || !selectedDocument || !selectedRevision) return;
+    setDocumentError(null);
+    try {
+      await printPdfBytes({
+        metadata: { id: String(selectedRevision.id), language: "zh", fileName: `${selectedDocument.documentNo}-R${selectedRevision.revisionNo}.pdf` },
+        bytes: pdfBytes,
+      });
+    } catch (caught) { setDocumentError(caught instanceof Error ? caught.message : "无法调用系统打印"); }
+  };
 
   return (
     <div className="space-y-4">
@@ -118,12 +201,13 @@ export function FormalBusinessOrderDocumentsWorkspace({
           <div className="overflow-hidden rounded-xl border border-line bg-layer-2">
             {documents.length === 0 ? <p className="px-3 py-8 text-center text-xs text-ink-soft">尚未生成正式打印文件。</p> : documents.map((document) => <button key={document.id} type="button" onClick={() => setSelectedDocumentId(document.id)} className={`block w-full border-b border-line px-3 py-3 text-left text-xs last:border-0 ${effectiveSelectedDocumentId === document.id ? "bg-primary-50 text-primary" : "hover:bg-surface"}`}><strong className="block">{document.documentNo}</strong><span className="mt-1 block text-ink-soft">{formalDocumentKindLabel(document.kind)} · V{document.chargeVersionNo}</span><time className="mt-1 block text-[10px] text-ink-soft">{formatDateTime(document.generatedAt)}</time></button>)}
           </div>
-          <div className="overflow-hidden rounded-xl border border-line bg-surface/50">
+          <div className="min-w-0 overflow-hidden rounded-xl border border-line bg-surface/50">
             <div className="flex flex-wrap items-center justify-between gap-2 border-b border-line bg-card px-3 py-2">
-              <div className="inline-flex items-center gap-2"><FileText size={15} className="text-primary" /><strong className="text-xs">单据预览</strong>{selectedDocument ? <span className="text-[11px] text-ink-soft">{selectedDocument.documentNo}</span> : null}</div>
-              <div className="flex gap-2"><button type="button" disabled={!selectedDocument} onClick={() => previewRef.current?.contentWindow?.print()} className="inline-flex min-h-8 items-center gap-1.5 rounded-lg bg-primary px-3 text-xs font-bold text-white disabled:opacity-40"><Printer size={14} />系统打印</button>{printUrl ? <a href={printUrl} target="_blank" rel="noreferrer" className="inline-flex min-h-8 items-center gap-1.5 rounded-lg border border-line px-3 text-xs font-bold"><ExternalLink size={13} />新窗口</a> : null}</div>
+              <div className="inline-flex flex-wrap items-center gap-2"><FileText size={15} className="text-primary" /><strong className="text-xs">A4 单据</strong>{selectedDocument ? <span className="text-[11px] text-ink-soft">{selectedDocument.documentNo}</span> : null}{detail?.revisions.length ? <select aria-label="打印版本" value={selectedRevision?.id ?? ""} onChange={(event) => selectRevision(Number(event.target.value))} className="min-h-8 rounded-lg border border-line bg-layer-2 px-2 text-xs">{detail.revisions.map((revision) => <option key={revision.id} value={revision.id}>R{revision.revisionNo} · {formatDateTime(revision.createdAt)}</option>)}</select> : null}</div>
+              <div className="flex flex-wrap gap-2"><button type="button" onClick={() => setView("edit")} className={`min-h-8 rounded-lg px-3 text-xs font-bold ${view === "edit" ? "bg-primary text-white" : "border border-line"}`}>编辑文字</button><button type="button" onClick={() => setView("preview")} className={`min-h-8 rounded-lg px-3 text-xs font-bold ${view === "preview" ? "bg-primary text-white" : "border border-line"}`}>PDF 预览</button>{canWrite ? <button type="button" disabled={!detail || documentBusy} onClick={() => void saveRevision()} className="inline-flex min-h-8 items-center gap-1.5 rounded-lg border border-primary px-3 text-xs font-bold text-primary disabled:opacity-40"><Save size={14} />保存新版本</button> : null}<button type="button" disabled={!pdfBytes} onClick={() => void printCurrent()} className="inline-flex min-h-8 items-center gap-1.5 rounded-lg bg-primary px-3 text-xs font-bold text-white disabled:opacity-40"><Printer size={14} />系统打印</button>{selectedDocument && selectedRevision ? <a href={formalDocumentRevisionFileUrl(businessOrderId, selectedDocument.id, selectedRevision.id, true)} className="inline-flex min-h-8 items-center gap-1.5 rounded-lg border border-line px-3 text-xs font-bold"><Download size={13} />下载 PDF</a> : null}</div>
             </div>
-            {previewUrl ? <iframe ref={previewRef} title="正式单据预览" src={previewUrl} className="h-[680px] w-full bg-white" /> : <div className="grid h-72 place-items-center text-xs text-ink-soft">选择或生成一份正式文件后在这里预览。</div>}
+            {documentError ? <p role="alert" className="m-3 rounded-lg bg-rose-50 px-3 py-2 text-xs font-semibold text-rose-700">{documentError}</p> : null}
+            {documentBusy && !detail ? <div className="grid h-72 place-items-center"><LoaderCircle className="animate-spin text-primary" /></div> : view === "edit" && editableContent ? <div className="max-h-[720px] overflow-auto bg-slate-200 p-4 dark:bg-slate-800"><div data-testid="business-document-a4-editor" className="mx-auto min-h-[297mm] w-[210mm] max-w-full bg-white p-[10mm] text-slate-900 shadow-xl"><div className="mb-5 flex items-center justify-between border-b-2 border-blue-700 pb-3"><strong className="text-lg text-blue-950">A4 打印内容</strong><span className="text-xs text-slate-500">{selectedDocument?.documentNo} · 下一版 R{(detail?.latestRevisionNo ?? 0) + 1}</span></div><div className="grid gap-3">{editableContent.fields.map((field) => <label key={field.key} className="block text-xs font-semibold text-slate-600">{field.editorLabel}{field.multiline ? <textarea value={field.value} rows={3} onChange={(event) => setFieldOverrides((current) => ({ ...current, [field.key]: event.target.value }))} className="mt-1 w-full rounded border border-slate-300 bg-white px-3 py-2 text-sm font-normal text-slate-950" /> : <input value={field.value} onChange={(event) => setFieldOverrides((current) => ({ ...current, [field.key]: event.target.value }))} className="mt-1 min-h-9 w-full rounded border border-slate-300 bg-white px-3 text-sm font-normal text-slate-950" />}</label>)}</div></div></div> : pdfBytes ? <div className="max-h-[720px] overflow-auto bg-slate-300 p-3 dark:bg-slate-900"><PdfCanvasPreview bytes={pdfBytes} dataTestId="business-document-pdf-canvas" scale={1.2} allowHorizontalOverflow thumbnailTestIdPrefix="business-document-page" /></div> : <div className="grid h-72 place-items-center text-xs text-ink-soft">选择或生成一份正式文件后在这里编辑和预览。</div>}
           </div>
         </div>
       </section>

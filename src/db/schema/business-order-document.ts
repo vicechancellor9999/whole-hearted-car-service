@@ -11,6 +11,7 @@ import {
   timestamp,
   uniqueIndex,
 } from "drizzle-orm/pg-core";
+import { storedFiles } from "@formal/db/schema/customer-vehicle";
 import { staffAccounts } from "@formal/db/schema/accounts";
 import {
   businessOrderChargeVersions,
@@ -161,5 +162,37 @@ export const businessOrderDocumentSnapshots = pgTable(
   ],
 );
 
+export const businessOrderDocumentRevisions = pgTable(
+  "business_order_document_revisions",
+  {
+    id: identityPrimaryKey(),
+    documentSnapshotId: bigint("document_snapshot_id", { mode: "number" })
+      .notNull()
+      .references(() => businessOrderDocumentSnapshots.id, { onDelete: "restrict" }),
+    revisionNo: integer("revision_no").notNull(),
+    fieldOverrides: jsonb("field_overrides").$type<Record<string, string>>().notNull().default({}),
+    rendererVersion: text("renderer_version").notNull(),
+    fileId: bigint("file_id", { mode: "number" })
+      .notNull()
+      .references(() => storedFiles.id, { onDelete: "restrict" }),
+    contentSha256: text("content_sha256").notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull(),
+    createdBy: bigint("created_by", { mode: "number" })
+      .notNull()
+      .references(() => staffAccounts.id, { onDelete: "restrict" }),
+  },
+  (table) => [
+    uniqueIndex("business_order_document_revisions_snapshot_no_uq").on(table.documentSnapshotId, table.revisionNo),
+    uniqueIndex("business_order_document_revisions_file_uq").on(table.fileId),
+    index("business_order_document_revisions_snapshot_time_idx").on(table.documentSnapshotId, table.createdAt, table.id),
+    check("business_order_document_revisions_revision_positive", sql`${table.revisionNo} >= 1`),
+    check("business_order_document_revisions_overrides_object", sql`jsonb_typeof(${table.fieldOverrides}) = 'object'`),
+    check("business_order_document_revisions_renderer_nonempty", sql`length(btrim(${table.rendererVersion})) > 0`),
+    check("business_order_document_revisions_sha256_format", sql`${table.contentSha256} ~ '^[0-9a-f]{64}$'`),
+  ],
+);
+
 export type BusinessOrderDocumentSnapshot =
   typeof businessOrderDocumentSnapshots.$inferSelect;
+export type BusinessOrderDocumentRevision =
+  typeof businessOrderDocumentRevisions.$inferSelect;

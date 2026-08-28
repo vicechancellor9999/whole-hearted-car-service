@@ -20,6 +20,7 @@
     "demo:reset": "tsx scripts/reset-formal-demo-data.ts",
     "db:generate": "drizzle-kit generate",
     "db:migrate": "tsx src/db/migrate.ts",
+    "db:backfill-business-documents": "tsx scripts/backfill-business-order-document-revisions.ts",
     "start": "UNIFIED_NEXT_MODE=start tsx scripts/dev-unified.ts",
     "start:candidate": "UNIFIED_NEXT_MODE=start UNIFIED_APP_PORT=3220 UNIFIED_DATABASE_PORT=55433 UNIFIED_APP_ORIGIN=http://127.0.0.1:3220 tsx scripts/dev-unified.ts",
     "lint": "eslint .",
@@ -32,10 +33,12 @@
     "test:e2e": "playwright test"
   },
   "dependencies": {
+    "@pdf-lib/fontkit": "1.1.1",
     "argon2": "0.45.1",
     "drizzle-orm": "0.45.2",
     "lucide-react": "0.414.0",
     "next": "16.3.2",
+    "pdf-lib": "1.17.1",
     "postgres": "3.4.9",
     "react": "19.2.8",
     "react-dom": "19.2.8",

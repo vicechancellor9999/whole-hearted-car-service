@@ -1,4 +1,4 @@
-import { readFile } from "node:fs/promises";
+import { mkdtemp, readFile, rm } from "node:fs/promises";
 import { resolve } from "node:path";
 import { PGlite, type Transaction } from "@electric-sql/pglite";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
@@ -37,6 +37,7 @@ const migrationPaths = [
   "0020_repair_assignment_withdrawal_projection.sql",
   "0030_business_order_customer_copy.sql",
   "0031_business_order_messages.sql",
+  "0035_business_order_document_revisions.sql",
 ].map((name) => resolve(process.cwd(), "drizzle", name));
 
 let database: PGlite;
@@ -50,6 +51,7 @@ let vehicleId: number;
 let hourUnitId: number;
 let pieceUnitId: number;
 let cashMethodId: number;
+let storageRoot: string;
 
 function executor(source: PGlite | Transaction): AuthSqlExecutor {
   return {
@@ -149,6 +151,7 @@ async function createChargedOrder() {
 
 describe("BusinessOrderDocumentService", () => {
   beforeEach(async () => {
+    storageRoot = await mkdtemp("/Volumes/公司文件/.wh-business-document-test-");
     database = new PGlite();
     await database.waitReady;
     for (const path of migrationPaths) {
@@ -190,12 +193,47 @@ describe("BusinessOrderDocumentService", () => {
       [customerId, adminId],
     )).rows[0].id);
     const db = testDatabase(database);
-    documents = new BusinessOrderDocumentService(db);
+    documents = new BusinessOrderDocumentService(db, { storageRoot });
     businessOrders = new BusinessOrderService(db);
     payments = new PaymentService(db);
   });
 
-  afterEach(async () => database.close());
+  afterEach(async () => {
+    await database.close();
+    await rm(storageRoot, { recursive: true, force: true });
+  });
+
+  it("creates revision one with a stored real PDF and appends an edited revision", async () => {
+    await createChargedOrder();
+    const generated = await documents.generateOfficeArchive({
+      businessOrderId: 1,
+      context: context(frontDeskId, "generate-revisioned-office", "2026-08-24T14:00:00Z"),
+    });
+    const detail = await documents.getDocumentDetail({ documentId: generated.id, viewerAccountId: ownerId });
+    expect(detail.latestRevisionNo).toBe(1);
+    expect(detail.revisions).toHaveLength(1);
+    const firstFile = await documents.getRevisionFile({
+      documentId: generated.id,
+      revisionId: detail.revisions[0].id,
+      viewerAccountId: ownerId,
+    });
+    expect(firstFile.mediaType).toBe("application/pdf");
+    expect(new TextDecoder().decode(firstFile.bytes.slice(0, 5))).toBe("%PDF-");
+
+    const second = await documents.createRevision({
+      documentId: generated.id,
+      expectedLatestRevisionNo: 1,
+      fieldOverrides: { "header.title": "办公室客户签字存档联" },
+      context: context(frontDeskId, "revise-office", "2026-08-24T14:05:00Z"),
+    });
+    expect(second.revisionNo).toBe(2);
+    await expect(documents.createRevision({
+      documentId: generated.id,
+      expectedLatestRevisionNo: 1,
+      fieldOverrides: {},
+      context: context(frontDeskId, "stale-office", "2026-08-24T14:06:00Z"),
+    })).rejects.toMatchObject({ status: 409, code: "business_order_document_revision_conflict" });
+  });
 
   it("freezes the office archive before later charges and payments change", async () => {
     const { order, charges } = await createChargedOrder();

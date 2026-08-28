@@ -24,7 +24,9 @@ test("formal Business Order exposes each Receipt and immutable print document", 
   expect(source(DOCUMENTS_WORKSPACE)).toMatch(/生成维修工联/);
   expect(source(DETAIL)).toMatch(/Receipt：\{transaction\.referenceNo\}/);
   expect(source(DOCUMENTS_WORKSPACE)).toMatch(/系统打印/);
-  expect(source(DOCUMENTS_WORKSPACE)).toMatch(/新窗口/);
+  expect(source(DOCUMENTS_WORKSPACE)).toMatch(/下载 PDF/);
+  expect(source(DOCUMENTS_WORKSPACE)).toMatch(/PdfCanvasPreview/);
+  expect(source(DOCUMENTS_WORKSPACE)).toMatch(/printPdfBytes/);
 });
 
 test("print renderer preserves the three-copy business boundaries", () => {

@@ -7,6 +7,16 @@ import type {
 } from "@formal/modules/auth/session-repository";
 import { writeAuditEvent } from "@formal/modules/audit/audit-service";
 import type { BusinessOrderActionContext } from "@formal/modules/business-order/business-order-service";
+import { validateDocumentOverrides } from "@formal/modules/business-order/business-order-document-content";
+import {
+  BUSINESS_ORDER_DOCUMENT_RENDERER_VERSION,
+  renderBusinessOrderDocumentPdf,
+} from "@formal/modules/business-order/business-order-document-pdf";
+import {
+  readBusinessOrderDocumentPdf,
+  removeBusinessOrderDocumentPdf,
+  storeBusinessOrderDocumentPdf,
+} from "@formal/modules/business-order/business-order-document-storage";
 
 type DocumentKind = "customer_copy" | "office_archive" | "mechanic_work";
 
@@ -22,6 +32,18 @@ type DocumentRow = {
   render_snapshot: BusinessOrderDocumentRenderSnapshot | string;
   generated_at: Date;
   generated_by: number;
+};
+
+type RevisionRow = {
+  id: number;
+  document_snapshot_id: number;
+  revision_no: number;
+  field_overrides: Record<string, string> | string;
+  renderer_version: string;
+  file_id: number;
+  content_sha256: string;
+  created_at: Date;
+  created_by: number;
 };
 
 type SourceRow = {
@@ -96,6 +118,24 @@ export type BusinessOrderDocumentRecord = {
   generatedBy: number;
 };
 
+export type BusinessOrderDocumentRevisionRecord = {
+  id: number;
+  documentId: number;
+  revisionNo: number;
+  fieldOverrides: Record<string, string>;
+  rendererVersion: string;
+  fileId: number;
+  contentSha256: string;
+  createdAt: Date;
+  createdBy: number;
+};
+
+export type BusinessOrderDocumentDetail = {
+  document: BusinessOrderDocumentRecord;
+  revisions: BusinessOrderDocumentRevisionRecord[];
+  latestRevisionNo: number;
+};
+
 export class BusinessOrderDocumentNotFoundError extends Error {
   readonly status = 404;
   readonly code = "business_order_document_not_found";
@@ -136,8 +176,20 @@ export class BusinessOrderDocumentConflictError extends Error {
   }
 }
 
+export class BusinessOrderDocumentRevisionConflictError extends Error {
+  readonly status = 409;
+  readonly code = "business_order_document_revision_conflict";
+  constructor() {
+    super("这份单据已产生新版本，请刷新后再保存");
+    this.name = "BusinessOrderDocumentRevisionConflictError";
+  }
+}
+
 export class BusinessOrderDocumentService {
-  constructor(private readonly database: AuthSqlDatabase) {}
+  constructor(
+    private readonly database: AuthSqlDatabase,
+    private readonly options: { storageRoot?: string } = {},
+  ) {}
 
   generateCustomerCopy(input: {
     businessOrderId: number;
@@ -187,6 +239,122 @@ export class BusinessOrderDocumentService {
     return mapDocument(rows[0]);
   }
 
+  async getDocumentDetail(input: {
+    documentId: number;
+    viewerAccountId: number;
+  }): Promise<BusinessOrderDocumentDetail> {
+    const document = await this.getDocument(input);
+    const revisions = (await this.database.query<RevisionRow>(
+      `${revisionSelect()} where revision.document_snapshot_id = $1
+       order by revision.revision_no`,
+      [input.documentId],
+    )).map(mapRevision);
+    return { document, revisions, latestRevisionNo: revisions.at(-1)?.revisionNo ?? 0 };
+  }
+
+  async createRevision(input: {
+    documentId: number;
+    expectedLatestRevisionNo: number;
+    fieldOverrides: unknown;
+    context: BusinessOrderActionContext;
+  }): Promise<BusinessOrderDocumentRevisionRecord> {
+    await requireWriter(this.database, input.context.actorAccountId);
+    const document = await this.getDocument({
+      documentId: input.documentId,
+      viewerAccountId: input.context.actorAccountId,
+    });
+    const overrides = validateDocumentOverrides(document.snapshot, input.fieldOverrides);
+    const nextRevisionNo = input.expectedLatestRevisionNo + 1;
+    const bytes = await renderBusinessOrderDocumentPdf({
+      documentNo: document.documentNo,
+      revisionNo: nextRevisionNo,
+      snapshot: document.snapshot,
+      fieldOverrides: overrides,
+    });
+    const now = input.context.now ?? new Date();
+    const stored = await storeBusinessOrderDocumentPdf({
+      documentNo: document.documentNo,
+      revisionNo: nextRevisionNo,
+      bytes,
+      root: this.options.storageRoot,
+      now,
+    });
+    try {
+      return await this.database.transaction(async (transaction) => {
+        await transaction.query(
+          "lock table business_order_document_revisions in share row exclusive mode",
+        );
+        const latest = await transaction.query<{ latest: number }>(
+          `select coalesce(max(revision_no), 0)::integer as latest
+           from business_order_document_revisions where document_snapshot_id = $1`,
+          [document.id],
+        );
+        if (Number(latest[0]?.latest ?? 0) !== input.expectedLatestRevisionNo) {
+          throw new BusinessOrderDocumentRevisionConflictError();
+        }
+        const files = await transaction.query<{ id: number }>(
+          `insert into stored_files
+            (storage_key, original_name, media_type, size_bytes, sha256_hex, uploaded_by, uploaded_at)
+           values ($1, $2, $3, $4, $5, $6, $7) returning id`,
+          [stored.storageKey, stored.originalName, stored.mediaType, stored.sizeBytes,
+            stored.sha256Hex, input.context.actorAccountId, now],
+        );
+        const rows = await transaction.query<RevisionRow>(
+          `insert into business_order_document_revisions
+            (document_snapshot_id, revision_no, field_overrides, renderer_version,
+             file_id, content_sha256, created_at, created_by)
+           values ($1, $2, $3::jsonb, $4, $5, $6, $7, $8)
+           returning id, document_snapshot_id, revision_no, field_overrides,
+                     renderer_version, file_id, content_sha256, created_at, created_by`,
+          [document.id, nextRevisionNo, JSON.stringify(overrides),
+            BUSINESS_ORDER_DOCUMENT_RENDERER_VERSION, Number(files[0]?.id),
+            stored.sha256Hex, now, input.context.actorAccountId],
+        );
+        const revision = mapRevision(rows[0]);
+        await writeAuditEvent(transaction, {
+          occurredAt: now,
+          actorAccountId: input.context.actorAccountId,
+          eventType: "business_order.document_revision_created",
+          objectType: "business_order_document",
+          objectId: String(document.id),
+          after: { businessOrderId: document.businessOrderId, documentNo: document.documentNo,
+            revisionNo: revision.revisionNo, changedFieldCount: Object.keys(overrides).length },
+          requestId: input.context.requestId,
+          ipAddress: input.context.ipAddress,
+          userAgent: input.context.userAgent,
+        });
+        return revision;
+      });
+    } catch (error) {
+      await removeBusinessOrderDocumentPdf(stored.storageKey, this.options.storageRoot);
+      rethrow(error);
+    }
+  }
+
+  async getRevisionFile(input: {
+    documentId: number;
+    revisionId: number;
+    viewerAccountId: number;
+  }) {
+    await requireReader(this.database, input.viewerAccountId);
+    const rows = await this.database.query<RevisionRow & {
+      storage_key: string; original_name: string; media_type: string; size_bytes: number;
+    }>(
+      `select revision.id, revision.document_snapshot_id, revision.revision_no,
+              revision.field_overrides, revision.renderer_version, revision.file_id,
+              revision.content_sha256, revision.created_at, revision.created_by,
+              file.storage_key, file.original_name, file.media_type, file.size_bytes
+       from business_order_document_revisions as revision
+       join stored_files as file on file.id = revision.file_id
+       where revision.document_snapshot_id = $1 and revision.id = $2 limit 1`,
+      [input.documentId, input.revisionId],
+    );
+    const row = rows[0];
+    if (!row) throw new BusinessOrderDocumentNotFoundError("打印文件版本不存在");
+    const bytes = await readBusinessOrderDocumentPdf(row.storage_key, this.options.storageRoot);
+    return { bytes, originalName: row.original_name, mediaType: row.media_type, sizeBytes: Number(row.size_bytes) };
+  }
+
   private async generate(
     kind: DocumentKind,
     input: {
@@ -199,7 +367,7 @@ export class BusinessOrderDocumentService {
     }
     const now = input.context.now ?? new Date();
     try {
-      return await this.database.transaction(async (transaction) => {
+      const document = await this.database.transaction(async (transaction) => {
         await requireWriter(transaction, input.context.actorAccountId);
         const source = await loadSource(transaction, input.businessOrderId, true);
         await transaction.query(
@@ -267,6 +435,13 @@ export class BusinessOrderDocumentService {
         });
         return document;
       });
+      await this.createRevision({
+        documentId: document.id,
+        expectedLatestRevisionNo: 0,
+        fieldOverrides: {},
+        context: input.context,
+      });
+      return document;
     } catch (error) {
       rethrow(error);
     }
@@ -554,6 +729,13 @@ function documentSelect() {
           from business_order_document_snapshots`;
 }
 
+function revisionSelect() {
+  return `select revision.id, revision.document_snapshot_id, revision.revision_no,
+                 revision.field_overrides, revision.renderer_version, revision.file_id,
+                 revision.content_sha256, revision.created_at, revision.created_by
+          from business_order_document_revisions as revision`;
+}
+
 function mapDocument(row: DocumentRow | undefined): BusinessOrderDocumentRecord {
   if (!row) throw new Error("打印文档写入后无法读取");
   return {
@@ -570,6 +752,20 @@ function mapDocument(row: DocumentRow | undefined): BusinessOrderDocumentRecord 
       : row.render_snapshot,
     generatedAt: new Date(row.generated_at),
     generatedBy: Number(row.generated_by),
+  };
+}
+
+function mapRevision(row: RevisionRow | undefined): BusinessOrderDocumentRevisionRecord {
+  if (!row) throw new Error("打印版本写入后无法读取");
+  return {
+    id: Number(row.id), documentId: Number(row.document_snapshot_id),
+    revisionNo: Number(row.revision_no),
+    fieldOverrides: typeof row.field_overrides === "string"
+      ? JSON.parse(row.field_overrides) as Record<string, string>
+      : row.field_overrides,
+    rendererVersion: row.renderer_version, fileId: Number(row.file_id),
+    contentSha256: row.content_sha256, createdAt: new Date(row.created_at),
+    createdBy: Number(row.created_by),
   };
 }
 
@@ -600,7 +796,8 @@ function rethrow(error: unknown): never {
     error instanceof BusinessOrderDocumentNotFoundError ||
     error instanceof BusinessOrderDocumentReadDeniedError ||
     error instanceof BusinessOrderDocumentWriteDeniedError ||
-    error instanceof BusinessOrderDocumentConflictError
+    error instanceof BusinessOrderDocumentConflictError ||
+    error instanceof BusinessOrderDocumentRevisionConflictError
   ) {
     throw error;
   }

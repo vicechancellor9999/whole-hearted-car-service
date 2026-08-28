@@ -1,0 +1,1 @@
+export { GET, POST } from "@formal/app/api/business-orders/[businessOrderId]/documents/[documentId]/revisions/route";

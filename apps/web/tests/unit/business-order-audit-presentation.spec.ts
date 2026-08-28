@@ -50,6 +50,10 @@ test.describe("businessOrderAuditSummary", () => {
       assignedTeamId: 1,
       roundNo: 2,
     }, masterData)).toBe("第 2 轮维修派给车间一组");
+    expect(businessOrderAuditSummary("business_order.document_revision_created", {
+      documentNo: "CUS-20260828-0001",
+      revisionNo: 3,
+    }, masterData)).toBe("保存打印单据修订 CUS-20260828-0001 R3");
   });
 
   test("turns an unknown future event into a readable event name without inventing an action", () => {
