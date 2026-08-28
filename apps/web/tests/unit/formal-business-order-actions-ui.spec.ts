@@ -139,6 +139,9 @@ test("单据工作区直接提供真实 A4 PDF 预览、下载、系统打印和
   expect(workspace).not.toMatch(/business-document-a4-editor/);
   expect(workspace).toMatch(/系统打印/);
   expect(workspace).toMatch(/业务附件/);
+  expect(workspace).toMatch(/中文/);
+  expect(workspace).toMatch(/English/);
+  expect(workspace).toMatch(/language: documentLanguage/);
 });
 
 test("历史工作区默认使用简洁时间线并可展开字段明细", () => {

@@ -36,6 +36,17 @@ test("PDF canvas preview uses the screen pixel ratio without enlarging its CSS s
   expect(preview).toMatch(/canvas\.width = Math\.floor\(viewport\.width \* outputScale\)/);
   expect(preview).toMatch(/canvas\.style\.width = `\$\{viewport\.width\}px`/);
   expect(preview).toMatch(/transform: \[outputScale, 0, 0, outputScale, 0, 0\]/);
+  expect(preview).toMatch(/适合宽度/);
+  expect(preview).toMatch(/aria-label="缩小 PDF"/);
+  expect(preview).toMatch(/aria-label="放大 PDF"/);
+  expect(preview).toMatch(/Math\.min\(200/);
+  expect(preview).toMatch(/Math\.max\(50/);
+});
+
+test("formal document file URL carries the selected persisted language", () => {
+  const api = source("src/lib/api/formal-business-orders.ts");
+  expect(api).toMatch(/language: "zh" \| "en"/);
+  expect(api).toMatch(/searchParams\.set\("language", options\.language\)/);
 });
 
 test("print renderer preserves the three-copy business boundaries", () => {

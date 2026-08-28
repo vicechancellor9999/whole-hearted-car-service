@@ -232,6 +232,8 @@ export type FormalBusinessOrderDocumentRevision = {
   rendererVersion: string;
   fileId: number;
   contentSha256: string;
+  englishFileId: number | null;
+  englishContentSha256: string | null;
   createdAt: string;
   createdBy: number;
 };
@@ -589,8 +591,11 @@ export function formalDocumentRevisionFileUrl(
   businessOrderId: number,
   documentId: number,
   revisionId: number,
-  download = false,
+  options: { language: "zh" | "en"; download?: boolean } = { language: "zh" },
 ) {
   const url = `/api/formal/business-orders/${businessOrderId}/documents/${documentId}/revisions/${revisionId}/file`;
-  return download ? `${url}?download=1` : url;
+  const searchParams = new URLSearchParams();
+  searchParams.set("language", options.language);
+  if (options.download) searchParams.set("download", "1");
+  return `${url}?${searchParams.toString()}`;
 }

@@ -53,6 +53,10 @@ export function FormalBusinessOrderDocumentsWorkspace({
   const [pdfBytes, setPdfBytes] = useState<Uint8Array | null>(null);
   const [documentBusy, setDocumentBusy] = useState(false);
   const [documentError, setDocumentError] = useState<string | null>(null);
+  const [documentLanguageChoice, setDocumentLanguageChoice] = useState<{
+    documentId: number | null;
+    language: "zh" | "en";
+  }>({ documentId: null, language: "zh" });
 
   const loadAttachments = useCallback(async () => {
     setAttachmentError(null);
@@ -119,6 +123,11 @@ export function FormalBusinessOrderDocumentsWorkspace({
   ) ?? [];
   const selectedRevision = availableRevisions.find((revision) => revision.id === selectedRevisionId)
     ?? availableRevisions.at(-1) ?? null;
+  const supportsEnglish = selectedDocument?.kind !== "mechanic_work" && Boolean(selectedRevision?.englishFileId);
+  const documentLanguage = documentLanguageChoice.documentId === effectiveSelectedDocumentId
+    && supportsEnglish
+    ? documentLanguageChoice.language
+    : "zh";
   useEffect(() => {
     if (!selectedDocument) {
       setDetail(null); setPdfBytes(null); setSelectedRevisionId(null);
@@ -141,7 +150,7 @@ export function FormalBusinessOrderDocumentsWorkspace({
     if (!selectedDocument || !selectedRevision) { setPdfBytes(null); return; }
     let active = true;
     setDocumentBusy(true); setDocumentError(null);
-    void fetch(formalDocumentRevisionFileUrl(businessOrderId, selectedDocument.id, selectedRevision.id), { cache: "no-store" })
+    void fetch(formalDocumentRevisionFileUrl(businessOrderId, selectedDocument.id, selectedRevision.id, { language: documentLanguage }), { cache: "no-store" })
       .then(async (response) => {
         if (!response.ok) throw new Error("PDF 文件读取失败");
         const bytes = new Uint8Array(await response.arrayBuffer());
@@ -150,7 +159,7 @@ export function FormalBusinessOrderDocumentsWorkspace({
       .catch((caught) => { if (active) setDocumentError(caught instanceof Error ? caught.message : "PDF 文件读取失败"); })
       .finally(() => { if (active) setDocumentBusy(false); });
     return () => { active = false; };
-  }, [businessOrderId, selectedDocument, selectedRevision]);
+  }, [businessOrderId, documentLanguage, selectedDocument, selectedRevision]);
 
   const selectRevision = (revisionId: number) => {
     setSelectedRevisionId(revisionId);
@@ -161,7 +170,7 @@ export function FormalBusinessOrderDocumentsWorkspace({
     setDocumentError(null);
     try {
       await printPdfBytes({
-        metadata: { id: String(selectedRevision.id), language: "zh", fileName: `${selectedDocument.documentNo}-R${selectedRevision.revisionNo}.pdf` },
+        metadata: { id: `${selectedRevision.id}-${documentLanguage}`, language: documentLanguage, fileName: `${selectedDocument.documentNo}-R${selectedRevision.revisionNo}-${documentLanguage.toUpperCase()}.pdf` },
         bytes: pdfBytes,
       });
     } catch (caught) { setDocumentError(caught instanceof Error ? caught.message : "无法调用系统打印"); }
@@ -181,10 +190,10 @@ export function FormalBusinessOrderDocumentsWorkspace({
           <div className="min-w-0 overflow-hidden rounded-xl border border-line bg-surface/50">
             <div className="flex flex-wrap items-center justify-between gap-2 border-b border-line bg-card px-3 py-2">
               <div className="inline-flex flex-wrap items-center gap-2"><FileText size={15} className="text-primary" /><strong className="text-xs">正式 A4 单据</strong>{selectedDocument ? <span className="text-[11px] text-ink-soft">{selectedDocument.documentNo}</span> : null}{availableRevisions.length ? <select aria-label="打印版本" value={selectedRevision?.id ?? ""} onChange={(event) => selectRevision(Number(event.target.value))} className="min-h-8 rounded-lg border border-line bg-layer-2 px-2 text-xs">{availableRevisions.map((revision) => <option key={revision.id} value={revision.id}>R{revision.revisionNo} · {formatDateTime(revision.createdAt)}</option>)}</select> : null}</div>
-              <div className="flex flex-wrap gap-2"><button type="button" disabled={!pdfBytes} onClick={() => void printCurrent()} className="inline-flex min-h-8 items-center gap-1.5 rounded-lg bg-primary px-3 text-xs font-bold text-white disabled:opacity-40"><Printer size={14} />系统打印</button>{selectedDocument && selectedRevision ? <a href={formalDocumentRevisionFileUrl(businessOrderId, selectedDocument.id, selectedRevision.id, true)} className="inline-flex min-h-8 items-center gap-1.5 rounded-lg border border-line px-3 text-xs font-bold"><Download size={13} />下载 PDF</a> : null}</div>
+              <div className="flex flex-wrap gap-2">{selectedDocument?.kind !== "mechanic_work" ? <div className="inline-flex min-h-8 overflow-hidden rounded-lg border border-line bg-layer-2" aria-label="单据语言"><button type="button" onClick={() => setDocumentLanguageChoice({ documentId: effectiveSelectedDocumentId, language: "zh" })} className={`px-3 text-xs font-bold ${documentLanguage === "zh" ? "bg-primary text-white" : "text-ink-soft"}`}>中文</button><button type="button" disabled={!supportsEnglish} onClick={() => setDocumentLanguageChoice({ documentId: effectiveSelectedDocumentId, language: "en" })} className={`border-l border-line px-3 text-xs font-bold disabled:opacity-35 ${documentLanguage === "en" ? "bg-primary text-white" : "text-ink-soft"}`}>English</button></div> : null}<button type="button" disabled={!pdfBytes} onClick={() => void printCurrent()} className="inline-flex min-h-8 items-center gap-1.5 rounded-lg bg-primary px-3 text-xs font-bold text-white disabled:opacity-40"><Printer size={14} />系统打印</button>{selectedDocument && selectedRevision ? <a href={formalDocumentRevisionFileUrl(businessOrderId, selectedDocument.id, selectedRevision.id, { language: documentLanguage, download: true })} className="inline-flex min-h-8 items-center gap-1.5 rounded-lg border border-line px-3 text-xs font-bold"><Download size={13} />下载 PDF</a> : null}</div>
             </div>
             {documentError ? <p role="alert" className="m-3 rounded-lg bg-rose-50 px-3 py-2 text-xs font-semibold text-rose-700">{documentError}</p> : null}
-            {documentBusy && !detail ? <div className="grid h-72 place-items-center"><LoaderCircle className="animate-spin text-primary" /></div> : pdfBytes ? <div className="max-h-[720px] overflow-auto bg-slate-300 p-3 dark:bg-slate-900"><PdfCanvasPreview bytes={pdfBytes} dataTestId="business-document-pdf-canvas" scale={1.2} allowHorizontalOverflow thumbnailTestIdPrefix="business-document-page" /></div> : <div className="grid h-72 place-items-center text-xs text-ink-soft">选择或生成一份正式文件后在这里预览。</div>}
+            {documentBusy && !detail ? <div className="grid h-72 place-items-center"><LoaderCircle className="animate-spin text-primary" /></div> : pdfBytes ? <div className="max-h-[720px] overflow-auto bg-slate-300 p-3 dark:bg-slate-900"><PdfCanvasPreview bytes={pdfBytes} dataTestId="business-document-pdf-canvas" fitWidth showZoomControls thumbnailTestIdPrefix="business-document-page" /></div> : <div className="grid h-72 place-items-center text-xs text-ink-soft">选择或生成一份正式文件后在这里预览。</div>}
           </div>
         </div>
       </section>

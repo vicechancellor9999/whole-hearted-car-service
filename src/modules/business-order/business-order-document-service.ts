@@ -9,6 +9,7 @@ import { writeAuditEvent } from "@formal/modules/audit/audit-service";
 import type { BusinessOrderActionContext } from "@formal/modules/business-order/business-order-service";
 import { validateDocumentOverrides } from "@formal/modules/business-order/business-order-document-content";
 import {
+  BusinessOrderDocumentEnglishTranslationError,
   BUSINESS_ORDER_DOCUMENT_RENDERER_VERSION,
   renderBusinessOrderDocumentPdf,
 } from "@formal/modules/business-order/business-order-document-pdf";
@@ -42,6 +43,8 @@ type RevisionRow = {
   renderer_version: string;
   file_id: number;
   content_sha256: string;
+  english_file_id: number | null;
+  english_content_sha256: string | null;
   created_at: Date;
   created_by: number;
 };
@@ -126,6 +129,8 @@ export type BusinessOrderDocumentRevisionRecord = {
   rendererVersion: string;
   fileId: number;
   contentSha256: string;
+  englishFileId: number | null;
+  englishContentSha256: string | null;
   createdAt: Date;
   createdBy: number;
 };
@@ -265,20 +270,54 @@ export class BusinessOrderDocumentService {
     });
     const overrides = validateDocumentOverrides(document.snapshot, input.fieldOverrides);
     const nextRevisionNo = input.expectedLatestRevisionNo + 1;
-    const bytes = await renderBusinessOrderDocumentPdf({
-      documentNo: document.documentNo,
-      revisionNo: nextRevisionNo,
-      snapshot: document.snapshot,
-      fieldOverrides: overrides,
-    });
+    let bytes: Uint8Array;
+    let englishBytes: Uint8Array | null = null;
+    try {
+      [bytes, englishBytes] = await Promise.all([
+        renderBusinessOrderDocumentPdf({
+          documentNo: document.documentNo,
+          revisionNo: nextRevisionNo,
+          snapshot: document.snapshot,
+          fieldOverrides: overrides,
+          language: "zh",
+        }),
+        document.kind === "mechanic_work"
+          ? Promise.resolve(null)
+          : renderBusinessOrderDocumentPdf({
+            documentNo: document.documentNo,
+            revisionNo: nextRevisionNo,
+            snapshot: document.snapshot,
+            fieldOverrides: overrides,
+            language: "en",
+          }),
+      ]);
+    } catch (error) {
+      if (error instanceof BusinessOrderDocumentEnglishTranslationError) {
+        throw new BusinessOrderDocumentConflictError(error.message);
+      }
+      throw error;
+    }
     const now = input.context.now ?? new Date();
-    const stored = await storeBusinessOrderDocumentPdf({
-      documentNo: document.documentNo,
-      revisionNo: nextRevisionNo,
-      bytes,
-      root: this.options.storageRoot,
-      now,
-    });
+    const [stored, englishStored] = await Promise.all([
+      storeBusinessOrderDocumentPdf({
+        documentNo: document.documentNo,
+        revisionNo: nextRevisionNo,
+        bytes,
+        root: this.options.storageRoot,
+        now,
+        language: "zh",
+      }),
+      englishBytes
+        ? storeBusinessOrderDocumentPdf({
+          documentNo: document.documentNo,
+          revisionNo: nextRevisionNo,
+          bytes: englishBytes,
+          root: this.options.storageRoot,
+          now,
+          language: "en",
+        })
+        : Promise.resolve(null),
+    ]);
     try {
       return await this.database.transaction(async (transaction) => {
         await transaction.query(
@@ -299,16 +338,26 @@ export class BusinessOrderDocumentService {
           [stored.storageKey, stored.originalName, stored.mediaType, stored.sizeBytes,
             stored.sha256Hex, input.context.actorAccountId, now],
         );
+        const englishFiles = englishStored ? await transaction.query<{ id: number }>(
+          `insert into stored_files
+            (storage_key, original_name, media_type, size_bytes, sha256_hex, uploaded_by, uploaded_at)
+           values ($1, $2, $3, $4, $5, $6, $7) returning id`,
+          [englishStored.storageKey, englishStored.originalName, englishStored.mediaType,
+            englishStored.sizeBytes, englishStored.sha256Hex, input.context.actorAccountId, now],
+        ) : [];
         const rows = await transaction.query<RevisionRow>(
           `insert into business_order_document_revisions
             (document_snapshot_id, revision_no, field_overrides, renderer_version,
-             file_id, content_sha256, created_at, created_by)
-           values ($1, $2, $3::jsonb, $4, $5, $6, $7, $8)
+             file_id, content_sha256, english_file_id, english_content_sha256,
+             created_at, created_by)
+           values ($1, $2, $3::jsonb, $4, $5, $6, $7, $8, $9, $10)
            returning id, document_snapshot_id, revision_no, field_overrides,
-                     renderer_version, file_id, content_sha256, created_at, created_by`,
+                     renderer_version, file_id, content_sha256,
+                     english_file_id, english_content_sha256, created_at, created_by`,
           [document.id, nextRevisionNo, JSON.stringify(overrides),
             BUSINESS_ORDER_DOCUMENT_RENDERER_VERSION, Number(files[0]?.id),
-            stored.sha256Hex, now, input.context.actorAccountId],
+            stored.sha256Hex, englishStored ? Number(englishFiles[0]?.id) : null,
+            englishStored?.sha256Hex ?? null, now, input.context.actorAccountId],
         );
         const revision = mapRevision(rows[0]);
         await writeAuditEvent(transaction, {
@@ -327,6 +376,7 @@ export class BusinessOrderDocumentService {
       });
     } catch (error) {
       await removeBusinessOrderDocumentPdf(stored.storageKey, this.options.storageRoot);
+      if (englishStored) await removeBusinessOrderDocumentPdf(englishStored.storageKey, this.options.storageRoot);
       rethrow(error);
     }
   }
@@ -335,17 +385,21 @@ export class BusinessOrderDocumentService {
     documentId: number;
     revisionId: number;
     viewerAccountId: number;
+    language?: "zh" | "en";
   }) {
     await requireReader(this.database, input.viewerAccountId);
+    const language = input.language ?? "zh";
+    const fileColumn = language === "en" ? "revision.english_file_id" : "revision.file_id";
     const rows = await this.database.query<RevisionRow & {
       storage_key: string; original_name: string; media_type: string; size_bytes: number;
     }>(
       `select revision.id, revision.document_snapshot_id, revision.revision_no,
               revision.field_overrides, revision.renderer_version, revision.file_id,
-              revision.content_sha256, revision.created_at, revision.created_by,
+              revision.content_sha256, revision.english_file_id,
+              revision.english_content_sha256, revision.created_at, revision.created_by,
               file.storage_key, file.original_name, file.media_type, file.size_bytes
        from business_order_document_revisions as revision
-       join stored_files as file on file.id = revision.file_id
+       join stored_files as file on file.id = ${fileColumn}
        where revision.document_snapshot_id = $1 and revision.id = $2 limit 1`,
       [input.documentId, input.revisionId],
     );
@@ -732,7 +786,8 @@ function documentSelect() {
 function revisionSelect() {
   return `select revision.id, revision.document_snapshot_id, revision.revision_no,
                  revision.field_overrides, revision.renderer_version, revision.file_id,
-                 revision.content_sha256, revision.created_at, revision.created_by
+                 revision.content_sha256, revision.english_file_id,
+                 revision.english_content_sha256, revision.created_at, revision.created_by
           from business_order_document_revisions as revision`;
 }
 
@@ -764,7 +819,10 @@ function mapRevision(row: RevisionRow | undefined): BusinessOrderDocumentRevisio
       ? JSON.parse(row.field_overrides) as Record<string, string>
       : row.field_overrides,
     rendererVersion: row.renderer_version, fileId: Number(row.file_id),
-    contentSha256: row.content_sha256, createdAt: new Date(row.created_at),
+    contentSha256: row.content_sha256,
+    englishFileId: row.english_file_id === null ? null : Number(row.english_file_id),
+    englishContentSha256: row.english_content_sha256,
+    createdAt: new Date(row.created_at),
     createdBy: Number(row.created_by),
   };
 }

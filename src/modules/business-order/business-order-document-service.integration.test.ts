@@ -38,6 +38,7 @@ const migrationPaths = [
   "0030_business_order_customer_copy.sql",
   "0031_business_order_messages.sql",
   "0035_business_order_document_revisions.sql",
+  "0036_business_order_document_english_files.sql",
 ].map((name) => resolve(process.cwd(), "drizzle", name));
 
 let database: PGlite;
@@ -179,7 +180,7 @@ describe("BusinessOrderDocumentService", () => {
     const customerId = Number((await database.query<{ id: number }>(
       `insert into personal_customers
         (customer_no, full_name, normalized_phone, trn, created_by)
-       values ('CUST-202608-0001', '张伟', '+18765550101', '123456789', $1)
+       values ('CUST-202608-0001', '张伟 / Zhang Wei', '+18765550101', '123456789', $1)
        returning id`,
       [adminId],
     )).rows[0].id);
@@ -212,6 +213,7 @@ describe("BusinessOrderDocumentService", () => {
     const detail = await documents.getDocumentDetail({ documentId: generated.id, viewerAccountId: ownerId });
     expect(detail.latestRevisionNo).toBe(1);
     expect(detail.revisions).toHaveLength(1);
+    expect(detail.revisions[0].englishFileId).toEqual(expect.any(Number));
     const firstFile = await documents.getRevisionFile({
       documentId: generated.id,
       revisionId: detail.revisions[0].id,
@@ -219,6 +221,14 @@ describe("BusinessOrderDocumentService", () => {
     });
     expect(firstFile.mediaType).toBe("application/pdf");
     expect(new TextDecoder().decode(firstFile.bytes.slice(0, 5))).toBe("%PDF-");
+    const englishFile = await documents.getRevisionFile({
+      documentId: generated.id,
+      revisionId: detail.revisions[0].id,
+      viewerAccountId: ownerId,
+      language: "en",
+    });
+    expect(englishFile.originalName).toMatch(/-EN\.pdf$/);
+    expect(Buffer.from(englishFile.bytes).equals(Buffer.from(firstFile.bytes))).toBe(false);
 
     const second = await documents.createRevision({
       documentId: generated.id,
@@ -309,7 +319,7 @@ describe("BusinessOrderDocumentService", () => {
       kind: "customer_copy",
       businessOrder: {
         orderNo: order.orderNo,
-        payerName: "张伟",
+        payerName: "张伟 / Zhang Wei",
         plate: "7012 AB",
       },
       charges: {
@@ -318,6 +328,8 @@ describe("BusinessOrderDocumentService", () => {
       },
       totals: { totalPaidMinor: 300_000 },
     });
+    const detail = await documents.getDocumentDetail({ documentId: generated.id, viewerAccountId: ownerId });
+    expect(detail.revisions[0].englishFileId).toEqual(expect.any(Number));
     const serialized = JSON.stringify(generated.snapshot);
     expect(serialized).not.toContain("内部审批备注");
     expect(serialized).not.toContain("Internal approval note");
@@ -337,6 +349,8 @@ describe("BusinessOrderDocumentService", () => {
       repairRound: { roundNo: 1 },
       workItems: [{ nameZh: "发动机诊断" }, { nameZh: "机油滤芯" }],
     });
+    const detail = await documents.getDocumentDetail({ documentId: generated.id, viewerAccountId: ownerId });
+    expect(detail.revisions[0].englishFileId).toBeNull();
     const serialized = JSON.stringify(generated.snapshot);
     for (const forbidden of [
       "张伟", "+18765550101", "123456789", "payer", "unitPriceMinor",

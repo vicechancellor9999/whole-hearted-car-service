@@ -176,6 +176,9 @@ export const businessOrderDocumentRevisions = pgTable(
       .notNull()
       .references(() => storedFiles.id, { onDelete: "restrict" }),
     contentSha256: text("content_sha256").notNull(),
+    englishFileId: bigint("english_file_id", { mode: "number" })
+      .references(() => storedFiles.id, { onDelete: "restrict" }),
+    englishContentSha256: text("english_content_sha256"),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull(),
     createdBy: bigint("created_by", { mode: "number" })
       .notNull()
@@ -184,11 +187,16 @@ export const businessOrderDocumentRevisions = pgTable(
   (table) => [
     uniqueIndex("business_order_document_revisions_snapshot_no_uq").on(table.documentSnapshotId, table.revisionNo),
     uniqueIndex("business_order_document_revisions_file_uq").on(table.fileId),
+    uniqueIndex("business_order_document_revisions_english_file_uq")
+      .on(table.englishFileId)
+      .where(sql`${table.englishFileId} is not null`),
     index("business_order_document_revisions_snapshot_time_idx").on(table.documentSnapshotId, table.createdAt, table.id),
     check("business_order_document_revisions_revision_positive", sql`${table.revisionNo} >= 1`),
     check("business_order_document_revisions_overrides_object", sql`jsonb_typeof(${table.fieldOverrides}) = 'object'`),
     check("business_order_document_revisions_renderer_nonempty", sql`length(btrim(${table.rendererVersion})) > 0`),
     check("business_order_document_revisions_sha256_format", sql`${table.contentSha256} ~ '^[0-9a-f]{64}$'`),
+    check("business_order_document_revisions_english_pair", sql`(${table.englishFileId} is null) = (${table.englishContentSha256} is null)`),
+    check("business_order_document_revisions_english_sha256_format", sql`${table.englishContentSha256} is null or ${table.englishContentSha256} ~ '^[0-9a-f]{64}$'`),
   ],
 );
 

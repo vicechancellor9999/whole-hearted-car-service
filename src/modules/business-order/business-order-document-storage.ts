@@ -25,6 +25,7 @@ export async function storeBusinessOrderDocumentPdf(input: {
   bytes: Uint8Array;
   root?: string;
   now?: Date;
+  language?: "zh" | "en";
 }): Promise<StoredBusinessOrderDocument> {
   if (new TextDecoder().decode(input.bytes.slice(0, 5)) !== "%PDF-") {
     throw new Error("打印文件不是有效 PDF");
@@ -39,7 +40,7 @@ export async function storeBusinessOrderDocumentPdf(input: {
   await writeFile(destination, input.bytes, { flag: "wx" });
   return {
     storageKey,
-    originalName: `${input.documentNo}-R${input.revisionNo}.pdf`,
+    originalName: `${input.documentNo}-R${input.revisionNo}-${(input.language ?? "zh").toUpperCase()}.pdf`,
     mediaType: "application/pdf",
     sizeBytes: input.bytes.byteLength,
     sha256Hex: createHash("sha256").update(input.bytes).digest("hex"),

@@ -74,17 +74,37 @@ export function PdfCanvasPreview({
   scale = 1.35,
   allowHorizontalOverflow = false,
   thumbnailTestIdPrefix = "pdf-preview-thumbnail",
+  fitWidth = false,
+  showZoomControls = false,
 }: {
   bytes: Uint8Array;
   dataTestId?: string;
   scale?: number;
   allowHorizontalOverflow?: boolean;
   thumbnailTestIdPrefix?: string;
+  fitWidth?: boolean;
+  showZoomControls?: boolean;
 }) {
   const containerRef = useRef<HTMLDivElement>(null);
+  const viewportRef = useRef<HTMLDivElement>(null);
   const [error, setError] = useState<string | null>(null);
   const [pageCount, setPageCount] = useState(0);
   const [currentPage, setCurrentPage] = useState(1);
+  const [viewportWidth, setViewportWidth] = useState(0);
+  const [zoomMode, setZoomMode] = useState<"fit" | "manual">(fitWidth ? "fit" : "manual");
+  const [zoomPercent, setZoomPercent] = useState(Math.round(scale * 100));
+  const [fitPercent, setFitPercent] = useState(100);
+  const clampZoom = (value: number) => Math.min(200, Math.max(50, value));
+
+  useEffect(() => {
+    const viewport = viewportRef.current;
+    if (!viewport) return;
+    const update = () => setViewportWidth(Math.max(1, Math.floor(viewport.clientWidth)));
+    update();
+    const observer = new ResizeObserver(update);
+    observer.observe(viewport);
+    return () => observer.disconnect();
+  }, []);
 
   // A different attachment starts at page 1. Page changes themselves must not
   // run this reset or Next/Previous would immediately jump back to page 1.
@@ -119,13 +139,18 @@ export function PdfCanvasPreview({
         const pageNumber = Math.min(Math.max(1, currentPage), pdf.numPages);
         const page = await pdf.getPage(pageNumber);
         if (cancelled) return;
-        const viewport = page.getViewport({ scale });
+        const baseViewport = page.getViewport({ scale: 1 });
+        const fitScale = Math.max(0.25, Math.min(2, (viewportRef.current?.clientWidth ?? baseViewport.width) / baseViewport.width));
+        const renderScale = fitWidth && zoomMode === "fit" ? fitScale : zoomPercent / 100;
+        if (fitWidth && zoomMode === "fit") setFitPercent(Math.round(fitScale * 100));
+        const viewport = page.getViewport({ scale: renderScale });
         const container = containerRef.current;
         if (!container) return;
         container.innerHTML = "";
         const canvas = document.createElement("canvas");
         const { transform } = configureCanvasForDisplay(canvas, viewport);
-        canvas.className = `mx-auto block rounded-lg border border-line bg-white dark:border-slate-700${allowHorizontalOverflow ? "" : " max-w-full"}`;
+        const constrainWidth = zoomMode === "fit" || !allowHorizontalOverflow;
+        canvas.className = `mx-auto block rounded-lg border border-line bg-white dark:border-slate-700${constrainWidth ? " max-w-full" : ""}`;
         canvas.setAttribute("data-testid", dataTestId);
         canvas.setAttribute("data-page", String(pageNumber));
         container.appendChild(canvas);
@@ -136,7 +161,13 @@ export function PdfCanvasPreview({
       }
     })();
     return () => { cancelled = true; };
-  }, [allowHorizontalOverflow, bytes, currentPage, dataTestId, scale]);
+  }, [allowHorizontalOverflow, bytes, currentPage, dataTestId, fitWidth, viewportWidth, zoomMode, zoomPercent]);
+
+  const displayedPercent = zoomMode === "fit" ? fitPercent : zoomPercent;
+  const changeZoom = (delta: number) => {
+    setZoomPercent(clampZoom(displayedPercent + delta));
+    setZoomMode("manual");
+  };
 
   return (
     <div className="mt-3 min-w-0 rounded-xl border border-line bg-slate-50 p-3 dark:border-slate-700 dark:bg-slate-900" data-testid="pdf-canvas-preview">
@@ -161,7 +192,8 @@ export function PdfCanvasPreview({
           <button type="button" data-testid="pdf-preview-next" disabled={currentPage >= pageCount} onClick={() => setCurrentPage((value) => Math.min(pageCount, value + 1))} className="min-h-8 rounded-lg border border-line px-3 font-semibold disabled:opacity-40 dark:border-slate-600">下一页 →</button>
         </div>
       ) : null}
-      <div ref={containerRef} className="overflow-hidden" />
+      {showZoomControls ? <div className="mb-2 flex flex-wrap items-center justify-end gap-1.5 text-xs"><button type="button" aria-label="缩小 PDF" onClick={() => changeZoom(-10)} className="grid h-8 w-8 place-items-center rounded-lg border border-line bg-layer-2 text-base font-bold">−</button><span className="min-w-14 text-center font-semibold tabular-nums">{displayedPercent}%</span><button type="button" aria-label="放大 PDF" onClick={() => changeZoom(10)} className="grid h-8 w-8 place-items-center rounded-lg border border-line bg-layer-2 text-base font-bold">+</button><button type="button" onClick={() => setZoomMode("fit")} className={`min-h-8 rounded-lg border px-3 font-semibold ${zoomMode === "fit" ? "border-primary bg-primary-50 text-primary" : "border-line bg-layer-2"}`}>适合宽度</button><button type="button" onClick={() => { setZoomPercent(100); setZoomMode("manual"); }} className={`min-h-8 rounded-lg border px-3 font-semibold ${zoomMode === "manual" && zoomPercent === 100 ? "border-primary bg-primary-50 text-primary" : "border-line bg-layer-2"}`}>100%</button></div> : null}
+      <div ref={viewportRef} className="min-w-0 overflow-auto"><div ref={containerRef} className="min-w-0" /></div>
       {error ? <p role="alert" className="mt-2 text-xs font-semibold text-rose-600">{error}</p> : null}
     </div>
   );
