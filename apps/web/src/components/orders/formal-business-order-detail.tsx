@@ -41,6 +41,10 @@ import {
 } from "@/lib/api/formal-business-orders";
 import { fetchFormalMasterData, type FormalMasterData } from "@/lib/api/formal-master-data";
 import { aiParseFormalChargeEntry, aiTranslateRepair } from "@/lib/ai/auto-repair";
+import {
+  businessOrderAuditChanges,
+  businessOrderAuditSummary,
+} from "@/lib/orders/business-order-audit-presentation";
 import { parseChargeEntryInput } from "@/lib/orders/nl-parse";
 import { formatDateTime } from "@/lib/utils";
 
@@ -99,157 +103,8 @@ const ROUND_EVENT_LABELS: Record<string, string> = {
   formally_handed_off: "正式交单",
 };
 
-const AUDIT_EVENT_LABELS: Record<string, string> = {
-  "business_order.created": "创建 Business Order",
-  "business_order.round_assigned": "派给维修班组",
-  "business_order.assignment_withdrawn": "撤回维修班组派单",
-  "business_order.round_accepted": "维修工接单",
-  "business_order.intake_mileage_recorded": "记录接车里程",
-  "business_order.work_return_submitted": "提交维修回单",
-  "business_order.work_return_approved": "审核通过维修回单",
-  "business_order.work_return_rejected": "退回维修回单",
-  "business_order.formally_handed_off": "正式交单",
-  "business_order.after_sales_round_started": "开始下一轮售后维修",
-  "business_order.after_sales_round_cancelled": "撤销误建售后维修轮次",
-  "business_order.charge_version_replaced": "修改收费项目和备注",
-  "business_order.charges_replaced": "修改收费项目和备注",
-  "business_order.payment_recorded": "登记收款并生成 Receipt",
-  "business_order.refund_recorded": "登记退款",
-  "payment.recorded": "登记收款",
-  "refund.created": "登记退款",
-  "refund.proof_attached": "上传退款凭证",
-  "refund.signed_acknowledgement_attached": "上传客户签字的退款签收单",
-  "business_order.document_generated": "生成正式打印文件",
-  "business_order.document_reprinted": "补打正式打印文件",
-};
-
-const AUDIT_FIELD_LABELS: Record<string, string> = {
-  status: "状态",
-  roundNo: "维修轮次",
-  teamId: "维修班组",
-  assignedTeamId: "维修班组",
-  workReturnId: "维修回单",
-  actualStaffMemberId: "实际维修工",
-  odometerKm: "接车里程",
-  performanceMinor: "绩效值",
-  amountMinor: "金额",
-  balanceAfterMinor: "操作后未结余额",
-  chargeVersionNo: "收费版本",
-  documentNo: "打印文件编号",
-  paymentNo: "收款编号",
-  refundNo: "退款编号",
-  receiptNo: "Receipt 编号",
-  paymentMethodCode: "收退款方式",
-  originalDocumentStatus: "原客户单据",
-  evidenceKinds: "退款签收资料",
-  issue: "售后问题",
-  reason: "原因",
-  note: "备注",
-};
-
-const PAYMENT_METHOD_LABELS: Record<string, string> = {
-  cash: "现金",
-  bank_transfer: "银行转账",
-  card: "银行卡",
-};
-
-const ORIGINAL_DOCUMENT_LABELS: Record<string, string> = {
-  returned: "原客户单据已交回",
-  unavailable: "原客户单据无法交回",
-  not_required: "无需交回原客户单据",
-};
-
-const REFUND_EVIDENCE_LABELS: Record<string, string> = {
-  customer_signature: "客户签字的退款签收单",
-  refund_proof: "退款凭证",
-};
-
 function roundEventLabel(eventType: string): string {
   return ROUND_EVENT_LABELS[eventType] ?? "记录了一次维修操作";
-}
-
-function auditEventLabel(eventType: string): string {
-  return AUDIT_EVENT_LABELS[eventType] ?? "完成一次业务操作";
-}
-
-function auditValue(
-  field: string,
-  value: unknown,
-  masterData: FormalMasterData,
-): string {
-  if (value === null || value === undefined || value === "") return "空";
-  if ((field === "teamId" || field === "assignedTeamId") && typeof value === "number") {
-    return masterData.teams.find((team) => team.id === value)?.name ?? `维修班组 #${value}`;
-  }
-  if (field === "status" && typeof value === "string" && PROGRESS.some(([status]) => status === value)) {
-    return formalBusinessOrderStatusLabel(value as (typeof PROGRESS)[number][0]);
-  }
-  if (field === "paymentMethodCode" && typeof value === "string") {
-    return PAYMENT_METHOD_LABELS[value] ?? "其他方式";
-  }
-  if (field === "originalDocumentStatus" && typeof value === "string") {
-    return ORIGINAL_DOCUMENT_LABELS[value] ?? "原客户单据状态已记录";
-  }
-  if (field === "evidenceKinds" && Array.isArray(value)) {
-    const labels = value.map((item) => REFUND_EVIDENCE_LABELS[String(item)]).filter(Boolean);
-    return labels.length > 0 ? labels.join("、") : "退款签收资料已记录";
-  }
-  if (field.endsWith("Minor") && typeof value === "number") return formatFormalMoney(value);
-  if (typeof value === "boolean") return value ? "是" : "否";
-  if (typeof value === "object") return "相关资料已保存";
-  return String(value);
-}
-
-function auditBusinessSummary(
-  eventType: string,
-  after: Record<string, unknown> | null,
-  masterData: FormalMasterData,
-): string {
-  const values = after ?? {};
-  const amount = typeof values.amountMinor === "number" ? formatFormalMoney(values.amountMinor) : null;
-  const method = typeof values.paymentMethodCode === "string"
-    ? auditValue("paymentMethodCode", values.paymentMethodCode, masterData)
-    : null;
-  const balance = typeof values.balanceAfterMinor === "number"
-    ? formatFormalMoney(values.balanceAfterMinor)
-    : null;
-  const receiptNo = typeof values.receiptNo === "string" ? values.receiptNo : null;
-
-  if (eventType === "payment.recorded" || eventType === "business_order.payment_recorded") {
-    return [
-      `登记收款${amount ? ` ${amount}` : ""}${method ? `（${method}）` : ""}`,
-      receiptNo ? `生成 Receipt ${receiptNo}` : null,
-      balance ? `未结余额变为 ${balance}` : null,
-    ].filter(Boolean).join("；");
-  }
-  if (eventType === "refund.created" || eventType === "business_order.refund_recorded") {
-    return [
-      `登记退款${amount ? ` ${amount}` : ""}${method ? `（${method}）` : ""}`,
-      balance ? `未结余额变为 ${balance}` : null,
-    ].filter(Boolean).join("；");
-  }
-  return auditEventLabel(eventType);
-}
-
-function auditChanges(
-  before: Record<string, unknown> | null,
-  after: Record<string, unknown> | null,
-  masterData: FormalMasterData,
-) {
-  const keys = Array.from(new Set([
-    ...Object.keys(before ?? {}),
-    ...Object.keys(after ?? {}),
-  ])).filter((key) => key !== "businessOrderId" && Boolean(AUDIT_FIELD_LABELS[key]));
-  return keys
-    .filter((key) => JSON.stringify(before?.[key]) !== JSON.stringify(after?.[key]))
-    .map((key) => ({
-      key,
-      label: AUDIT_FIELD_LABELS[key],
-      before: auditValue(key, before?.[key], masterData),
-      after: auditValue(key, after?.[key], masterData),
-      hasBefore: Boolean(before && Object.prototype.hasOwnProperty.call(before, key)),
-      hasAfter: Boolean(after && Object.prototype.hasOwnProperty.call(after, key)),
-    }));
 }
 
 function RepairHistoryDialog({
@@ -290,9 +145,9 @@ function RepairHistoryDialog({
           </div>
           {rounds.auditTrail.length > 0 ? <ol className="mt-3 space-y-2">
             {rounds.auditTrail.map((event) => {
-              const changes = auditChanges(event.before, event.after, masterData);
+              const changes = businessOrderAuditChanges(event.before, event.after, masterData);
               const actor = event.actorDisplayName?.trim() || event.actorUsername?.trim() || (event.actorAccountId ? `账号 #${event.actorAccountId}` : "系统");
-              const summary = auditBusinessSummary(event.eventType, event.after, masterData);
+              const summary = businessOrderAuditSummary(event.eventType, event.after, masterData);
               return <li key={event.id} className="rounded-xl border border-line p-3 text-xs">
                 <div className="grid gap-2 sm:grid-cols-[145px_150px_minmax(0,1fr)]">
                   <span><small className="block text-ink-soft">时间</small><time className="font-semibold">{formatDateTime(event.occurredAt)}</time></span>
@@ -484,9 +339,9 @@ export function FormalBusinessOrderDetailView({ businessOrderId }: { businessOrd
       id: `audit-${event.id}`,
       occurredAt: formatDateTime(event.occurredAt),
       actor: event.actorDisplayName?.trim() || event.actorUsername?.trim() || (event.actorAccountId ? `账号 #${event.actorAccountId}` : "系统"),
-      summary: auditBusinessSummary(event.eventType, event.after, masterData),
+      summary: businessOrderAuditSummary(event.eventType, event.after, masterData),
       reason: event.reason,
-      changes: auditChanges(event.before, event.after, masterData),
+      changes: businessOrderAuditChanges(event.before, event.after, masterData),
     }));
   }, [masterData, rounds]);
 
