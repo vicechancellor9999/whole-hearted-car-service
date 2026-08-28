@@ -14,6 +14,7 @@ describe("GET /api/business-orders/:id", () => {
       listPaymentMethods: vi.fn(),
       listChargeUnits: vi.fn(),
       getRefund: vi.fn(),
+      countUnreadMentions: vi.fn(),
     });
     expect((await handler({ params: Promise.resolve({ businessOrderId: "demo" }) })).status).toBe(400);
   });
@@ -56,6 +57,7 @@ describe("GET /api/business-orders/:id", () => {
       listPaymentMethods,
       listChargeUnits,
       getRefund,
+      countUnreadMentions: vi.fn(async () => 2),
     });
     const response = await handler({ params: Promise.resolve({ businessOrderId: "12" }) });
     expect(response.status).toBe(200);
@@ -77,10 +79,13 @@ describe("GET /api/business-orders/:id", () => {
       }],
       paymentMethods: [{ id: 2, code: "cash", labelZh: "现金", labelEn: "Cash" }],
       chargeUnits: [{ id: 4, code: "hour", labelZh: "工时", labelEn: "hour" }],
+      currentAccountId: 9,
+      unreadMentionCount: 2,
       capabilities: {
         canWrite: true,
         canRecordPayment: true,
         canRefund: true,
+        canCollaborate: true,
       },
     });
   });

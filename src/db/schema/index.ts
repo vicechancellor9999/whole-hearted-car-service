@@ -10,5 +10,6 @@ export * from "@formal/db/schema/inspection-report";
 export * from "@formal/db/schema/formal-handoff";
 export * from "@formal/db/schema/payment";
 export * from "@formal/db/schema/business-order-document";
+export * from "@formal/db/schema/business-order-message";
 export * from "@formal/db/schema/vehicle-presence";
 export * from "@formal/db/schema/record-deletion";

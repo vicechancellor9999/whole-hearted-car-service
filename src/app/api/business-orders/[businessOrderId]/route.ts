@@ -25,6 +25,7 @@ type BusinessOrderDetailApiDependencies = {
   listPaymentMethods(input: { viewerAccountId: number }): Promise<unknown>;
   listChargeUnits(input: { viewerAccountId: number }): Promise<unknown>;
   getRefund(input: { refundId: number; viewerAccountId: number }): Promise<unknown>;
+  countUnreadMentions(input: { accountId: number }): Promise<number>;
 };
 
 export function createBusinessOrderDetailApiHandler(
@@ -39,13 +40,14 @@ export function createBusinessOrderDetailApiHandler(
     }
     const input = { businessOrderId, viewerAccountId: session.account.id };
     try {
-      const [order, charges, ledger, documents, paymentMethods, chargeUnits] = await Promise.all([
+      const [order, charges, ledger, documents, paymentMethods, chargeUnits, unreadMentionCount] = await Promise.all([
         dependencies.getOrder(input),
         dependencies.getCharges(input),
         dependencies.getLedger(input),
         dependencies.listDocuments(input),
         dependencies.listPaymentMethods({ viewerAccountId: session.account.id }),
         dependencies.listChargeUnits({ viewerAccountId: session.account.id }),
+        dependencies.countUnreadMentions({ accountId: session.account.id }),
       ]);
       const refundTransactions = (ledger as {
         transactions?: Array<{ type: string; id: number }>;
@@ -65,10 +67,13 @@ export function createBusinessOrderDetailApiHandler(
         documents,
         paymentMethods,
         chargeUnits,
+        currentAccountId: session.account.id,
+        unreadMentionCount,
         capabilities: {
           canWrite: hasPermission(session.account.role, "business_order.write", delegated),
           canRecordPayment: hasPermission(session.account.role, "business_order.write", delegated),
           canRefund: hasPermission(session.account.role, "sensitive_operations.execute", delegated),
+          canCollaborate: hasPermission(session.account.role, "business_order.collaborate", delegated),
         },
       });
     } catch (error) {
@@ -87,6 +92,7 @@ export async function GET(_request: Request, context: RouteContext): Promise<Res
       getCharges: (input) => runtime.service.getCurrentCharges(input),
       getLedger: (input) => runtime.payments.getBusinessOrderLedger(input),
       listDocuments: (input) => runtime.documents.listForBusinessOrder(input),
+      countUnreadMentions: (input) => runtime.collaboration.countUnreadMentions(input),
       getRefund: (input) => runtime.payments.getRefund(input),
       listPaymentMethods: ({ viewerAccountId }) => masterRuntime.service.listDictionaryItems({
         viewerAccountId,

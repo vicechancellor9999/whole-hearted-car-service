@@ -5,6 +5,7 @@ import Link from "next/link";
 import { usePathname, useSearchParams } from "next/navigation";
 import { AlertCircle, RefreshCw } from "lucide-react";
 import { FormalInspectionCreateDialog } from "@/components/orders/formal-inspection-create-dialog";
+import { FormalBusinessOrderMessages } from "@/components/orders/formal-business-order-messages";
 import {
   FormalBusinessOrderTabs,
   parseBusinessOrderWorkspace,
@@ -374,6 +375,7 @@ export function FormalBusinessOrderDetailView({ businessOrderId }: { businessOrd
   const pathname = usePathname();
   const searchParams = useSearchParams();
   const activeWorkspace = parseBusinessOrderWorkspace(searchParams.get("tab"));
+  const highlightedMessageId = Number(searchParams.get("message"));
   const workspaceSearchParams = useMemo(
     () => new URLSearchParams(searchParams.toString()),
     [searchParams],
@@ -409,6 +411,9 @@ export function FormalBusinessOrderDetailView({ businessOrderId }: { businessOrd
   const [chargeActionNotice, setChargeActionNotice] = useState<string | null>(null);
   const [translatingKey, setTranslatingKey] = useState<string | null>(null);
   const [naturalLanguageBusy, setNaturalLanguageBusy] = useState(false);
+  const handleMentionsRead = useCallback(() => {
+    setData((current) => current ? { ...current, unreadMentionCount: 0 } : current);
+  }, []);
 
   useEffect(() => {
     let active = true;
@@ -873,6 +878,7 @@ export function FormalBusinessOrderDetailView({ businessOrderId }: { businessOrd
           pathname={pathname}
           searchParams={workspaceSearchParams}
           active={activeWorkspace}
+          unreadMessageCount={data.unreadMentionCount}
         />
 
         <div className="grid items-start gap-3 xl:grid-cols-[minmax(0,2fr)_minmax(340px,1fr)]">
@@ -1013,8 +1019,7 @@ export function FormalBusinessOrderDetailView({ businessOrderId }: { businessOrd
           })}</div>}</div>
         </section>
         <section id="business-order-messages-workspace" role="tabpanel" hidden={activeWorkspace !== "messages"} className="rounded-2xl border border-line bg-white p-4 shadow-card dark:border-slate-700 dark:bg-slate-900/50 xl:col-span-2">
-          <h2 className="text-sm font-bold">沟通交流</h2>
-          <p className="mt-2 rounded-xl bg-surface px-3 py-4 text-xs text-ink-soft">内部留言、@ 提及和未读提醒正在接入正式数据库。本工作区已预留，不会影响现有业务操作。</p>
+          {activeWorkspace === "messages" ? <FormalBusinessOrderMessages businessOrderId={businessOrderId} currentAccountId={data.currentAccountId} canCollaborate={data.capabilities.canCollaborate} highlightedMessageId={Number.isSafeInteger(highlightedMessageId) && highlightedMessageId > 0 ? highlightedMessageId : null} onMentionsRead={handleMentionsRead} /> : null}
         </section>
         </div>
       </div>

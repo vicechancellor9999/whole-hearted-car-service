@@ -218,6 +218,13 @@
       "when": 1787907600000,
       "tag": "0030_business_order_customer_copy",
       "breakpoints": true
+    },
+    {
+      "idx": 31,
+      "version": "7",
+      "when": 1787911200000,
+      "tag": "0031_business_order_messages",
+      "breakpoints": true
     }
   ]
 }

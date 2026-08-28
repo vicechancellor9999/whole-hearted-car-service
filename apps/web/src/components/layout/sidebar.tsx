@@ -19,6 +19,7 @@ import {
   ContactRound,
   CarFront,
   BookOpen,
+  MessageSquareText,
   PanelLeftClose,
   PanelLeftOpen,
   type LucideIcon,
@@ -33,6 +34,8 @@ import {
   type FormalRole,
 } from "@/lib/auth/formal-pc-access";
 import type { Session } from "@/lib/types";
+import { fetchFormalMentions } from "@/lib/api/formal-business-order-collaboration";
+import { FORMAL_DATA_CHANGED_EVENT } from "@/lib/formal-data-changes";
 
 interface NavNode {
   key: FormalNavigationKey;
@@ -40,6 +43,7 @@ interface NavNode {
   href?: string;
   icon: LucideIcon;
   children?: NavNode[];
+  badge?: number;
 }
 
 /** 导航树：父级可继续展开子菜单（递归渲染，支持任意层级）。 */
@@ -49,6 +53,7 @@ const NAV_TREE: NavNode[] = [
   { key: "business_orders", label: "工单管理", icon: ClipboardList, children: [
     { key: "business_orders", label: "业务单", href: "/orders/business", icon: FileText },
     { key: "inspection_reports", label: "检查结果", href: "/orders/inspections", icon: ClipboardCheck },
+    { key: "business_orders", label: "我的提及", href: "/mentions", icon: MessageSquareText },
   ] },
   { key: "master_data", label: "基础字典", href: "/dictionaries", icon: BookOpen },
   { key: "employees", label: "员工管理", href: "/employees", icon: UserCog },
@@ -141,6 +146,7 @@ function TreeNode({ node, pathname, depth, collapsed, onNavigate }: {
           : "text-ink-soft hover:bg-gray-100 hover:text-ink dark:hover:bg-slate-700/60")}>
       <Icon size={18} className="shrink-0" />
       <span className="truncate">{label}</span>
+      {node.badge && node.badge > 0 ? <span aria-label={`${node.badge} 条未读提及`} className="ml-auto rounded-full bg-rose-600 px-2 py-0.5 text-[10px] font-bold text-white">{node.badge > 99 ? "99+" : node.badge}</span> : null}
     </Link>
   );
 }
@@ -152,6 +158,7 @@ export function Sidebar({ variant = "desktop" }: { variant?: "desktop" | "drawer
   const pathname = usePathname();
   const [collapsed, setCollapsed] = useState(false);
   const [formalRole, setFormalRole] = useState<FormalRole | null>(null);
+  const [mentionUnreadCount, setMentionUnreadCount] = useState(0);
 
   useEffect(() => {
     if (variant === "desktop") {
@@ -176,6 +183,15 @@ export function Sidebar({ variant = "desktop" }: { variant?: "desktop" | "drawer
     return () => window.removeEventListener("wh:formal-session-changed", readRole);
   }, []);
 
+  useEffect(() => {
+    if (!formalRole) return;
+    let active = true;
+    const load = () => { void fetchFormalMentions().then((result) => { if (active) setMentionUnreadCount(result.unreadCount); }).catch(() => undefined); };
+    load();
+    window.addEventListener(FORMAL_DATA_CHANGED_EVENT, load);
+    return () => { active = false; window.removeEventListener(FORMAL_DATA_CHANGED_EVENT, load); };
+  }, [formalRole]);
+
   const toggleCollapsed = () => {
     setCollapsed((value) => {
       const next = !value;
@@ -189,7 +205,7 @@ export function Sidebar({ variant = "desktop" }: { variant?: "desktop" | "drawer
   const allowedKeys = new Set(formalRole ? getVisibleNavigationKeys(formalRole) : []);
   const visibleNavigation = NAV_TREE.flatMap((node) => {
     if (node.children) {
-      const children = node.children.filter((child) => allowedKeys.has(child.key));
+      const children = node.children.filter((child) => allowedKeys.has(child.key)).map((child) => child.href === "/mentions" ? { ...child, badge: mentionUnreadCount } : child);
       return children.length > 0 ? [{ ...node, children }] : [];
     }
     return allowedKeys.has(node.key) ? [node] : [];

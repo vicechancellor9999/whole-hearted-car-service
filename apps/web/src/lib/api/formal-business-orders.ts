@@ -296,10 +296,13 @@ export type FormalBusinessOrderDetail = {
   documents: FormalBusinessOrderDocument[];
   paymentMethods: FormalPaymentMethod[];
   chargeUnits: FormalChargeUnit[];
+  currentAccountId: number;
+  unreadMentionCount: number;
   capabilities: {
     canWrite: boolean;
     canRecordPayment: boolean;
     canRefund: boolean;
+    canCollaborate: boolean;
   };
 };
 

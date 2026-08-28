@@ -7,6 +7,7 @@ export type Permission =
   | "customer_vehicle.read"
   | "customer_vehicle.write"
   | "business_order.write"
+  | "business_order.collaborate"
   | "record.delete"
   | "master_data.read"
   | "master_data.write"
@@ -27,6 +28,7 @@ export const permissionMatrix: Record<
     "customer_vehicle.read": true,
     "customer_vehicle.write": true,
     "business_order.write": true,
+    "business_order.collaborate": true,
     "record.delete": true,
     "master_data.read": true,
     "master_data.write": true,
@@ -43,6 +45,7 @@ export const permissionMatrix: Record<
     "customer_vehicle.read": true,
     "customer_vehicle.write": true,
     "business_order.write": true,
+    "business_order.collaborate": true,
     "record.delete": true,
     "master_data.read": true,
     "master_data.write": true,
@@ -59,6 +62,7 @@ export const permissionMatrix: Record<
     "customer_vehicle.read": true,
     "customer_vehicle.write": false,
     "business_order.write": false,
+    "business_order.collaborate": true,
     "record.delete": false,
     "master_data.read": true,
     "master_data.write": false,
@@ -75,6 +79,7 @@ export const permissionMatrix: Record<
     "customer_vehicle.read": false,
     "customer_vehicle.write": false,
     "business_order.write": false,
+    "business_order.collaborate": true,
     "record.delete": false,
     "master_data.read": false,
     "master_data.write": false,
