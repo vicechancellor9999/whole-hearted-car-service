@@ -75,9 +75,13 @@ git diff --check
 
 候选入口：`http://localhost:3220/`
 
+正式候选必须通过仓库根目录的 `pnpm build` 构建；该命令在编译期固定 `NEXT_PUBLIC_USE_MOCK=false`、`NEXT_PUBLIC_FORMAL_AUTH=true`、`NEXT_PUBLIC_FORMAL_CUSTOMER_VEHICLE=true`。仅在 `next start` 时修改这些公开变量不会改变已经生成的浏览器代码。客户和车辆详情会监听 `wh:formal-session-changed`，确保 HTTP-only 正式会话稍晚到达时重新发起正式读取。
+
 1. 使用超级管理员或前台账号登录。
 2. 只创建新的测试客户、测试车辆、未开展业务的测试业务单或草稿检查单。
 3. 分别进入 `/customers/{编号}`、`/vehicles/{编号}`、`/orders/business/{id}`、`/orders/inspections/{id}`。
 4. 验证删除资格、关联选择、原因、编号确认、返回列表和刷新持久性。
 5. 查询 `record_deletion_receipts` 确认回执；查询 `record_deletion_file_tasks` 确认文件任务为 `pending`、`failed` 或 `completed`，失败任务可重试。
 6. 不对实施前已存在的业务记录执行删除。
+
+2026-08-27 的 3220 实际验收创建并删除了独立测试客户，确认：删除弹窗可见、预检完成、确认后返回列表、刷新后记录仍不存在、详情接口返回 404。测试客户和临时会话均已清理，只保留正式删除回执。
