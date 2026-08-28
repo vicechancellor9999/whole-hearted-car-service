@@ -10,6 +10,25 @@
 
 **Spec:** `docs/superpowers/specs/2026-08-28-balanced-dual-theme-design.md`
 
+## Delivery Record
+
+**Status:** Delivered on 2026-08-28 to `codex/ai-service-wip-20260827` and running at `http://127.0.0.1:3220`.
+
+The delivered implementation uses the approved semantic token ladder for the application shell, shared components, settings, login, and the complete Business Order workspace. Existing product pages inherit the same roles through an app-shell-scoped compatibility layer while they are progressively migrated to direct semantic classes. Formal document sheets remain isolated white-paper surfaces.
+
+Verification completed against the final build:
+
+- Web unit suite: `1011/1011` passed.
+- Theme and print E2E: `12/12` passed.
+- Theme plus Business Order E2E: `18/18` passed.
+- Web typecheck: passed.
+- Production build: passed on Next.js 16.3.2.
+- Touched-file lint: 0 errors; the token CSS file is outside ESLint's configured file types.
+- Runtime: Next.js on `127.0.0.1:3220`, PostgreSQL on `127.0.0.1:55433`, `/login` HTTP 200.
+- Real production login screenshots: `apps/web/docs/screenshots/theme-20260828/login-light.png` and `login-dark.png`.
+
+The task checklists below preserve the original implementation sequence. This delivery record is the authoritative result and acceptance evidence.
+
 ## Global Constraints
 
 - Theme modes are exactly `system | light | dark`; the default is `system`.

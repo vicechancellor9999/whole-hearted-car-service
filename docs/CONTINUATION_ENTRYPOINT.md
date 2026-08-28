@@ -137,3 +137,26 @@ pnpm start:candidate
 - 验证：正式后端 115 文件 / 411 测试通过；Web 1005/1005 通过；本轮重点前端 32/32、后端附件与删除 15/15；根与 Web 类型检查、修改文件 lint、正式生产构建全部通过。
 - 3220 已用生产构建重启，`/login` 返回 HTTP 200；未登录访问业务单和附件接口按预期跳转登录。
 - 应用内浏览器控制通道在本轮验收时返回空列表，因此尚未记录人工视觉点击结论。下一次浏览器通道恢复后，优先验收四个标签、收退款浮窗、iframe 系统打印、附件上传/读取和评论照片发布。
+
+## 2026-08-28 全系统平衡双主题交付
+
+- **实现分支：** `codex/ai-service-wip-20260827`
+- **候选入口：** `http://127.0.0.1:3220`
+- **批准规格：** `docs/superpowers/specs/2026-08-28-balanced-dual-theme-design.md`
+- **实现计划与验收记录：** `docs/superpowers/plans/2026-08-28-balanced-dual-theme.md`
+
+主题入口固定为三种模式：`跟随系统`、`柔和亮色`、`舒适暗色`。新用户默认跟随系统；用户的模式选择保存在 `wh_theme_mode`，当前解析结果保存在 `wh_theme`。旧版 `wh_theme` 与 `wh_theme_source` 会在首次加载时迁移，不需要手工清理浏览器设置。跟随系统模式会监听操作系统主题变化，并在页面首次绘制前设置根节点主题，避免先亮后暗的闪烁。
+
+应用颜色由 `apps/web/src/app/theme-tokens.css` 的语义角色统一管理。页面画布、侧栏、主卡片、嵌套区域、边界、文字、强调色和状态色使用同一层级逻辑；共享导航、页头、弹窗、卡片、表单、删除确认和 Business Order 四个工作区均已接入。历史页面通过应用壳范围内的语义兼容映射继承同一调色逻辑。三联正式单据及打印页继续使用白纸黑字的独立文档色板，浏览器打印和存 PDF 不受应用主题影响。
+
+本轮实现提交顺序：
+
+1. `c6e6968 feat: define system theme modes`
+2. `8a4ffa1 feat: add three-mode theme control`
+3. `1d46487 feat: add balanced semantic theme tokens`
+4. `79d76fa feat: migrate shared chrome to semantic theme`
+5. `d0adb4e feat: theme business order workspace`
+6. `398f96f feat: balance legacy product surfaces`
+7. `3b60282 test: align business order theme expectations`
+
+交付验证：Web 全量单元测试 `1011/1011` 通过；主题与打印 E2E `12/12` 通过；主题与 Business Order 联合 E2E `18/18` 通过；Web 类型检查和生产构建通过；修改范围 lint 为 0 错误。生产构建已在 3220 重启，Next.js 监听进程工作目录为候选仓库 `apps/web`，PostgreSQL 继续监听 55433 并使用候选 `.runtime/postgresql`，`/login` 返回 HTTP 200。亮暗登录页截图位于 `apps/web/docs/screenshots/theme-20260828/`。
