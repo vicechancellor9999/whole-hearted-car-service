@@ -9,6 +9,7 @@ const RECEIPT_ROUTE = "src/app/orders/business/[id]/receipt/[paymentId]/print/pa
 const DOCUMENT_ROUTE = "src/app/orders/business/[id]/documents/[documentId]/print/page.tsx";
 const REFUND_PRINT = "src/components/orders/formal-refund-acknowledgement-print.tsx";
 const REFUND_ROUTE = "src/app/orders/business/[id]/refund/[refundId]/print/page.tsx";
+const PDF_CANVAS_PREVIEW = "src/components/orders/pdf-canvas-preview.tsx";
 
 function source(path: string) {
   return readFileSync(resolve(process.cwd(), path), "utf8");
@@ -27,6 +28,14 @@ test("formal Business Order exposes each Receipt and immutable print document", 
   expect(source(DOCUMENTS_WORKSPACE)).toMatch(/下载 PDF/);
   expect(source(DOCUMENTS_WORKSPACE)).toMatch(/PdfCanvasPreview/);
   expect(source(DOCUMENTS_WORKSPACE)).toMatch(/printPdfBytes/);
+});
+
+test("PDF canvas preview uses the screen pixel ratio without enlarging its CSS size", () => {
+  const preview = source(PDF_CANVAS_PREVIEW);
+  expect(preview).toMatch(/const outputScale = window\.devicePixelRatio \|\| 1/);
+  expect(preview).toMatch(/canvas\.width = Math\.floor\(viewport\.width \* outputScale\)/);
+  expect(preview).toMatch(/canvas\.style\.width = `\$\{viewport\.width\}px`/);
+  expect(preview).toMatch(/transform: \[outputScale, 0, 0, outputScale, 0, 0\]/);
 });
 
 test("print renderer preserves the three-copy business boundaries", () => {

@@ -2,6 +2,18 @@
 
 import { useEffect, useRef, useState } from "react";
 
+function configureCanvasForDisplay(
+  canvas: HTMLCanvasElement,
+  viewport: { width: number; height: number },
+) {
+  const outputScale = window.devicePixelRatio || 1;
+  canvas.width = Math.floor(viewport.width * outputScale);
+  canvas.height = Math.floor(viewport.height * outputScale);
+  canvas.style.width = `${viewport.width}px`;
+  canvas.style.height = "auto";
+  return { transform: [outputScale, 0, 0, outputScale, 0, 0] as const };
+}
+
 function PdfPageThumbnail({
   bytes,
   pageNumber,
@@ -29,9 +41,8 @@ function PdfPageThumbnail({
         if (cancelled || !canvasRef.current) return;
         const viewport = page.getViewport({ scale: 0.16 });
         const canvas = canvasRef.current;
-        canvas.width = viewport.width;
-        canvas.height = viewport.height;
-        await page.render({ canvas, viewport }).promise;
+        const { transform } = configureCanvasForDisplay(canvas, viewport);
+        await page.render({ canvas, viewport, transform: [...transform] }).promise;
       } catch {
         // The main preview owns the visible error state. A missing thumbnail
         // never prevents page navigation through the labeled button.
@@ -113,13 +124,12 @@ export function PdfCanvasPreview({
         if (!container) return;
         container.innerHTML = "";
         const canvas = document.createElement("canvas");
-        canvas.width = viewport.width;
-        canvas.height = viewport.height;
+        const { transform } = configureCanvasForDisplay(canvas, viewport);
         canvas.className = `mx-auto block rounded-lg border border-line bg-white dark:border-slate-700${allowHorizontalOverflow ? "" : " max-w-full"}`;
         canvas.setAttribute("data-testid", dataTestId);
         canvas.setAttribute("data-page", String(pageNumber));
         container.appendChild(canvas);
-        await page.render({ canvas, viewport }).promise;
+        await page.render({ canvas, viewport, transform: [...transform] }).promise;
       } catch (caught) {
         console.error("[pdf-preview]", caught);
         if (!cancelled) setError(caught instanceof Error ? caught.message : "预览渲染失败");
