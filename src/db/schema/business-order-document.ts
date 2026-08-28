@@ -132,19 +132,19 @@ export const businessOrderDocumentSnapshots = pgTable(
     index("business_order_document_snapshots_round_idx").on(table.repairRoundId),
     check(
       "business_order_document_snapshots_no_kind",
-      sql`(${table.kind} = 'customer_copy'
+      sql`(${table.kind}::text = 'customer_copy'
             and ${table.documentNo} ~ '^CUS-[0-9]{8}-[0-9]{4}$')
-          or (${table.kind} = 'office_archive'
+          or (${table.kind}::text = 'office_archive'
             and ${table.documentNo} ~ '^OFF-[0-9]{8}-[0-9]{4}$')
-          or (${table.kind} = 'mechanic_work'
+          or (${table.kind}::text = 'mechanic_work'
             and ${table.documentNo} ~ '^MEC-[0-9]{8}-[0-9]{4}$')`,
     ),
     check(
       "business_order_document_snapshots_source_shape",
-      sql`(${table.kind} in ('customer_copy', 'office_archive')
+      sql`(${table.kind}::text in ('customer_copy', 'office_archive')
             and ${table.repairRoundId} is null
             and ${table.repairRoundNo} is null)
-          or (${table.kind} = 'mechanic_work'
+          or (${table.kind}::text = 'mechanic_work'
             and ${table.repairRoundId} is not null
             and ${table.repairRoundNo} >= 1)`,
     ),
