@@ -233,7 +233,7 @@ test("业务单右栏的四个金额卡片在桌面窄栏内不溢出", async ({
   expect(cardWidths.every((width) => width >= 180)).toBe(true);
 });
 
-test("业务单详情在用户全局深色主题下仍保持独立浅色工作区", async ({ page }) => {
+test("业务单详情在舒适暗色下使用渐进式应用层级", async ({ page }) => {
   await page.addInitScript(() => {
     localStorage.setItem("wh_theme", "dark");
     localStorage.setItem("wh_theme_source", "user");
@@ -259,13 +259,13 @@ test("业务单详情在用户全局深色主题下仍保持独立浅色工作�
     };
   });
 
-  expect(surfaces.page.backgroundColor).toBe("rgb(243, 246, 251)");
-  expect(surfaces.page.colorScheme).toBe("light");
-  expect(surfaces.title.color).toBe("rgb(26, 26, 46)");
-  expect(surfaces.tabs.backgroundColor).toBe("rgba(255, 255, 255, 0.95)");
-  expect(surfaces.operations.backgroundColor).toBe("rgb(255, 255, 255)");
-  expect(surfaces.repair.backgroundColor).toBe("rgb(255, 255, 255)");
-  expect(surfaces.finance.backgroundColor).toBe("rgb(255, 255, 255)");
+  expect(surfaces.page.backgroundColor).toBe("rgb(39, 44, 51)");
+  expect(surfaces.page.colorScheme).toBe("dark");
+  expect(surfaces.title.color).toBe("rgb(238, 242, 246)");
+  expect(surfaces.tabs.backgroundColor).toBe("rgb(50, 56, 65)");
+  expect(surfaces.operations.backgroundColor).toBe("rgb(50, 56, 65)");
+  expect(surfaces.repair.backgroundColor).toBe("rgb(50, 56, 65)");
+  expect(surfaces.finance.backgroundColor).toBe("rgb(50, 56, 65)");
 });
 
 test("取消交单失败后保留已输入原因和打开的表单", async ({ page }) => {
