@@ -1,7 +1,6 @@
 "use client";
 
 import type { DashboardHeader } from "@/lib/types";
-import { ThemeToggle } from "@/components/theme/theme-toggle";
 import { LiveClock } from "@/components/layout/live-clock";
 
 type StoreOverviewHeader = Pick<DashboardHeader, "breadcrumb" | "title" | "subtitle">;
@@ -35,8 +34,6 @@ export function DashboardHeaderView({ header = STORE_OVERVIEW_HEADER }: Dashboar
 
       <div className="flex items-center gap-4 sm:gap-5 sm:text-right">
         <LiveClock />
-        <div className="hidden h-10 w-px bg-blue-200/60 dark:bg-slate-600 sm:block" />
-        <ThemeToggle />
       </div>
     </div>
   );

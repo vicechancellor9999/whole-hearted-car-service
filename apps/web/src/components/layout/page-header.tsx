@@ -2,8 +2,6 @@
 
 import type { ReactNode } from "react";
 import { LiveClock } from "./live-clock";
-import { ThemeToggle } from "@/components/theme/theme-toggle";
-import { LanguageToggle } from "@/components/ui/language-toggle";
 import { translateUi, useLanguage } from "@/lib/i18n/language";
 
 interface PageHeaderProps {
@@ -57,9 +55,6 @@ export function PageHeader({
       <div className="flex min-w-0 flex-wrap items-center gap-3 sm:shrink-0 sm:justify-end sm:gap-5 sm:text-right">
         {action}
         <LiveClock />
-        <LanguageToggle />
-        <div className="hidden h-10 w-px bg-line sm:block" />
-        <ThemeToggle />
       </div>
     </header>
   );

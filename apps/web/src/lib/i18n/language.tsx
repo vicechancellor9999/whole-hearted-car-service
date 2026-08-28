@@ -47,10 +47,15 @@ export function translateUi(zh: string, language: UiLanguage): string {
 
 interface LanguageContextValue {
   language: UiLanguage;
+  setLanguage: (language: UiLanguage) => void;
   toggle: () => void;
 }
 
-const LanguageContext = createContext<LanguageContextValue>({ language: "zh", toggle: () => undefined });
+const LanguageContext = createContext<LanguageContextValue>({
+  language: "zh",
+  setLanguage: () => undefined,
+  toggle: () => undefined,
+});
 
 export function LanguageProvider({ children }: { children: ReactNode }) {
   const [language, setLanguage] = useState<UiLanguage>("zh");
@@ -59,6 +64,15 @@ export function LanguageProvider({ children }: { children: ReactNode }) {
     try {
       const stored = window.localStorage.getItem(STORAGE_KEY);
       if (stored === "en" || stored === "zh") setLanguage(stored);
+    } catch {
+      // 忽略存储异常
+    }
+  }, []);
+
+  const persistLanguage = useCallback((next: UiLanguage) => {
+    setLanguage(next);
+    try {
+      window.localStorage.setItem(STORAGE_KEY, next);
     } catch {
       // 忽略存储异常
     }
@@ -77,7 +91,7 @@ export function LanguageProvider({ children }: { children: ReactNode }) {
   }, []);
 
   return (
-    <LanguageContext.Provider value={{ language, toggle }}>
+    <LanguageContext.Provider value={{ language, setLanguage: persistLanguage, toggle }}>
       {children}
     </LanguageContext.Provider>
   );

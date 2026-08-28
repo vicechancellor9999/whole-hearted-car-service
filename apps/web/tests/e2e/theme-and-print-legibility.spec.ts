@@ -94,12 +94,11 @@ test("theme control exposes system light and dark modes", async ({ page }) => {
   });
   await page.goto("/employees");
 
-  const trigger = page.getByRole("button", { name: "主题：跟随系统" });
-  await trigger.click();
-  const menu = page.getByRole("menu", { name: "主题模式" });
-  await expect(menu.getByRole("menuitemradio", { name: "跟随系统" })).toHaveAttribute("aria-checked", "true");
-  await expect(menu.getByRole("menuitemradio", { name: "柔和亮色" })).toBeVisible();
-  await menu.getByRole("menuitemradio", { name: "舒适暗色" }).click();
+  await page.getByTestId("account-settings-trigger").click();
+  const modes = page.getByTestId("account-theme-options");
+  await expect(modes.getByRole("radio", { name: "跟随系统" })).toHaveAttribute("aria-checked", "true");
+  await expect(modes.getByRole("radio", { name: "亮色" })).toBeVisible();
+  await modes.getByRole("radio", { name: "深色" }).click();
 
   await expect(page.locator("html")).toHaveClass(/dark/);
   await expect.poll(() => page.evaluate(() => localStorage.getItem("wh_theme_mode"))).toBe("dark");

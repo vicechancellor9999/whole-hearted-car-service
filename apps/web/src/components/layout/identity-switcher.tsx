@@ -1,15 +1,16 @@
 "use client";
 
-import { useState, useEffect, useRef } from "react";
-import { ChevronDown, Check } from "lucide-react";
-import { cn } from "@/lib/utils";
+import { useState, useEffect } from "react";
 import type { Identity, Session } from "@/lib/types";
 import { api, isMockApiEnabled } from "@/lib/api/client";
 import { getFormalPcPolicy } from "@/lib/auth/formal-pc-access";
+import { AccountSettingsPopover } from "./account-settings-popover";
 
 interface IdentitySwitcherProps {
   /** Compact mode for sidebar bottom, full mode for topbar */
   variant?: "compact" | "full";
+  surface?: "desktop" | "drawer";
+  collapsed?: boolean;
 }
 
 const FORMAL_AUTH_ENABLED = process.env.NEXT_PUBLIC_FORMAL_AUTH !== "false";
@@ -68,11 +69,13 @@ function sameIdentity(left: Identity | undefined, right: Identity): boolean {
     && left.initials === right.initials;
 }
 
-export function IdentitySwitcher({ variant = "full" }: IdentitySwitcherProps) {
+export function IdentitySwitcher({
+  variant = "full",
+  surface = "desktop",
+  collapsed = false,
+}: IdentitySwitcherProps) {
   const [identities, setIdentities] = useState<Identity[]>([]);
   const [session, setSession] = useState<Session | null>(null);
-  const [open, setOpen] = useState(false);
-  const ref = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     let active = true;
@@ -160,21 +163,10 @@ export function IdentitySwitcher({ variant = "full" }: IdentitySwitcherProps) {
     };
   }, []);
 
-  useEffect(() => {
-    function handleClick(e: MouseEvent) {
-      if (ref.current && !ref.current.contains(e.target as Node)) {
-        setOpen(false);
-      }
-    }
-    document.addEventListener("mousedown", handleClick);
-    return () => document.removeEventListener("mousedown", handleClick);
-  }, []);
-
   const handleSwitch = async (id: string) => {
     const s = await api.previewSession(id);
     persistSession(s);
     setSession(s);
-    setOpen(false);
     window.location.reload();
   };
 
@@ -184,87 +176,14 @@ export function IdentitySwitcher({ variant = "full" }: IdentitySwitcherProps) {
 
   const isCompact = variant === "compact";
 
-  if (FORMAL_AUTH_ENABLED) {
-    return (
-      <div className={cn("flex w-full items-center gap-2.5 rounded-lg", isCompact ? "px-2 py-2" : "px-2 py-1.5")}>
-        <div className="flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-full bg-primary text-[10px] font-semibold text-white">
-          {current.initials}
-        </div>
-        <div className="min-w-0 flex-1 text-left">
-          <div className="truncate text-sm font-medium leading-tight text-ink">{current.name}</div>
-          <div className="truncate text-[10px] leading-tight text-ink-soft">{current.roleLabel}</div>
-        </div>
-        <form action="/api/formal/auth/logout" method="post">
-          <button className="rounded-md px-1.5 py-1 text-[10px] font-semibold text-ink-faint hover:bg-layer-2 hover:text-ink" type="submit">退出</button>
-        </form>
-      </div>
-    );
-  }
-
   return (
-    <div className="relative" ref={ref}>
-      {/* Trigger */}
-      <button
-        onClick={() => setOpen(!open)}
-        className={cn(
-          "flex w-full items-center gap-2.5 rounded-lg transition-colors hover:bg-layer-2",
-          isCompact ? "px-2 py-2" : "px-2 py-1.5"
-        )}
-      >
-        <div
-          className="flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-full text-[10px] font-semibold text-white"
-          style={{ backgroundColor: current.avatarColor }}
-        >
-          {current.initials}
-        </div>
-        <div className="min-w-0 flex-1 text-left">
-          <div className="truncate text-sm font-medium leading-tight text-ink">
-            {current.name}
-          </div>
-          <div className="truncate text-[10px] leading-tight text-ink-soft">
-            {current.roleLabel}
-          </div>
-        </div>
-        <ChevronDown className="flex-shrink-0 text-ink-faint" size={16} />
-      </button>
-
-      {/* Dropdown */}
-      {open && (
-        <div
-          className={cn(
-            "absolute z-50 w-72 rounded-xl border border-line bg-card shadow-lg",
-            isCompact ? "bottom-full left-0 mb-2" : "right-0 top-12"
-          )}
-        >
-          <div className="border-b border-line px-4 py-2.5 text-xs font-semibold uppercase tracking-wide text-ink-faint">
-            切换身份（预览模式）
-          </div>
-          <div className="max-h-80 overflow-y-auto py-1">
-            {identities.map((id) => (
-              <button
-                key={id.id}
-                onClick={() => handleSwitch(id.id)}
-                className={cn(
-                  "flex w-full items-center gap-3 px-4 py-2.5 text-left transition-colors hover:bg-layer-2",
-                  current.id === id.id && "bg-[var(--wh-background-selected)]"
-                )}
-              >
-                <div
-                  className="flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-full text-[10px] font-semibold text-white"
-                  style={{ backgroundColor: id.avatarColor }}
-                >
-                  {id.initials}
-                </div>
-                <div className="min-w-0 flex-1">
-                  <div className="truncate text-sm font-medium text-ink">{id.name}</div>
-                  <div className="truncate text-[10px] text-ink-soft">{id.roleLabel}</div>
-                </div>
-                {current.id === id.id && <Check className="flex-shrink-0 text-primary" size={16} />}
-              </button>
-            ))}
-          </div>
-        </div>
-      )}
-    </div>
+    <AccountSettingsPopover
+      current={current}
+      identities={identities}
+      formalAuthEnabled={FORMAL_AUTH_ENABLED}
+      collapsed={isCompact && collapsed}
+      surface={surface}
+      onSwitchIdentity={(id) => void handleSwitch(id)}
+    />
   );
 }
