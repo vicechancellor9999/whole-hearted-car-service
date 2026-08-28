@@ -9,6 +9,79 @@ test.afterEach(async ({ page }) => {
   await assertNoPerformanceRuntimeErrors(page);
 });
 
+test("login can switch to a complete English surface before authentication", async ({ page }) => {
+  await page.goto("/login");
+  await page.getByTestId("login-language-toggle").click();
+
+  const login = page.getByRole("region", { name: "Sign in" });
+  await expect(login.getByRole("heading", { level: 1, name: "Sign in" })).toBeVisible();
+  await expect(login.getByLabel("Username")).toBeVisible();
+  await expect(login.getByLabel("Password")).toBeVisible();
+  await expect(login.getByRole("button", { name: "Sign in" })).toBeVisible();
+  await expect(login).not.toContainText(/[\p{Script=Han}]/u);
+
+  await page.reload();
+  await expect(page.getByRole("heading", { level: 1, name: "Sign in" })).toBeVisible();
+});
+
+test("English dashboard contains no untranslated system copy", async ({ page }) => {
+  await page.addInitScript(() => localStorage.setItem("wh_language_v1", "en"));
+  const cards = [
+    ["today_revenue", "JMD ", ""],
+    ["accounts_receivable", "JMD ", ""],
+    ["vehicles_today", "", "单"],
+    ["vehicles_stuck", "", "单"],
+    ["completed_labor", "", "单"],
+    ["prepaid_incomplete", "", "单"],
+    ["internal_tasks", "", "单"],
+    ["risk_alerts", "", "项"],
+  ].map(([id, valuePrefix, valueSuffix]) => ({
+    id,
+    href: "/",
+    title: "后端中文标题",
+    subtitle: "后端中文说明",
+    value: 0,
+    valuePrefix,
+    valueSuffix,
+    size: "small",
+  }));
+  await page.route("**/api/formal/dashboard", (route) => route.fulfill({
+    status: 200,
+    contentType: "application/json",
+    body: JSON.stringify({
+      header: {
+        breadcrumb: "门店经营",
+        title: "经营概览",
+        subtitle: "说明",
+        dateLabel: "",
+        dateTime: "",
+        targetStatus: "not_configured",
+        targetCompletionRate: null,
+        targetCompletedAmount: 0,
+        targetTotalAmount: null,
+        targetMissingReasons: ["缺少 2026-08 绩效参数"],
+      },
+      teamPerformance: {
+        title: "维修班组与绩效",
+        dateRange: "2026年08月",
+        hint: "说明",
+        actionText: "查看绩效",
+        teams: [],
+      },
+      periods: [],
+      topCards: cards.slice(0, 4),
+      bottomCards: cards.slice(4),
+    }),
+  }));
+  await page.goto("/");
+
+  const dashboard = page.getByTestId("dashboard-content");
+  await expect(dashboard.getByRole("heading", { level: 1, name: "Dashboard" })).toBeVisible();
+  await expect(dashboard).toContainText("Today's operating revenue");
+  await expect(dashboard).toContainText("Repair teams and performance");
+  await expect(dashboard).not.toContainText(/[\p{Script=Han}]/u);
+});
+
 test("全局语言切换：导航与页面抬头中英切换并持久化（#17）", async ({ page }) => {
   await page.route("**/api/formal/me/mentions", (route) => route.fulfill({
     status: 200,

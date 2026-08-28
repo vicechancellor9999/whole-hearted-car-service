@@ -12,6 +12,7 @@ import { TeamPerformanceSection } from "@/components/dashboard/team-performance"
 import { MetricCard } from "@/components/dashboard/metric-card";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Card, CardBody } from "@/components/ui/card";
+import { useI18n } from "@/lib/i18n/language";
 
 const TOP_CARD_IDS = [
   "today_revenue",
@@ -28,6 +29,7 @@ const BOTTOM_CARD_IDS = [
 const REQUIRED_CARD_IDS = [...TOP_CARD_IDS, ...BOTTOM_CARD_IDS];
 
 export default function DashboardPage() {
+  const { language, t } = useI18n();
   const [data, setData] = useState<DashboardSummary | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -45,7 +47,7 @@ export default function DashboardPage() {
         setLoading(false);
       }).catch((cause: unknown) => {
         if (!active || generation !== loadGeneration.current) return;
-        setError(cause instanceof Error ? cause.message : "经营概览加载失败");
+        setError(language === "en" ? t("dashboard.error.load") : cause instanceof Error ? cause.message : t("dashboard.error.load"));
         setLoading(false);
       });
     };
@@ -56,7 +58,7 @@ export default function DashboardPage() {
       loadGeneration.current += 1;
       unsubscribe();
     };
-  }, []);
+  }, [language, t]);
 
   const cardsById = new Map(
     data ? [...data.topCards, ...data.bottomCards].map((card) => [card.id, card]) : [],
@@ -71,12 +73,12 @@ export default function DashboardPage() {
         {error ? (
           <Card className="mt-3">
             <CardBody className="py-12 text-center">
-              <p className="text-danger">加载失败：{error}</p>
+              <p className="text-danger">{t("dashboard.error.failed", { message: error })}</p>
               <button
                 onClick={() => window.location.reload()}
                 className="mt-4 rounded-lg bg-primary px-4 py-2 text-sm text-white hover:bg-primary-600"
               >
-                重试
+                {t("common.retry")}
               </button>
             </CardBody>
           </Card>
@@ -84,7 +86,7 @@ export default function DashboardPage() {
           <Card className="mt-3">
             <CardBody className="py-12 text-center">
               <p className="text-danger">
-                仪表盘数据不完整：缺少 {missingCardIds.join("、")}
+                {t("dashboard.error.incomplete", { ids: missingCardIds.join(", ") })}
               </p>
             </CardBody>
           </Card>

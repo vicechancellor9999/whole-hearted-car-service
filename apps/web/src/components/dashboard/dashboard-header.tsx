@@ -2,6 +2,7 @@
 
 import type { DashboardHeader } from "@/lib/types";
 import { LiveClock } from "@/components/layout/live-clock";
+import { useI18n } from "@/lib/i18n/language";
 
 type StoreOverviewHeader = Pick<DashboardHeader, "breadcrumb" | "title" | "subtitle">;
 
@@ -16,7 +17,15 @@ export const STORE_OVERVIEW_HEADER: StoreOverviewHeader = {
 };
 
 export function DashboardHeaderView({ header = STORE_OVERVIEW_HEADER }: DashboardHeaderProps) {
+  const { language, t } = useI18n();
   const titleClassName = "mt-0.5 text-2xl font-bold text-ink dark:text-slate-100";
+  const localizedHeader = language === "en"
+    ? {
+        breadcrumb: t("dashboard.breadcrumb"),
+        title: t("dashboard.title"),
+        subtitle: t("dashboard.description"),
+      }
+    : header;
 
   return (
     <div
@@ -27,9 +36,9 @@ export function DashboardHeaderView({ header = STORE_OVERVIEW_HEADER }: Dashboar
       <div className="pointer-events-none absolute inset-x-0 top-0 h-px bg-gradient-to-r from-transparent via-primary-200/50 to-transparent dark:via-primary-500/30" />
 
       <div className="relative">
-        <div className="text-xs font-medium text-primary dark:text-primary-400">{header.breadcrumb}</div>
-        <h1 className={titleClassName}>{header.title}</h1>
-        <p className="mt-0.5 max-w-2xl text-xs leading-relaxed text-ink-soft dark:text-slate-400">{header.subtitle}</p>
+        <div className="text-xs font-medium text-primary dark:text-primary-400">{localizedHeader.breadcrumb}</div>
+        <h1 className={titleClassName}>{localizedHeader.title}</h1>
+        <p className="mt-0.5 max-w-2xl text-xs leading-relaxed text-ink-soft dark:text-slate-400">{localizedHeader.subtitle}</p>
       </div>
 
       <div className="flex items-center gap-4 sm:gap-5 sm:text-right">

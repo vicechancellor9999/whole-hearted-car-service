@@ -5,8 +5,8 @@ import { LanguageProvider } from "@/lib/i18n/language";
 import "./globals.css";
 
 export const metadata: Metadata = {
-  title: "Whole Hearted 综合管理系统",
-  description: "汽修厂综合运营管理系统",
+  title: "Whole Hearted Management System",
+  description: "Whole Hearted automotive operations management system",
   icons: {
     icon: "/logo-icon.png",
     shortcut: "/logo-icon.png",

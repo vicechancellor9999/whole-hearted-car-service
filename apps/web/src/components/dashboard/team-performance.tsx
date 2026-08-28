@@ -4,6 +4,8 @@ import Link from "next/link";
 import { ArrowRight } from "lucide-react";
 import { formatJMDFull } from "@/lib/utils";
 import type { DashboardHeader, TeamPerformance } from "@/lib/types";
+import { useI18n } from "@/lib/i18n/language";
+import { localizeDashboardMonthLabel, localizeDashboardReason, localizeDashboardTeam } from "@/lib/i18n/dashboard-localization";
 
 interface TeamPerformanceSectionProps {
   data: TeamPerformance;
@@ -11,9 +13,11 @@ interface TeamPerformanceSectionProps {
 }
 
 export function TeamPerformanceSection({ data, header }: TeamPerformanceSectionProps) {
+  const { language, t } = useI18n();
   const shopTargetConfigured = header?.targetStatus === "configured"
     && header.targetTotalAmount !== null;
-  const shopMissingReason = header?.targetMissingReasons[0] ?? "目标资料不完整";
+  const rawShopMissingReason = header?.targetMissingReasons[0] ?? "目标资料不完整";
+  const shopMissingReason = language === "en" ? localizeDashboardReason(rawShopMissingReason) : rawShopMissingReason;
 
   return (
     <div
@@ -23,9 +27,9 @@ export function TeamPerformanceSection({ data, header }: TeamPerformanceSectionP
       {/* Header — compact, ~74px */}
       <div className="flex flex-col items-stretch gap-2 border-b border-blue-100/80 bg-white/60 px-4 py-2.5 dark:border-slate-700 dark:bg-slate-800/60 sm:flex-row sm:items-center sm:justify-between">
         <div data-testid="team-performance-copy" className="min-w-0">
-          <div className="text-[11px] text-ink-faint dark:text-slate-400">{data.dateRange}</div>
-          <div className="text-sm font-semibold text-ink dark:text-slate-100">{data.title}</div>
-          <div className="text-[10px] text-ink-faint dark:text-slate-400">{data.hint}</div>
+          <div className="text-[11px] text-ink-faint dark:text-slate-400">{localizeDashboardMonthLabel(data.dateRange, language)}</div>
+          <div className="text-sm font-semibold text-ink dark:text-slate-100">{language === "en" ? t("dashboard.team.title") : data.title}</div>
+          <div className="text-[10px] text-ink-faint dark:text-slate-400">{language === "en" ? t("dashboard.team.hint") : data.hint}</div>
         </div>
 
         {header ? (
@@ -36,15 +40,15 @@ export function TeamPerformanceSection({ data, header }: TeamPerformanceSectionP
             <div className="flex flex-col">
               <span className="text-[10px] text-ink-faint dark:text-slate-400">
                 {data.teams.length === 0
-                  ? "尚未创建班组"
+                  ? t("dashboard.team.none")
                   : shopTargetConfigured
-                    ? `${data.teams.length} 个班组综合完成率`
-                    : `${data.teams.length} 个班组本月绩效`}
+                    ? t("dashboard.team.summaryRate", { count: data.teams.length })
+                    : t("dashboard.team.summaryPerformance", { count: data.teams.length })}
               </span>
               <span className="text-[10px] text-ink-soft dark:text-slate-400">
                 {shopTargetConfigured
-                  ? `${formatJMDFull(header.targetCompletedAmount)} / ${formatJMDFull(header.targetTotalAmount!)}`
-                  : `已完成 ${formatJMDFull(header.targetCompletedAmount)}`}
+                  ? t("dashboard.team.completedTarget", { completed: formatJMDFull(header.targetCompletedAmount), target: formatJMDFull(header.targetTotalAmount!) })
+                  : t("dashboard.team.completed", { completed: formatJMDFull(header.targetCompletedAmount) })}
               </span>
             </div>
             <span
@@ -54,16 +58,16 @@ export function TeamPerformanceSection({ data, header }: TeamPerformanceSectionP
                 : "max-w-56 text-right text-[11px] font-semibold leading-4 text-amber-700 dark:text-amber-300"}
             >
               {shopTargetConfigured
-                ? header.targetCompletionRate === null ? "完成率不适用" : `${header.targetCompletionRate}%`
+                ? header.targetCompletionRate === null ? t("dashboard.team.rateNotApplicable") : `${header.targetCompletionRate}%`
                 : shopMissingReason}
               {!shopTargetConfigured && header.targetMissingReasons.length > 1 ? (
-                <span className="sr-only">；{header.targetMissingReasons.slice(1).join("；")}</span>
+                <span className="sr-only">；{header.targetMissingReasons.slice(1).map((reason) => language === "en" ? localizeDashboardReason(reason) : reason).join("；")}</span>
               ) : null}
             </span>
           </div>
         ) : (
           <button className="flex items-center gap-1 rounded-lg bg-white/80 px-3 py-1.5 text-xs font-medium text-primary transition-colors hover:bg-primary-50 dark:bg-slate-800/80 dark:text-primary-400 dark:hover:bg-slate-700">
-            {data.actionText}
+            {language === "en" ? "View performance" : data.actionText}
             <ArrowRight size={14} />
           </button>
         )}
@@ -75,21 +79,22 @@ export function TeamPerformanceSection({ data, header }: TeamPerformanceSectionP
             data-testid="team-empty-state"
             className="col-span-full flex min-h-[88px] flex-col items-center justify-center gap-2 rounded-lg border border-dashed border-blue-200 bg-white/70 px-3 text-center text-[11px] leading-4 text-ink-soft dark:border-slate-600 dark:bg-slate-800/70 dark:text-slate-300"
           >
-            <span>尚未创建维修班组。超级管理员新增班组和员工后，这里显示绩效。</span>
+            <span>{t("dashboard.team.empty")}</span>
             <div className="flex flex-wrap justify-center gap-2">
               <Link data-testid="team-empty-add-team" href="/dictionaries#teams" className="rounded-lg bg-primary px-3 py-1.5 text-xs font-semibold text-white hover:bg-primary-600">
-                新增班组
+                {t("dashboard.team.addTeam")}
               </Link>
               <Link data-testid="team-empty-add-employee" href="/employees" className="rounded-lg border border-primary-200 bg-white px-3 py-1.5 text-xs font-semibold text-primary hover:bg-primary-50 dark:bg-slate-800">
-                新增员工
+                {t("dashboard.team.addEmployee")}
               </Link>
             </div>
           </div>
-        ) : data.teams.map((team) => {
+        ) : data.teams.map((rawTeam) => {
+          const team = localizeDashboardTeam(rawTeam, language);
           const targetConfigured = team.targetStatus === "configured"
             && team.targetAmount !== null;
-          const missingReason = team.targetMissingReasons[0] ?? "目标资料不完整";
-          const teamHref = !targetConfigured && team.targetMissingReasons.some((reason) => reason.includes("绩效参数"))
+          const missingReason = team.targetMissingReasons[0] ?? t("performance.target.missing");
+          const teamHref = !targetConfigured && rawTeam.targetMissingReasons.some((reason) => reason.includes("绩效参数"))
             ? `/settings?team=${encodeURIComponent(team.id)}#performance-parameters`
             : `/performance?team=${encodeURIComponent(team.id)}`;
           return (
@@ -103,8 +108,8 @@ export function TeamPerformanceSection({ data, header }: TeamPerformanceSectionP
                 <span className="text-xs font-medium text-ink dark:text-slate-100">{team.name}</span>
                 <span className="text-xs font-bold text-ink dark:text-slate-100">
                   {targetConfigured
-                    ? team.completionRate === null ? "完成率不适用" : `${team.completionRate}%`
-                    : "暂未计算"}
+                    ? team.completionRate === null ? t("dashboard.team.rateNotApplicable") : `${team.completionRate}%`
+                    : t("dashboard.team.notCalculated")}
                 </span>
               </div>
               {targetConfigured ? (
@@ -121,9 +126,9 @@ export function TeamPerformanceSection({ data, header }: TeamPerformanceSectionP
                 <div className="mt-2 h-1.5 w-full rounded-full bg-gray-100 dark:bg-slate-700" />
               )}
               <div className="mt-2 flex items-center justify-between gap-2 text-[10px]">
-                <span className="text-ink-soft dark:text-slate-400">已完成 {formatJMDFull(team.currentAmount)}</span>
+                <span className="text-ink-soft dark:text-slate-400">{t("dashboard.team.completedAmount", { amount: formatJMDFull(team.currentAmount) })}</span>
                 <span className="text-ink-faint dark:text-slate-400">
-                  {targetConfigured ? `目标 ${formatJMDFull(team.targetAmount!)}` : missingReason}
+                  {targetConfigured ? t("dashboard.team.targetAmount", { amount: formatJMDFull(team.targetAmount!) }) : missingReason}
                   {!targetConfigured && team.targetMissingReasons.length > 1 ? (
                     <span className="sr-only">；{team.targetMissingReasons.slice(1).join("；")}</span>
                   ) : null}
