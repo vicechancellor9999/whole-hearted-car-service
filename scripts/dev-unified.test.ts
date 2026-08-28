@@ -31,6 +31,8 @@ describe("unified Whole Hearted runtime config", () => {
     expect(config.childEnvironment).toMatchObject({
       APP_ORIGIN: "http://127.0.0.1:3220",
       DATABASE_URL: config.databaseUrl,
+      NEXT_PUBLIC_FORMAL_AUTH: "true",
+      NEXT_PUBLIC_FORMAL_CUSTOMER_VEHICLE: "true",
       NEXT_PUBLIC_USE_MOCK: "false",
     });
     expect(config.childEnvironment).not.toHaveProperty("FORMAL_BACKEND_ORIGIN");

@@ -68,13 +68,13 @@ export function getUnifiedRuntimeConfig(
     DATABASE_URL: databaseUrlString,
     APP_ORIGIN: appOrigin,
     UPLOAD_ROOT: database.uploadRoot,
+    NEXT_PUBLIC_FORMAL_AUTH: "true",
+    NEXT_PUBLIC_FORMAL_CUSTOMER_VEHICLE: "true",
     NEXT_PUBLIC_USE_MOCK: "false",
     VEHICLE_DOCUMENT_AI_SETTINGS_PATH: source.VEHICLE_DOCUMENT_AI_SETTINGS_PATH
       ?? path.join(resolvedProjectRoot, ".runtime", "vehicle-document-ai-settings.json"),
   };
   delete childEnvironment.FORMAL_BACKEND_ORIGIN;
-  delete childEnvironment.NEXT_PUBLIC_FORMAL_AUTH;
-  delete childEnvironment.NEXT_PUBLIC_FORMAL_CUSTOMER_VEHICLE;
 
   return {
     projectRoot: resolvedProjectRoot,
