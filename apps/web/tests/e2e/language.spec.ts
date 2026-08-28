@@ -82,6 +82,17 @@ test("English dashboard contains no untranslated system copy", async ({ page }) 
   await expect(dashboard).not.toContainText(/[\p{Script=Han}]/u);
 });
 
+test("English business workbench contains no untranslated system copy", async ({ page }) => {
+  await page.addInitScript(() => localStorage.setItem("wh_language_v1", "en"));
+  await page.goto("/workbench");
+
+  const workbench = page.getByTestId("workbench");
+  await expect(workbench).toContainText("Quick actions");
+  await expect(workbench).toContainText("Open reminders");
+  await expect(workbench).toContainText("Business Orders");
+  await expect(workbench).not.toContainText(/[\p{Script=Han}]/u);
+});
+
 test("全局语言切换：导航与页面抬头中英切换并持久化（#17）", async ({ page }) => {
   await page.route("**/api/formal/me/mentions", (route) => route.fulfill({
     status: 200,
