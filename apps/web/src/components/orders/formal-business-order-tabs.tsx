@@ -51,7 +51,7 @@ export function FormalBusinessOrderTabs({
     <nav
       aria-label="Business Order 工作区"
       role="tablist"
-      className="sticky top-0 z-20 grid gap-1 rounded-2xl border border-line bg-white/95 p-1.5 shadow-card backdrop-blur sm:grid-cols-2 xl:grid-cols-4"
+      className="sticky top-0 z-20 grid gap-1 rounded-2xl border border-line bg-card p-1.5 shadow-card sm:grid-cols-2 xl:grid-cols-4"
     >
       {TABS.map((tab) => {
         const selected = active === tab.id;
@@ -67,7 +67,7 @@ export function FormalBusinessOrderTabs({
             className={`flex min-h-11 items-center justify-center gap-2 rounded-xl px-3 text-center text-xs font-bold transition ${
               selected
                 ? "bg-primary text-white shadow-sm"
-                : "text-ink-soft hover:bg-primary-50 hover:text-primary"
+                : "text-ink-soft hover:bg-layer-2 hover:text-accent"
             }`}
           >
             <span>{tab.label}</span>
@@ -75,7 +75,7 @@ export function FormalBusinessOrderTabs({
               <span
                 aria-label={`${unread} 条未读提及`}
                 className={`inline-flex min-w-5 items-center justify-center rounded-full px-1.5 py-0.5 text-[10px] ${
-                  selected ? "bg-white text-primary" : "bg-rose-600 text-white"
+                  selected ? "bg-card text-accent-solid" : "bg-rose-600 text-white"
                 }`}
               >
                 {unread > 99 ? "99+" : unread}

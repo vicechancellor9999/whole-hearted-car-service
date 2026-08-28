@@ -176,6 +176,27 @@ for (const theme of ["light", "dark"] as const) {
   });
 }
 
+test("business order workspace inherits comfort dark instead of overriding the application theme", async ({ page }) => {
+  await page.addInitScript(() => localStorage.setItem("wh_theme_mode", "dark"));
+  await page.goto("/login");
+
+  expect(await page.evaluate(() => {
+    const workspace = document.createElement("div");
+    workspace.className = "formal-business-order-page";
+    document.body.appendChild(workspace);
+    const style = getComputedStyle(workspace);
+    return {
+      backgroundColor: style.backgroundColor,
+      color: style.color,
+      colorScheme: style.colorScheme,
+    };
+  })).toEqual({
+    backgroundColor: "rgba(0, 0, 0, 0)",
+    color: "rgb(238, 242, 246)",
+    colorScheme: "dark",
+  });
+});
+
 test("formal print sheets remain white paper with dark ink inside dark theme", async ({ page }) => {
   await usePerformanceIdentity(page, "superadmin");
   await page.addInitScript(() => {
