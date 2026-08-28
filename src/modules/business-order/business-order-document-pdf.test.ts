@@ -1,7 +1,10 @@
 import { PDFDocument } from "pdf-lib";
 import { describe, expect, it } from "vitest";
 import type { BusinessOrderDocumentRenderSnapshot } from "@formal/db/schema/business-order-document";
-import { renderBusinessOrderDocumentPdf } from "@formal/modules/business-order/business-order-document-pdf";
+import {
+  BUSINESS_ORDER_DOCUMENT_RENDERER_VERSION,
+  renderBusinessOrderDocumentPdf,
+} from "@formal/modules/business-order/business-order-document-pdf";
 
 const snapshot: BusinessOrderDocumentRenderSnapshot = {
   version: 1,
@@ -14,7 +17,8 @@ const snapshot: BusinessOrderDocumentRenderSnapshot = {
 };
 
 describe("renderBusinessOrderDocumentPdf", () => {
-  it("creates deterministic true-A4 PDF bytes with the saved text overrides", async () => {
+  it("creates the formal v4 true-A4 document deterministically", async () => {
+    expect(BUSINESS_ORDER_DOCUMENT_RENDERER_VERSION).toBe("bo-a4-v6");
     const input = {
       documentNo: "MEC-20260828-0001",
       revisionNo: 2,
@@ -31,5 +35,6 @@ describe("renderBusinessOrderDocumentPdf", () => {
     expect(width).toBeCloseTo(595.28, 1);
     expect(height).toBeCloseTo(841.89, 1);
     expect(document.getTitle()).toContain("MEC-20260828-0001-R2");
+    expect(document.getCreator()).toBe("bo-a4-v6");
   });
 });
