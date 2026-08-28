@@ -14,6 +14,7 @@ const expected: Record<AccountRole, Record<Permission, boolean>> = {
     "customer_vehicle.read": true,
     "customer_vehicle.write": true,
     "business_order.write": true,
+    "record.delete": true,
     "master_data.read": true,
     "master_data.write": true,
     "workforce.manage": true,
@@ -29,6 +30,7 @@ const expected: Record<AccountRole, Record<Permission, boolean>> = {
     "customer_vehicle.read": true,
     "customer_vehicle.write": true,
     "business_order.write": true,
+    "record.delete": true,
     "master_data.read": true,
     "master_data.write": true,
     "workforce.manage": false,
@@ -44,6 +46,7 @@ const expected: Record<AccountRole, Record<Permission, boolean>> = {
     "customer_vehicle.read": true,
     "customer_vehicle.write": false,
     "business_order.write": false,
+    "record.delete": false,
     "master_data.read": true,
     "master_data.write": false,
     "workforce.manage": false,
@@ -59,6 +62,7 @@ const expected: Record<AccountRole, Record<Permission, boolean>> = {
     "customer_vehicle.read": false,
     "customer_vehicle.write": false,
     "business_order.write": false,
+    "record.delete": false,
     "master_data.read": false,
     "master_data.write": false,
     "workforce.manage": false,
@@ -105,5 +109,12 @@ describe("formal role permissions", () => {
     expect(hasPermission("front_desk", "workforce.manage")).toBe(false);
     expect(hasPermission("owner", "workforce.manage")).toBe(false);
     expect(hasPermission("mechanic", "workforce.manage")).toBe(false);
+  });
+
+  it("allows front desk and super administrator to delete eligible records", () => {
+    expect(hasPermission("super_admin", "record.delete")).toBe(true);
+    expect(hasPermission("front_desk", "record.delete")).toBe(true);
+    expect(hasPermission("owner", "record.delete")).toBe(false);
+    expect(hasPermission("mechanic", "record.delete")).toBe(false);
   });
 });
