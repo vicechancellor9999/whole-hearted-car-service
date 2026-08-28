@@ -173,6 +173,16 @@ for (const theme of ["light", "dark"] as const) {
         header: color('[data-testid="page-header"]'),
       };
     })).toEqual(expected);
+
+    await page.goto("/settings");
+    await expect(page.getByTestId("settings-demo-card")).toBeVisible();
+    expect(await page.getByTestId("settings-demo-card").evaluate((node) => {
+      const style = getComputedStyle(node);
+      return { backgroundColor: style.backgroundColor, borderColor: style.borderColor };
+    })).toEqual({
+      backgroundColor: expected.header,
+      borderColor: theme === "light" ? "rgb(212, 219, 228)" : "rgb(73, 81, 92)",
+    });
   });
 }
 

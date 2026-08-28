@@ -48,19 +48,72 @@ textarea {
   outline-offset: 2px;
 }
 
-/* ============================================================
-   Dark Mode Utility Overrides
-   Tailwind utility classes remapped to CSS variables
-   ============================================================ */
-.dark .bg-white {
-  background-color: var(--wh-card-bg);
+/* Legacy application surfaces share the same semantic ladder while individual
+   product areas are migrated. Document-paper descendants are excluded. */
+[data-testid="app-shell"] .bg-white:not(.formal-print-page, .formal-print-page *) {
+  background-color: var(--wh-layer-1);
 }
-.dark .bg-gray-50 {
-  background-color: var(--wh-gray-50);
+[data-testid="app-shell"] .bg-white\/95:not(.formal-print-page, .formal-print-page *) {
+  background-color: color-mix(in srgb, var(--wh-layer-1) 95%, transparent);
 }
-.dark .bg-gray-100 {
-  background-color: var(--wh-gray-100);
+[data-testid="app-shell"] .bg-white\/90:not(.formal-print-page, .formal-print-page *),
+[data-testid="app-shell"] .bg-white\/85:not(.formal-print-page, .formal-print-page *),
+[data-testid="app-shell"] .bg-white\/80:not(.formal-print-page, .formal-print-page *),
+[data-testid="app-shell"] .bg-white\/75:not(.formal-print-page, .formal-print-page *),
+[data-testid="app-shell"] .bg-white\/70:not(.formal-print-page, .formal-print-page *) {
+  background-color: color-mix(in srgb, var(--wh-layer-1) 88%, transparent);
 }
+[data-testid="app-shell"] .bg-gray-50,
+[data-testid="app-shell"] .bg-gray-100 {
+  background-color: var(--wh-layer-2);
+}
+
+.dark .dark\:bg-slate-950 { background-color: var(--wh-background); }
+.dark .dark\:bg-slate-900 { background-color: var(--wh-shell); }
+.dark .dark\:bg-slate-800 { background-color: var(--wh-layer-1); }
+.dark .dark\:bg-slate-700,
+.dark .dark\:bg-slate-600 { background-color: var(--wh-layer-2); }
+.dark :is(
+  .dark\:bg-slate-950\/50,
+  .dark\:bg-slate-950\/20,
+  .dark\:bg-slate-900\/90,
+  .dark\:bg-slate-900\/60,
+  .dark\:bg-slate-900\/50,
+  .dark\:bg-slate-900\/45,
+  .dark\:bg-slate-900\/40,
+  .dark\:bg-slate-900\/35,
+  .dark\:bg-slate-900\/30,
+  .dark\:bg-slate-900\/20
+) { background-color: color-mix(in srgb, var(--wh-shell) 88%, transparent); }
+.dark :is(
+  .dark\:bg-slate-800\/95,
+  .dark\:bg-slate-800\/90,
+  .dark\:bg-slate-800\/85,
+  .dark\:bg-slate-800\/80,
+  .dark\:bg-slate-800\/70,
+  .dark\:bg-slate-800\/60,
+  .dark\:bg-slate-800\/40,
+  .dark\:bg-slate-800\/25,
+  .dark\:bg-slate-800\/20
+) { background-color: color-mix(in srgb, var(--wh-layer-1) 92%, transparent); }
+.dark :is(
+  .dark\:bg-slate-700\/90,
+  .dark\:bg-slate-700\/40,
+  .dark\:bg-slate-700\/30,
+  .dark\:bg-slate-700\/20
+) { background-color: color-mix(in srgb, var(--wh-layer-2) 90%, transparent); }
+.dark .dark\:text-slate-100,
+.dark .dark\:text-slate-200 { color: var(--wh-text-primary); }
+.dark .dark\:text-slate-300,
+.dark .dark\:text-slate-400 { color: var(--wh-text-secondary); }
+.dark .dark\:text-slate-500 { color: var(--wh-text-tertiary); }
+.dark .dark\:border-slate-600 { border-color: var(--wh-border-strong); }
+.dark .dark\:border-slate-700,
+.dark .dark\:border-slate-700\/60 { border-color: var(--wh-border-subtle); }
+.dark .dark\:divide-slate-700 > :not([hidden]) ~ :not([hidden]) {
+  border-color: var(--wh-border-subtle);
+}
+
 .dark .border-gray-50 {
   border-color: var(--wh-border);
 }
