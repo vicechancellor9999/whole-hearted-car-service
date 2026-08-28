@@ -1,6 +1,6 @@
 # Whole Hearted 正式系统续接入口
 
-**最后更新：** 2026-08-27（Jamaica）\
+**最后更新：** 2026-08-28（Jamaica）\
 **正式仓库：** `/Volumes/公司文件/Whole Hearted Car Service 正式系统`
 
 每次继续开发时，按以下顺序读取：
@@ -93,3 +93,25 @@
 数据库主记录和原有 append-only 从属记录均要求同一事务中的请求编号、精确表名和精确行键授权。浏览器重试沿用同一个请求号，服务端使用事务级 advisory lock 串行化同号并发请求。当前车辆与历史车主关系都参与删除图。成功与拒绝分别写 `record.deleted` 和 `record.deletion_rejected`；自由文本补充说明不进入不可变审计，也不保存手机号、TRN、车牌、VIN、地址或证件内容。
 
 3220 真实验收已完成页面删除、刷新持久性、详情 404、两次同号并发只执行一次、普通 SQL 删除被拒绝。验收测试客户与活动临时会话均为 0。最终回归：正式后端 110 文件 / 398 测试、Web 995/995、协作边界 11/11、删除 E2E 7/7、根与 Web 类型检查及正式生产构建全部通过。
+
+## 2026-08-28 GitHub 与数据灾备
+
+- **私有远程仓库：** `https://github.com/vicechancellor9999/whole-hearted-car-service`
+- **稳定代码分支：** `codex/3210-single-runtime`，稳定提交 `f44cd1e`
+- **稳定标签：** `checkpoint-2026-08-27-record-deletion`
+- **AI 在建备份分支：** `codex/ai-service-wip-20260827`，首个在建快照提交 `6d7a01c`
+- **加密数据灾备：** GitHub Release `data-backup-20260828T000230_EST`
+- **本地加密包：** `/Volumes/公司文件/Whole Hearted Car Service 远程灾备/20260828T000230_EST/whole-hearted-runtime-20260828T000230_EST.tar.gz.enc`
+- **加密包 SHA-256：** `f638ec8e7cc9d70ea31c73965b6bdab3af154ff0e76000e936b19437d12eb75e`
+- **恢复密钥：** macOS 钥匙串服务 `whole-hearted-data-backup`，账号 `vicechancellor9999`；密钥不得写入仓库、文档或聊天。
+
+数据灾备包含隔离候选的 PostgreSQL 物理快照、上传附件、AI 服务运行设置、根环境文件和 Web 环境文件。备份前数据库已正常停机；加密包已解密到独立目录，并在 `55434` 端口独立启动。恢复库与原库均为 46 张公共表、283 行，逐表数量指纹一致；随后恢复库已关闭，`3220/login` 返回 HTTP 200。验证材料位于同一 Release 的 `manifest.json`、`restore-verification.json` 和 `restored-database-summary.json`。
+
+恢复时先下载 Release 的全部附件并核对 `.sha256`，从钥匙串读取密钥，只恢复到新的明确目录和备用端口；验证通过前禁止覆盖当前 `.runtime/postgresql`。原候选运行方式保持：
+
+```bash
+cd '/Volumes/公司文件/Whole Hearted Car Service 单体候选/3210-single-runtime'
+pnpm start:candidate
+```
+
+后续提交纪律：每个功能使用独立 `codex/` 分支；实现、自动测试和浏览器验收完成后再提交并推送。每天结束、开始高风险改动前以及每个可验收节点都要推送。`.env.local`、`.runtime/`、`backups/`、构建缓存、测试结果和真实密钥不得进入 Git；运行数据继续通过加密 Release 单独灾备。
