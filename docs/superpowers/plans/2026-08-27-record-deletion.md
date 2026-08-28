@@ -16,6 +16,7 @@
 - `record.delete` is allowed for `super_admin` and `front_desk`; no second approval is required.
 - Eligibility is computed and enforced by the formal backend, never by browser-only logic.
 - Existing foreign keys remain `onDelete: restrict`; deletion uses an explicit reverse dependency order.
+- Append-only triggers admit only rows registered by the deletion service for the current transaction; ordinary deletes and every unregistered row remain blocked.
 - A selected primary record is never added silently; all primary records appear in the preview and are explicitly selected.
 - The operation is all-or-nothing and revalidates under locks before mutation.
 - Audit payloads contain no names, phones, TRNs, plates, VINs, addresses, documents, images, or complete prior rows.
@@ -213,6 +214,12 @@ git commit -m "feat: evaluate record deletion eligibility"
 ```
 
 ### Task 4: Database-backed preview service
+
+Before the preview service, add the transaction-scoped database authorization used by execution:
+
+- Create `record_deletion_authorized_rows(request_id, table_name, row_key)`.
+- Add `record_deletion_row_authorized(table_name, row_key)` and update only triggers for dependent rows that the approved policy may delete.
+- Prove ordinary deletes, context-only deletes, and other rows remain blocked; prove the exact scoped row succeeds and rollback restores both data and receipt.
 
 **Files:**
 - Create: `src/modules/record-deletion/record-deletion-service.ts`

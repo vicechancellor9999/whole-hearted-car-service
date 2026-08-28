@@ -6,6 +6,7 @@ import {
   integer,
   jsonb,
   pgTable,
+  primaryKey,
   text,
   timestamp,
   uniqueIndex,
@@ -104,5 +105,41 @@ export const recordDeletionFileTasks = pgTable(
   ],
 );
 
+export const recordDeletionAuthorizedRows = pgTable(
+  "record_deletion_authorized_rows",
+  {
+    requestId: text("request_id")
+      .notNull()
+      .references(() => recordDeletionReceipts.requestId, { onDelete: "cascade" }),
+    tableName: text("table_name").notNull(),
+    rowKey: text("row_key").notNull(),
+  },
+  (table) => [
+    primaryKey({
+      name: "record_deletion_authorized_rows_pk",
+      columns: [table.requestId, table.tableName, table.rowKey],
+    }),
+    check(
+      "record_deletion_authorized_rows_table_valid",
+      sql`${table.tableName} in (
+        'vehicle_owner_history',
+        'vehicle_attachments',
+        'stored_files',
+        'customer_driver_license_records',
+        'business_order_charge_items',
+        'business_order_notes',
+        'business_order_charge_versions',
+        'inspection_report_findings'
+      )`,
+    ),
+    check(
+      "record_deletion_authorized_rows_key_nonempty",
+      sql`length(btrim(${table.rowKey})) > 0`,
+    ),
+  ],
+);
+
 export type RecordDeletionReceipt = typeof recordDeletionReceipts.$inferSelect;
 export type RecordDeletionFileTask = typeof recordDeletionFileTasks.$inferSelect;
+export type RecordDeletionAuthorizedRow =
+  typeof recordDeletionAuthorizedRows.$inferSelect;
