@@ -7,7 +7,9 @@ import { writeAuditEvent } from "@formal/modules/audit/audit-service";
 import {
   deletionPreviewStale,
   deletionRequestConflict,
+  RecordDeletionError,
   recordDeleteDenied,
+  recordDeleteBlocked,
   recordNotFound,
 } from "@formal/modules/record-deletion/record-deletion-errors";
 import {
@@ -102,125 +104,205 @@ export class RecordDeletionService {
     input: RecordDeletionExecuteInput & RecordDeletionActionContext,
   ): Promise<RecordDeletionResult> {
     const payloadHash = deletionPayloadHash(input);
-    return this.database.transaction(async (transaction) => {
-      await requireRecordDeletePermission(transaction, input.actorAccountId);
-      const prior = await transaction.query<{
-        actor_account_id: number;
-        payload_hash: string;
-        result: RecordDeletionResult | string;
-      }>(
-        `select actor_account_id, payload_hash, result
-         from record_deletion_receipts
-         where request_id = $1
-         for update`,
-        [input.requestId],
-      );
-      if (prior[0]) {
-        if (Number(prior[0].actor_account_id) !== input.actorAccountId
-            || prior[0].payload_hash !== payloadHash) {
-          throw deletionRequestConflict();
-        }
-        return parseDeletionResult(prior[0].result);
-      }
-
-      const root = await resolveRecord(transaction, input.root, true);
-      if (!root) throw recordNotFound();
-      const selected = await Promise.all(
-        input.selectedRecords.map((locator) => resolveRecord(transaction, locator, true)),
-      );
-      if (selected.some((record) => record === null)) throw deletionPreviewStale();
-      const selectedRecords = selected as ResolvedRecord[];
-      const facts = await loadDeletionFacts(transaction, root, selectedRecords);
-      const preview = evaluateDeletionGraph(root, input.selectedRecords, facts);
-      if (!preview.eligible || preview.previewFingerprint !== input.previewFingerprint) {
-        throw deletionPreviewStale();
-      }
-
-      const provisional: RecordDeletionResult = {
-        requestId: input.requestId,
-        root: input.root,
-        deletedRecords: [],
-        dependentCounts: {},
-        releasedIdentityKinds: [],
-        fileCleanupPending: 0,
-      };
-      await transaction.query(
-        `insert into record_deletion_receipts
-          (request_id, actor_account_id, payload_hash, root_kind,
-           root_record_no, reason_code, result, created_at)
-         values ($1, $2, $3, $4, $5, $6, $7::jsonb, $8)`,
-        [
-          input.requestId,
+    try {
+      return await this.database.transaction(async (transaction) => {
+        const actor = await requireRecordDeletePermission(
+          transaction,
           input.actorAccountId,
-          payloadHash,
-          input.root.kind,
-          input.root.recordNo,
-          input.reasonCode,
-          JSON.stringify(provisional),
-          input.now ?? new Date(),
-        ],
-      );
-      await transaction.query(
-        `select set_config('app.record_deletion_request_id', $1, true)`,
-        [input.requestId],
-      );
+        );
+        await transaction.query(
+          `select pg_advisory_xact_lock(hashtext($1))`,
+          [`record-deletion:${input.requestId}`],
+        );
+        const prior = await transaction.query<{
+          actor_account_id: number;
+          payload_hash: string;
+          result: RecordDeletionResult | string;
+        }>(
+          `select actor_account_id, payload_hash, result
+           from record_deletion_receipts
+           where request_id = $1
+           for update`,
+          [input.requestId],
+        );
+        if (prior[0]) {
+          if (Number(prior[0].actor_account_id) !== input.actorAccountId
+              || prior[0].payload_hash !== payloadHash) {
+            throw deletionRequestConflict();
+          }
+          return parseDeletionResult(prior[0].result);
+        }
 
-      const fileCleanupPending = await deleteSelectedGraph(
-        transaction,
-        selectedRecords,
-        input.requestId,
-      );
-      const result: RecordDeletionResult = {
-        requestId: input.requestId,
-        root: input.root,
-        deletedRecords: input.selectedRecords,
-        dependentCounts: preview.dependentCounts,
-        releasedIdentityKinds: preview.releasedIdentityKinds,
-        fileCleanupPending,
-      };
-      await writeAuditEvent(transaction, {
+        const root = await resolveRecord(transaction, input.root, true);
+        if (!root) throw recordNotFound();
+        const selected = await Promise.all(
+          input.selectedRecords.map((locator) => resolveRecord(transaction, locator, true)),
+        );
+        if (selected.some((record) => record === null)) throw deletionPreviewStale();
+        const selectedRecords = selected as ResolvedRecord[];
+        const facts = await loadDeletionFacts(transaction, root, selectedRecords);
+        const preview = evaluateDeletionGraph(root, input.selectedRecords, facts);
+        if (preview.previewFingerprint !== input.previewFingerprint) {
+          throw withDeletionBlockerCodes(
+            deletionPreviewStale(),
+            preview.blockers.map((blocker) => blocker.code),
+          );
+        }
+        if (!preview.eligible) {
+          throw withDeletionBlockerCodes(
+            recordDeleteBlocked(),
+            preview.blockers.map((blocker) => blocker.code),
+          );
+        }
+
+        const provisional: RecordDeletionResult = {
+          requestId: input.requestId,
+          root: input.root,
+          deletedRecords: [],
+          dependentCounts: {},
+          releasedIdentityKinds: [],
+          fileCleanupPending: 0,
+        };
+        await transaction.query(
+          `insert into record_deletion_receipts
+            (request_id, actor_account_id, payload_hash, root_kind,
+             root_record_no, reason_code, result, created_at)
+           values ($1, $2, $3, $4, $5, $6, $7::jsonb, $8)`,
+          [
+            input.requestId,
+            input.actorAccountId,
+            payloadHash,
+            input.root.kind,
+            input.root.recordNo,
+            input.reasonCode,
+            JSON.stringify(provisional),
+            input.now ?? new Date(),
+          ],
+        );
+        await transaction.query(
+          `select set_config('app.record_deletion_request_id', $1, true)`,
+          [input.requestId],
+        );
+
+        const fileCleanupPending = await deleteSelectedGraph(
+          transaction,
+          selectedRecords,
+          input.requestId,
+        );
+        const result: RecordDeletionResult = {
+          requestId: input.requestId,
+          root: input.root,
+          deletedRecords: input.selectedRecords,
+          dependentCounts: preview.dependentCounts,
+          releasedIdentityKinds: preview.releasedIdentityKinds,
+          fileCleanupPending,
+        };
+        await writeAuditEvent(transaction, {
+          occurredAt: input.now,
+          actorAccountId: input.actorAccountId,
+          eventType: "record.deleted",
+          objectType: input.root.kind,
+          objectId: input.root.recordNo,
+          reason: input.reasonCode,
+          after: {
+            actorRole: actor.role,
+            reasonNote: input.reasonNote,
+            previewFingerprint: input.previewFingerprint,
+            deletedRecordCount: input.selectedRecords.length,
+            deletedRecords: input.selectedRecords.map((record) => ({
+              kind: record.kind,
+              recordNo: record.recordNo,
+            })),
+            dependentCounts: preview.dependentCounts,
+            fileCleanupPending,
+          },
+          requestId: input.requestId,
+          ipAddress: input.ipAddress,
+          userAgent: input.userAgent,
+        });
+        await transaction.query(
+          `update record_deletion_receipts set result = $2::jsonb where request_id = $1`,
+          [input.requestId, JSON.stringify(result)],
+        );
+        return result;
+      });
+    } catch (error) {
+      await this.writeRejectionAudit(input, error);
+      throw error;
+    }
+  }
+
+  private async writeRejectionAudit(
+    input: RecordDeletionExecuteInput & RecordDeletionActionContext,
+    error: unknown,
+  ): Promise<void> {
+    const actor = await readDeleteActor(this.database, input.actorAccountId);
+    if (!actor) return;
+    try {
+      await writeAuditEvent(this.database, {
         occurredAt: input.now,
         actorAccountId: input.actorAccountId,
-        eventType: "record.deleted",
+        eventType: "record.deletion_rejected",
         objectType: input.root.kind,
         objectId: input.root.recordNo,
-        reason: input.reasonCode,
         after: {
-          deletedRecords: input.selectedRecords.map((record) => ({
-            kind: record.kind,
-            recordNo: record.recordNo,
-          })),
-          dependentCounts: preview.dependentCounts,
-          fileCleanupPending,
+          actorRole: actor.role,
+          blockerCodes: rejectionCodes(error),
         },
         requestId: input.requestId,
         ipAddress: input.ipAddress,
         userAgent: input.userAgent,
       });
-      await transaction.query(
-        `update record_deletion_receipts set result = $2::jsonb where request_id = $1`,
-        [input.requestId, JSON.stringify(result)],
-      );
-      return result;
-    });
+    } catch {
+      // Preserve the original deletion error if the separate audit write fails.
+    }
   }
 }
 
 async function requireRecordDeletePermission(
   executor: AuthSqlExecutor,
   actorAccountId: number,
-): Promise<void> {
-  const rows = await executor.query<{ allowed: boolean }>(
-    `select exists (
-       select 1
-       from staff_accounts
-       where id = $1
-         and is_active = true
-         and role in ('super_admin', 'front_desk')
-     ) as allowed`,
+): Promise<{ role: string }> {
+  const actor = await readDeleteActor(executor, actorAccountId);
+  if (!actor?.allowed) throw recordDeleteDenied();
+  return actor;
+}
+
+async function readDeleteActor(
+  executor: AuthSqlExecutor,
+  actorAccountId: number,
+): Promise<{ role: string; allowed: boolean } | null> {
+  const rows = await executor.query<{ role: string; allowed: boolean }>(
+    `select role::text as role,
+            (is_active and role in ('super_admin', 'front_desk')) as allowed
+     from staff_accounts
+     where id = $1
+     limit 1`,
     [actorAccountId],
   );
-  if (!rows[0]?.allowed) throw recordDeleteDenied();
+  return rows[0] ?? null;
+}
+
+function withDeletionBlockerCodes(
+  error: RecordDeletionError,
+  blockerCodes: string[],
+): RecordDeletionError {
+  Object.assign(error, { deletionBlockerCodes: blockerCodes });
+  return error;
+}
+
+function rejectionCodes(error: unknown): string[] {
+  const primary = error instanceof RecordDeletionError
+    ? error.code
+    : "RECORD_DELETE_FAILED";
+  const attached = typeof error === "object" && error !== null
+    && "deletionBlockerCodes" in error
+    && Array.isArray(error.deletionBlockerCodes)
+    ? error.deletionBlockerCodes.filter(
+      (code): code is string => typeof code === "string",
+    )
+    : [];
+  return [...new Set([primary, ...attached])];
 }
 
 async function resolveRecord(
@@ -329,9 +411,15 @@ async function loadCustomerFact(
 ): Promise<LoadedFact> {
   const personal = record.kind === "personal_customer";
   const linkedVehicles = await executor.query<VehicleRow>(
-    `select id, vehicle_no as record_no, version, normalized_plate, vin
-     from vehicles
-     where ${personal ? "current_person_customer_id" : "current_company_account_id"} = $1
+    `select distinct vehicle.id, vehicle.vehicle_no as record_no,
+            vehicle.version, vehicle.normalized_plate, vehicle.vin
+     from vehicles as vehicle
+     where vehicle.${personal ? "current_person_customer_id" : "current_company_account_id"} = $1
+        or exists (
+          select 1 from vehicle_owner_history as history
+          where history.vehicle_id = vehicle.id
+            and history.${personal ? "person_customer_id" : "company_account_id"} = $1
+        )
      order by id`,
     [record.id],
   );
@@ -666,6 +754,14 @@ async function deleteSelectedGraph(
        where inspection_report_id = any($1::bigint[])`,
       [inspectionIds],
     );
+    await authorizeRowsFromQuery(
+      transaction,
+      requestId,
+      "inspection_reports",
+      `select id::text from inspection_reports
+       where id = any($2::bigint[])`,
+      [inspectionIds],
+    );
     await transaction.query(
       `delete from inspection_reports where id = any($1::bigint[])`,
       [inspectionIds],
@@ -725,8 +821,24 @@ async function deleteSelectedGraph(
        where business_order_id = any($1::bigint[])`,
       [orderIds],
     );
+    await authorizeRowsFromQuery(
+      transaction,
+      requestId,
+      "repair_rounds",
+      `select id::text from repair_rounds
+       where business_order_id = any($2::bigint[])`,
+      [orderIds],
+    );
     await transaction.query(
       `delete from repair_rounds where business_order_id = any($1::bigint[])`,
+      [orderIds],
+    );
+    await authorizeRowsFromQuery(
+      transaction,
+      requestId,
+      "business_orders",
+      `select id::text from business_orders
+       where id = any($2::bigint[])`,
       [orderIds],
     );
     await transaction.query(
@@ -766,6 +878,13 @@ async function deleteSelectedGraph(
       `delete from vehicle_owner_history where vehicle_id = any($1::bigint[])`,
       [vehicleIds],
     );
+    await authorizeRowsFromQuery(
+      transaction,
+      requestId,
+      "vehicles",
+      `select id::text from vehicles where id = any($2::bigint[])`,
+      [vehicleIds],
+    );
     await transaction.query(
       `delete from vehicles where id = any($1::bigint[])`,
       [vehicleIds],
@@ -796,6 +915,15 @@ async function deleteSelectedGraph(
           or company_account_id = any($2::bigint[])`,
       licenseParameters,
     );
+    await authorizeRowsFromQuery(
+      transaction,
+      requestId,
+      "company_contacts",
+      `select id::text from company_contacts
+       where personal_customer_id = any($2::bigint[])
+          or company_id = any($3::bigint[])`,
+      licenseParameters,
+    );
     await transaction.query(
       `delete from company_contacts
        where personal_customer_id = any($1::bigint[])
@@ -803,12 +931,28 @@ async function deleteSelectedGraph(
       licenseParameters,
     );
     if (personalCustomerIds.length > 0) {
+      await authorizeRowsFromQuery(
+        transaction,
+        requestId,
+        "personal_customers",
+        `select id::text from personal_customers
+         where id = any($2::bigint[])`,
+        [personalCustomerIds],
+      );
       await transaction.query(
         `delete from personal_customers where id = any($1::bigint[])`,
         [personalCustomerIds],
       );
     }
     if (companyCustomerIds.length > 0) {
+      await authorizeRowsFromQuery(
+        transaction,
+        requestId,
+        "company_accounts",
+        `select id::text from company_accounts
+         where id = any($2::bigint[])`,
+        [companyCustomerIds],
+      );
       await transaction.query(
         `delete from company_accounts where id = any($1::bigint[])`,
         [companyCustomerIds],

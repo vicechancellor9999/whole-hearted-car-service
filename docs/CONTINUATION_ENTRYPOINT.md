@@ -80,3 +80,16 @@
 - 最终回归：后端 101 文件 / 361 测试通过，Web 978/978 通过，协作边界 11/11 通过，根与 Web 类型检查通过，生产构建通过；lint 为 0 错误、1 条既有测试警告。
 
 安全回退点：`backups/candidate-runtime-pre-license-20260827T1845-JM.tar.gz`，SHA-256 为 `b058e3e138b278d053bc2d6257ebee5342ac268f7a3b771210e010d50ff8d98d`。该备份只包含隔离候选运行时，不属于 Git 交付。
+
+## 2026-08-27 正式记录删除交付
+
+- **隔离候选工作区：** `/Volumes/公司文件/Whole Hearted Car Service 单体候选/3210-single-runtime`
+- **候选分支：** `codex/3210-single-runtime`
+- **候选入口：** `http://127.0.0.1:3220`
+- **完整规格与验收：** `docs/superpowers/specs/2026-08-27-record-deletion-design.md`、`docs/acceptance/record-deletion.md`
+
+客户档案、车辆档案、Business Order 和检查单详情已接入统一“删除”操作。超级管理员与前台可执行；其他角色不可见且接口拒绝。删除前由正式后端重新计算关联图，主记录逐项确认，从属记录按计数展示；存在真实业务事实时整体阻断，不做部分删除。
+
+数据库主记录和原有 append-only 从属记录均要求同一事务中的请求编号、精确表名和精确行键授权。浏览器重试沿用同一个请求号，服务端使用事务级 advisory lock 串行化同号并发请求。当前车辆与历史车主关系都参与删除图。成功与拒绝分别写 `record.deleted` 和 `record.deletion_rejected`，不保存手机号、TRN、车牌、VIN、地址或证件内容。
+
+3220 真实验收已完成页面删除、刷新持久性、详情 404、两次同号并发只执行一次、普通 SQL 删除被拒绝。验收测试客户与活动临时会话均为 0。最终回归：正式后端 110 文件 / 398 测试、Web 995/995、协作边界 11/11、删除 E2E 7/7、根与 Web 类型检查及正式生产构建全部通过。

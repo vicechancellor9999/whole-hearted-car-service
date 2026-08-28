@@ -166,6 +166,41 @@ test("front desk deletes a draft inspection and the action submits only once", a
   await expect(page.getByText(reportNo)).toHaveCount(0);
 });
 
+test("a network retry reuses the same deletion request number", async ({ page }) => {
+  await installSession(page, "front_desk");
+  await installInspection(page, "draft");
+  const requestIds: string[] = [];
+  await page.route("**/api/formal/record-deletions/preview", (route) => json(route, {
+    eligible: true,
+    rootRecord: { kind: "inspection_report", recordNo: reportNo, version: 1 },
+    selectableLinkedRecords: [], dependentCounts: {}, releasedIdentityKinds: [], blockers: [],
+    previewFingerprint: fingerprint,
+  }));
+  await page.route("**/api/formal/record-deletions/execute", async (route) => {
+    const payload = route.request().postDataJSON() as { requestId: string };
+    requestIds.push(payload.requestId);
+    if (requestIds.length === 1) return json(route, { message: "网络中断" }, 500);
+    return json(route, {
+      requestId: payload.requestId,
+      root: { kind: "inspection_report", recordNo: reportNo },
+      deletedRecords: [{ kind: "inspection_report", recordNo: reportNo }],
+      dependentCounts: {}, releasedIdentityKinds: [], fileCleanupPending: 0,
+    });
+  });
+
+  await page.goto("/orders/inspections/901");
+  await page.getByRole("button", { name: "删除", exact: true }).click();
+  await page.getByLabel("删除原因").selectOption("test_data");
+  await page.getByLabel(/输入记录编号确认/).fill(reportNo);
+  await page.getByRole("button", { name: "确认删除" }).click();
+  await expect(page.getByRole("alert")).toContainText("删除操作未完成");
+  await page.getByRole("button", { name: "确认删除" }).click();
+  await expect(page).toHaveURL(/\/orders\/inspections$/);
+  expect(requestIds).toHaveLength(2);
+  expect(requestIds[1]).toBe(requestIds[0]);
+  observeErrors(page).length = 0;
+});
+
 test("submitted inspection shows the business blocker and remains unchanged", async ({ page }) => {
   await installSession(page, "super_admin");
   await installInspection(page, "submitted");

@@ -14,6 +14,8 @@ let database: PGlite;
 let adminId: number;
 let firstOwnerHistoryId: number;
 let secondOwnerHistoryId: number;
+let orphanCustomerId: number;
+let orphanVehicleId: number;
 
 async function startDeletionRequest(requestId: string, authorizedRowId?: number) {
   await database.exec("begin");
@@ -90,6 +92,24 @@ describe("record deletion database authorization", () => {
     );
     firstOwnerHistoryId = Number(histories.rows[0]?.id);
     secondOwnerHistoryId = Number(histories.rows[1]?.id);
+
+    const orphanCustomer = await database.query<{ id: number }>(
+      `insert into personal_customers
+        (customer_no, full_name, normalized_phone, created_by)
+       values ('CUST-202608-0099', '独立客户', '8765550199', $1)
+       returning id`,
+      [adminId],
+    );
+    orphanCustomerId = Number(orphanCustomer.rows[0]?.id);
+    const orphanVehicle = await database.query<{ id: number }>(
+      `insert into vehicles
+        (vehicle_no, plate_display, normalized_plate, make, model,
+         current_person_customer_id, created_by)
+       values ('VEH-202608-0099', 'DELETE99', 'DELETE99', 'Test', 'Orphan', $1, $2)
+       returning id`,
+      [orphanCustomerId, adminId],
+    );
+    orphanVehicleId = Number(orphanVehicle.rows[0]?.id);
   });
 
   afterAll(async () => {
@@ -101,6 +121,35 @@ describe("record deletion database authorization", () => {
       `delete from vehicle_owner_history where id = $1`,
       [firstOwnerHistoryId],
     )).rejects.toThrow("vehicle ownership facts are append-only");
+  });
+
+  it("guards every primary row deleted by the formal deletion service", async () => {
+    const rows = await database.query<{ table_name: string }>(
+      `select event_object_table as table_name
+       from information_schema.triggers
+       where trigger_name = 'record_deletion_primary_delete_guard'
+       order by event_object_table`,
+    );
+    expect(rows.rows.map((row) => row.table_name)).toEqual([
+      "business_orders",
+      "company_accounts",
+      "company_contacts",
+      "inspection_reports",
+      "personal_customers",
+      "repair_rounds",
+      "vehicles",
+    ]);
+  });
+
+  it("blocks direct deletion of dependency-free primary records", async () => {
+    await expect(database.query(
+      `delete from personal_customers where id = $1`,
+      [orphanCustomerId],
+    )).rejects.toThrow("formal record deletion authorization required");
+    await expect(database.query(
+      `delete from vehicles where id = $1`,
+      [orphanVehicleId],
+    )).rejects.toThrow("formal record deletion authorization required");
   });
 
   it("rejects a request context that has no exact authorized row", async () => {

@@ -122,13 +122,20 @@ export const recordDeletionAuthorizedRows = pgTable(
     check(
       "record_deletion_authorized_rows_table_valid",
       sql`${table.tableName} in (
+        'personal_customers',
+        'company_accounts',
+        'company_contacts',
+        'vehicles',
         'vehicle_owner_history',
         'vehicle_attachments',
         'stored_files',
         'customer_driver_license_records',
+        'business_orders',
+        'repair_rounds',
         'business_order_charge_items',
         'business_order_notes',
         'business_order_charge_versions',
+        'inspection_reports',
         'inspection_report_findings'
       )`,
     ),

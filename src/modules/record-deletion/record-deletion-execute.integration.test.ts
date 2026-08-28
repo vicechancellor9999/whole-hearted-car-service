@@ -108,7 +108,7 @@ describe("RecordDeletionService execute", () => {
       root: selectedRecords[0],
       selectedRecords,
       reasonCode: "test_data" as const,
-      reasonNote: null,
+      reasonNote: "误建测试记录",
       confirmationRecordNo: fixture.customerNo,
       previewFingerprint: preview.previewFingerprint,
       requestId: "delete-execute-1",
@@ -145,12 +145,19 @@ describe("RecordDeletionService execute", () => {
       [frontDeskId],
     )).resolves.toMatchObject({ affectedRows: 1 });
 
-    const audit = await database.query<{ serialized: string }>(
-      `select concat_ws(' ', reason, before_state::text, after_state::text) as serialized
+    const audit = await database.query<{ serialized: string; after_state: Record<string, unknown> }>(
+      `select concat_ws(' ', reason, before_state::text, after_state::text) as serialized,
+              after_state
        from audit_events where request_id = $1 and event_type = 'record.deleted'`,
       [input.requestId],
     );
     expect(audit.rows).toHaveLength(1);
+    expect(audit.rows[0]?.after_state).toMatchObject({
+      actorRole: "front_desk",
+      reasonNote: "误建测试记录",
+      previewFingerprint: input.previewFingerprint,
+      deletedRecordCount: 2,
+    });
     expect(audit.rows[0]?.serialized.toLowerCase()).not.toMatch(
       /full_name|phone|trn|plate|vin|address|待删除客户|del101|123456789/,
     );
@@ -190,6 +197,20 @@ describe("RecordDeletionService execute", () => {
       [fixture.vehicleId],
     );
     expect(Number(remaining.rows[0]?.count)).toBe(1);
+
+    const rejection = await database.query<{ after_state: Record<string, unknown> }>(
+      `select after_state from audit_events
+       where request_id = 'delete-stale-2'
+         and event_type = 'record.deletion_rejected'`,
+    );
+    expect(rejection.rows).toHaveLength(1);
+    expect(rejection.rows[0]?.after_state).toMatchObject({
+      actorRole: "front_desk",
+    });
+    expect(rejection.rows[0]?.after_state.blockerCodes).toEqual(expect.arrayContaining([
+      "DELETION_PREVIEW_STALE",
+      "HAS_BUSINESS_ORDER",
+    ]));
   });
 
   it("rejects reuse of a request number with a different payload", async () => {
@@ -213,5 +234,49 @@ describe("RecordDeletionService execute", () => {
     await service.execute(input);
     await expect(service.execute({ ...input, reasonCode: "test_data" }))
       .rejects.toMatchObject({ code: "DELETION_REQUEST_CONFLICT", status: 409 });
+  });
+
+  it("surfaces a vehicle linked only through ownership history", async () => {
+    const fixture = await seedFixture(4);
+    const secondCustomer = await database.query<{ id: number }>(
+      `insert into personal_customers
+        (customer_no, full_name, normalized_phone, created_by)
+       values ('CUST-202608-0044', '现车主', '+18765550444', $1)
+       returning id`,
+      [frontDeskId],
+    );
+    await database.query(
+      `update vehicle_owner_history set ended_at = now()
+       where vehicle_id = $1 and person_customer_id = $2`,
+      [fixture.vehicleId, fixture.customerId],
+    );
+    await database.query(
+      `update vehicles set current_person_customer_id = $2, version = version + 1
+       where id = $1`,
+      [fixture.vehicleId, Number(secondCustomer.rows[0]?.id)],
+    );
+    await database.query(
+      `insert into vehicle_owner_history
+        (vehicle_id, person_customer_id, changed_by)
+       values ($1, $2, $3)`,
+      [fixture.vehicleId, Number(secondCustomer.rows[0]?.id), frontDeskId],
+    );
+
+    const root = { kind: "personal_customer" as const, recordNo: fixture.customerNo };
+    const preview = await service.preview({
+      actorAccountId: frontDeskId,
+      root,
+      selectedRecords: [root],
+    });
+
+    expect(preview.selectableLinkedRecords).toContainEqual({
+      kind: "vehicle",
+      recordNo: fixture.vehicleNo,
+      version: 2,
+    });
+    expect(preview.blockers).toContainEqual(expect.objectContaining({
+      code: "HAS_VEHICLE",
+      linkedRecord: { kind: "vehicle", recordNo: fixture.vehicleNo },
+    }));
   });
 });

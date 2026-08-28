@@ -58,6 +58,7 @@ export function RecordDeleteButton({
 }: RecordDeleteButtonProps) {
   const router = useRouter();
   const triggerRef = useRef<HTMLButtonElement>(null);
+  const requestIdRef = useRef<string | null>(null);
   const [allowed, setAllowed] = useState(false);
   const [open, setOpen] = useState(false);
   const [busy, setBusy] = useState(false);
@@ -110,6 +111,7 @@ export function RecordDeleteButton({
 
   const openPreview = () => {
     const initial = [root];
+    requestIdRef.current = `delete-${crypto.randomUUID()}`;
     setOpen(true);
     setPreview(null);
     setSelectedRecords(initial);
@@ -139,6 +141,9 @@ export function RecordDeleteButton({
 
   const confirm = async () => {
     if (!preview || !canConfirm) return;
+    const requestId = requestIdRef.current
+      ?? `delete-${crypto.randomUUID()}`;
+    requestIdRef.current = requestId;
     setBusy(true);
     setErrorMessage(null);
     try {
@@ -149,7 +154,7 @@ export function RecordDeleteButton({
         reasonNote: reasonCode === "other" ? reasonNote.trim() : null,
         confirmationRecordNo,
         previewFingerprint: preview.previewFingerprint,
-        requestId: `delete-${crypto.randomUUID()}`,
+        requestId,
       });
       setOpen(false);
       router.push(returnTo);

@@ -204,6 +204,13 @@
       "when": 1787888889091,
       "tag": "0028_record_deletion_authorization",
       "breakpoints": true
+    },
+    {
+      "idx": 29,
+      "version": "7",
+      "when": 1787891666537,
+      "tag": "0029_record_deletion_primary_guard",
+      "breakpoints": true
     }
   ]
 }
