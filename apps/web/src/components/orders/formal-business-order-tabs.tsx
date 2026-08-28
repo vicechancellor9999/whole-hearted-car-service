@@ -51,7 +51,7 @@ export function FormalBusinessOrderTabs({
     <nav
       aria-label="Business Order 工作区"
       role="tablist"
-      className="sticky top-0 z-20 grid gap-1 rounded-2xl border border-line bg-white/95 p-1.5 shadow-card backdrop-blur dark:border-slate-700 dark:bg-slate-900/95 sm:grid-cols-2 xl:grid-cols-4"
+      className="sticky top-0 z-20 grid gap-1 rounded-2xl border border-line bg-white/95 p-1.5 shadow-card backdrop-blur sm:grid-cols-2 xl:grid-cols-4"
     >
       {TABS.map((tab) => {
         const selected = active === tab.id;
@@ -67,7 +67,7 @@ export function FormalBusinessOrderTabs({
             className={`flex min-h-11 items-center justify-center gap-2 rounded-xl px-3 text-center text-xs font-bold transition ${
               selected
                 ? "bg-primary text-white shadow-sm"
-                : "text-ink-soft hover:bg-primary-50 hover:text-primary dark:text-slate-300 dark:hover:bg-slate-800"
+                : "text-ink-soft hover:bg-primary-50 hover:text-primary"
             }`}
           >
             <span>{tab.label}</span>

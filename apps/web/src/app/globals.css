@@ -139,6 +139,44 @@ textarea {
   color-scheme: light;
 }
 
+/* Business Order is a light work surface even when the app shell is dark. */
+.formal-business-order-page {
+  --wh-page-bg: #f3f6fb;
+  --wh-card-bg: #ffffff;
+  --wh-text: #1a1a2e;
+  --wh-text-soft: #6b7280;
+  --wh-text-faint: #9ca3af;
+  --wh-border: #e5e7eb;
+  --wh-surface: #f6f7fa;
+  --wh-gray-50: #f9fafb;
+  --wh-gray-100: #f3f4f6;
+  --wh-gray-200: #e5e7eb;
+  --wh-primary-50: #eef4fb;
+  background-color: var(--wh-page-bg);
+  color: var(--wh-text);
+  color-scheme: light;
+}
+
+.dark .formal-business-order-page [role="dialog"] {
+  background-color: #ffffff !important;
+  border-color: var(--wh-border) !important;
+  color: var(--wh-text) !important;
+}
+
+.dark .formal-business-order-page [role="dialog"] > header {
+  background-color: rgba(255, 255, 255, 0.95) !important;
+}
+
+.dark .formal-business-order-page [role="dialog"] h2 {
+  color: var(--wh-text) !important;
+}
+
+.dark .formal-business-order-page [role="dialog"] :is(input, select, textarea) {
+  background-color: #ffffff !important;
+  border-color: var(--wh-border) !important;
+  color: var(--wh-text) !important;
+}
+
 /* Scrollbar */
 ::-webkit-scrollbar {
   width: 6px;

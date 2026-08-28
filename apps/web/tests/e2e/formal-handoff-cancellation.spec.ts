@@ -233,6 +233,41 @@ test("业务单右栏的四个金额卡片在桌面窄栏内不溢出", async ({
   expect(cardWidths.every((width) => width >= 180)).toBe(true);
 });
 
+test("业务单详情在用户全局深色主题下仍保持独立浅色工作区", async ({ page }) => {
+  await page.addInitScript(() => {
+    localStorage.setItem("wh_theme", "dark");
+    localStorage.setItem("wh_theme_source", "user");
+  });
+  await installFormalFixtures(page);
+  await page.goto("/orders/business/7?tab=operations");
+
+  await expect(page.locator("html")).toHaveClass(/dark/);
+  const surfaces = await page.evaluate(() => {
+    const read = (selector: string) => {
+      const node = document.querySelector(selector);
+      if (!node) throw new Error(`missing ${selector}`);
+      const style = getComputedStyle(node);
+      return { backgroundColor: style.backgroundColor, color: style.color, colorScheme: style.colorScheme };
+    };
+    return {
+      page: read('[data-testid="formal-business-order-detail"]'),
+      title: read('[data-testid="formal-business-order-detail"] h1'),
+      tabs: read('nav[aria-label="Business Order 工作区"]'),
+      operations: read("#business-order-operations-workspace"),
+      repair: read("#business-order-repair-workspace"),
+      finance: read("#business-order-finance-workspace"),
+    };
+  });
+
+  expect(surfaces.page.backgroundColor).toBe("rgb(243, 246, 251)");
+  expect(surfaces.page.colorScheme).toBe("light");
+  expect(surfaces.title.color).toBe("rgb(26, 26, 46)");
+  expect(surfaces.tabs.backgroundColor).toBe("rgba(255, 255, 255, 0.95)");
+  expect(surfaces.operations.backgroundColor).toBe("rgb(255, 255, 255)");
+  expect(surfaces.repair.backgroundColor).toBe("rgb(255, 255, 255)");
+  expect(surfaces.finance.backgroundColor).toBe("rgb(255, 255, 255)");
+});
+
 test("取消交单失败后保留已输入原因和打开的表单", async ({ page }) => {
   const requests = await installFormalFixtures(page, { cancellation: "failure" });
   await page.goto("/orders/business/7");
@@ -248,7 +283,9 @@ test("取消交单失败后保留已输入原因和打开的表单", async ({ pa
   await reason.fill("  绩效值需重新核对  ");
   await submit.click();
 
-  await expect(page.locator('p[role="alert"]')).toContainText("不在同一 Jamaica 月份");
+  await expect(
+    page.getByRole("alert").filter({ hasText: "不在同一 Jamaica 月份" }),
+  ).toBeVisible();
   await expect(form).toBeVisible();
   await expect(reason).toHaveValue("  绩效值需重新核对  ");
   expect(requests.cancellationWrites()).toBe(1);
