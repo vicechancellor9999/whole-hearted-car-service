@@ -59,7 +59,12 @@ async function dashboardDatabase(): Promise<AuthSqlDatabase> {
       label_zh text,
       label_en text
     );
-    create table repair_teams (id bigint primary key, name text not null, is_active boolean not null);
+    create table repair_teams (
+      id bigint primary key,
+      name text not null,
+      is_active boolean not null,
+      sort_order integer not null default 0
+    );
     create table staff_members (
       id bigint primary key,
       full_name text not null,
@@ -118,10 +123,10 @@ async function dashboardDatabase(): Promise<AuthSqlDatabase> {
       (51, 200, 30, 'cash', '历史现金', 'Historical cash', 5000, '2026-08-26T14:30:00Z'),
       (52, 200, 30, 'cash', '历史现金', 'Historical cash', 10000, '2026-08-26T16:30:00Z');
     insert into repair_teams values
-      (1, '活跃但交单已取消组', true),
-      (2, '已停用但有有效交单组', false),
-      (3, '活跃但只有未来交单组', true),
-      (4, '已停用且只有作废单交单组', false);
+      (1, '活跃但交单已取消组', true, 2),
+      (2, '已停用但有有效交单组', false, 3),
+      (3, '活跃但只有未来交单组', true, 1),
+      (4, '已停用且只有作废单交单组', false, 4);
     insert into formal_handoffs values
       (10, 200, '2026-08-10T15:00:00Z', 1, date '2026-08-01', 120000),
       (11, 200, '2026-08-11T15:00:00Z', 2, date '2026-08-01', 450000),
@@ -168,6 +173,11 @@ describe("DashboardService database projection", () => {
       currentAmount: team.currentAmount,
     }));
     expect(teams).toHaveLength(3);
+    expect(teams.map((team) => team.name)).toEqual([
+      "活跃但只有未来交单组",
+      "活跃但交单已取消组",
+      "已停用但有有效交单组",
+    ]);
     expect(teams).toEqual(expect.arrayContaining([
       { name: "活跃但交单已取消组", currentAmount: 0 },
       { name: "活跃但只有未来交单组", currentAmount: 0 },

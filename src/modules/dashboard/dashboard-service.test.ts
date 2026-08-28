@@ -216,6 +216,8 @@ describe("DashboardService", () => {
     ]);
     expect(queries.find((query) => query.includes("from repair_teams as team")))
       .toMatch(/team\.is_active\s*=\s*true\s+or\s+handoff\.id\s+is\s+not\s+null/i);
+    expect(queries.find((query) => query.includes("from repair_teams as team")))
+      .toMatch(/order by team\.sort_order, team\.id/i);
     expect(queries[0]).toMatch(/set transaction isolation level repeatable read read only/i);
   });
 });

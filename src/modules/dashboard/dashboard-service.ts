@@ -109,8 +109,8 @@ export class DashboardService {
             where cancellation.formal_handoff_id = handoff.id
           )
          where team.is_active = true or handoff.id is not null
-         group by team.id, team.name
-         order by team.name, team.id`,
+         group by team.id, team.name, team.sort_order
+         order by team.sort_order, team.id`,
           [`${month}-01`, now],
         ),
         readPerformanceTargets(snapshot, month),
