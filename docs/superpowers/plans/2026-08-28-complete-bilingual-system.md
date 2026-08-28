@@ -42,7 +42,7 @@
 - [ ] Run focused tests and existing language/theme tests.
 - [ ] Commit the i18n core.
 
-### Task 2: Persist formal account language
+### Task 2: Persist formal account language (completed)
 
 **Files:**
 - Create: `drizzle/0037_staff_account_ui_language.sql`
@@ -200,4 +200,3 @@
 - [ ] Restart candidate 3220 from the verified production build and verify `/login`, authenticated English paths, console state and account persistence.
 - [ ] Update continuation and acceptance evidence with exact commands and results.
 - [ ] Commit the verified bilingual system.
-

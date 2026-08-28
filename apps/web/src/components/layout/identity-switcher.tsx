@@ -4,6 +4,7 @@ import { useState, useEffect } from "react";
 import type { Identity, Session } from "@/lib/types";
 import { api, isMockApiEnabled } from "@/lib/api/client";
 import { getFormalPcPolicy } from "@/lib/auth/formal-pc-access";
+import { useI18n } from "@/lib/i18n/language";
 import { AccountSettingsPopover } from "./account-settings-popover";
 
 interface IdentitySwitcherProps {
@@ -20,6 +21,7 @@ type FormalAccount = {
   displayName: string;
   role: "super_admin" | "front_desk" | "owner" | "mechanic";
   delegatedPermissions: "sensitive_operations.execute"[];
+  uiLanguage?: "zh" | "en";
 };
 
 const formalRoleLabels: Record<FormalAccount["role"], { zh: string; en: string }> = {
@@ -74,6 +76,7 @@ export function IdentitySwitcher({
   surface = "desktop",
   collapsed = false,
 }: IdentitySwitcherProps) {
+  const { setLanguage } = useI18n();
   const [identities, setIdentities] = useState<Identity[]>([]);
   const [session, setSession] = useState<Session | null>(null);
 
@@ -91,6 +94,7 @@ export function IdentitySwitcher({
         })
         .then((payload) => {
           if (!active || !payload) return;
+          setLanguage(payload.account.uiLanguage ?? "zh");
           const identity = formalIdentity(payload.account);
           const policy = getFormalPcPolicy(
             payload.account.role,
@@ -161,7 +165,7 @@ export function IdentitySwitcher({
       active = false;
       window.removeEventListener("wh:employees-changed", load);
     };
-  }, []);
+  }, [setLanguage]);
 
   const handleSwitch = async (id: string) => {
     const s = await api.previewSession(id);

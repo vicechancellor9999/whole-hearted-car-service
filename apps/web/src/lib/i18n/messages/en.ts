@@ -23,6 +23,7 @@ export const enMessages: Record<ZhMessageKey, string> = {
   "account.signOut": "Sign out",
   "account.close": "Close account settings",
   "account.open": "Open account settings",
+  "account.languageSaveFailed": "Could not save the language preference. Try again.",
 
   "nav.dashboard": "Dashboard",
   "nav.workbench": "Business Workbench",

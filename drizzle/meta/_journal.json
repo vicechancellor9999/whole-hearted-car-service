@@ -260,6 +260,13 @@
       "when": 1787947200000,
       "tag": "0036_business_order_document_english_files",
       "breakpoints": true
+    },
+    {
+      "idx": 37,
+      "version": "7",
+      "when": 1787985360000,
+      "tag": "0037_staff_account_ui_language",
+      "breakpoints": true
     }
   ]
 }

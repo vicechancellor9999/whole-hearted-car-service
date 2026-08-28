@@ -92,6 +92,12 @@ class InMemoryAuthRepository implements AuthRepository {
       await this.recordLoginAudit(audit);
     }
   }
+
+  async updateAccountUiLanguage(input: { accountId: number; uiLanguage: "zh" | "en" }) {
+    const target = this.accounts.find((candidate) => candidate.id === input.accountId);
+    if (!target) throw new Error("account unavailable");
+    target.uiLanguage = input.uiLanguage;
+  }
 }
 
 describe("AuthService", () => {
@@ -107,6 +113,7 @@ describe("AuthService", () => {
       normalizedUsername: "admin",
       passwordHash: await hashPassword("Formal admin 2026!"),
       role: "super_admin",
+      uiLanguage: "zh",
       isActive: true,
       mustChangePassword: true,
       sessionEpoch: 1,
@@ -135,6 +142,7 @@ describe("AuthService", () => {
       id: 1,
       displayName: "超级管理员",
       role: "super_admin",
+      uiLanguage: "zh",
       mustChangePassword: true,
       delegatedPermissions: [],
     });
@@ -270,5 +278,27 @@ describe("AuthService", () => {
       ),
     ).resolves.toBeNull();
     expect(repository.audits.at(-1)?.eventType).toBe("auth.logout");
+  });
+
+  it("persists a language preference on the authenticated account and returns it in the session", async () => {
+    const login = await service.login({
+      username: "admin",
+      password: "Formal admin 2026!",
+      now: new Date("2026-08-25T00:00:00.000Z"),
+      context: requestContext,
+    });
+    if (!login.ok) throw new Error("expected login to succeed");
+
+    await expect(service.updateUiLanguage({
+      rawToken: login.rawToken,
+      uiLanguage: "en",
+      now: new Date("2026-08-25T00:05:00.000Z"),
+      context: { ...requestContext, requestId: "req-language-change" },
+    })).resolves.toBe("en");
+
+    await expect(service.getCurrentSession(
+      login.rawToken,
+      new Date("2026-08-25T00:06:00.000Z"),
+    )).resolves.toMatchObject({ account: { uiLanguage: "en" } });
   });
 });

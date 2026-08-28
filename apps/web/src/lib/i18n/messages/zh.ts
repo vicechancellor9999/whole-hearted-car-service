@@ -21,6 +21,7 @@ export const zhMessages = {
   "account.signOut": "退出登录",
   "account.close": "关闭账号设置",
   "account.open": "打开账号设置",
+  "account.languageSaveFailed": "语言偏好保存失败，请重试。",
 
   "nav.dashboard": "经营概览",
   "nav.workbench": "业务工作台",

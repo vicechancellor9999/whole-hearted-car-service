@@ -16,6 +16,7 @@ function session(
       id: 1,
       displayName: "Test account",
       role,
+      uiLanguage: "zh",
       mustChangePassword: false,
       delegatedPermissions,
     },

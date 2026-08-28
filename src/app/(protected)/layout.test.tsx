@@ -13,6 +13,7 @@ function session(
       id: 1,
       displayName,
       role,
+      uiLanguage: "zh",
       mustChangePassword: false,
       delegatedPermissions: [],
     },

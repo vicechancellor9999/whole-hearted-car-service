@@ -50,9 +50,10 @@ describe("handleLoginSubmission", () => {
         account: {
           id: 1,
           displayName: "超级管理员",
-            role: "super_admin",
-            mustChangePassword: true,
-            delegatedPermissions: [],
+          role: "super_admin",
+          uiLanguage: "zh",
+          mustChangePassword: true,
+          delegatedPermissions: [],
         },
       }),
     };

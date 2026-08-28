@@ -21,6 +21,8 @@ export const accountRole = pgEnum("account_role", [
   "mechanic",
 ]);
 
+export const uiLanguage = pgEnum("ui_language", ["zh", "en"]);
+
 export const staffAccounts = pgTable(
   "staff_accounts",
   {
@@ -29,6 +31,7 @@ export const staffAccounts = pgTable(
     normalizedUsername: text("normalized_username").notNull(),
     passwordHash: text("password_hash").notNull(),
     role: accountRole("role").notNull(),
+    uiLanguage: uiLanguage("ui_language").notNull().default("zh"),
     isActive: boolean("is_active").notNull().default(true),
     mustChangePassword: boolean("must_change_password").notNull().default(true),
     sessionEpoch: integer("session_epoch").notNull().default(1),

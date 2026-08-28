@@ -10,6 +10,7 @@ import {
 } from "@formal/modules/auth/session-token";
 
 export type AccountRole = "super_admin" | "front_desk" | "owner" | "mechanic";
+export type AccountUiLanguage = "zh" | "en";
 
 export type AuthAccountRecord = {
   id: number;
@@ -17,6 +18,7 @@ export type AuthAccountRecord = {
   normalizedUsername: string;
   passwordHash: string;
   role: AccountRole;
+  uiLanguage?: AccountUiLanguage;
   isActive: boolean;
   mustChangePassword: boolean;
   sessionEpoch: number;
@@ -80,6 +82,12 @@ export interface AuthRepository {
     revokedAt: Date,
     audit: LoginAuditRecord,
   ): Promise<void>;
+  updateAccountUiLanguage?(input: {
+    accountId: number;
+    uiLanguage: AccountUiLanguage;
+    occurredAt: Date;
+    context: AuthRequestContext;
+  }): Promise<void>;
 }
 
 export type AuthRequestContext = {
@@ -92,6 +100,7 @@ export type AuthenticatedAccount = {
   id: number;
   displayName: string;
   role: AccountRole;
+  uiLanguage: AccountUiLanguage;
   mustChangePassword: boolean;
   delegatedPermissions: "sensitive_operations.execute"[];
 };
@@ -247,6 +256,36 @@ export class AuthService {
       userAgent: input.context.userAgent ?? null,
     });
   }
+
+  async updateUiLanguage(input: {
+    rawToken: string;
+    uiLanguage: AccountUiLanguage;
+    now?: Date;
+    context: AuthRequestContext;
+  }): Promise<AccountUiLanguage> {
+    const session = await this.getCurrentSession(input.rawToken, input.now);
+    if (!session) throw new AccountPreferenceDeniedError();
+    if (!this.repository.updateAccountUiLanguage) {
+      throw new Error("Account language preference persistence is unavailable");
+    }
+    await this.repository.updateAccountUiLanguage({
+      accountId: session.account.id,
+      uiLanguage: input.uiLanguage,
+      occurredAt: input.now ?? new Date(),
+      context: input.context,
+    });
+    return input.uiLanguage;
+  }
+}
+
+export class AccountPreferenceDeniedError extends Error {
+  readonly status = 401;
+  readonly code = "unauthorized";
+
+  constructor() {
+    super("Unauthorized");
+    this.name = "AccountPreferenceDeniedError";
+  }
 }
 
 function toAuthenticatedAccount(account: AuthAccountRecord): AuthenticatedAccount {
@@ -254,6 +293,7 @@ function toAuthenticatedAccount(account: AuthAccountRecord): AuthenticatedAccoun
     id: account.id,
     displayName: account.displayName,
     role: account.role,
+    uiLanguage: account.uiLanguage ?? "zh",
     mustChangePassword: account.mustChangePassword,
     delegatedPermissions: account.delegatedPermissions,
   };

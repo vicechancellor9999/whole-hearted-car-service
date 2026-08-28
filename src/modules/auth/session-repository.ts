@@ -26,6 +26,7 @@ type AccountRow = {
   normalized_username: string;
   password_hash: string;
   role: AuthAccountRecord["role"];
+  ui_language: "zh" | "en";
   is_active: boolean;
   must_change_password: boolean;
   session_epoch: number;
@@ -45,6 +46,7 @@ type SessionRow = {
   account_normalized_username: string;
   account_password_hash: string;
   account_role: AuthAccountRecord["role"];
+  account_ui_language: "zh" | "en";
   account_is_active: boolean;
   account_must_change_password: boolean;
   account_session_epoch: number;
@@ -59,7 +61,7 @@ export class DatabaseAuthRepository implements AuthRepository {
   ): Promise<AuthAccountRecord | null> {
     const rows = await this.database.query<AccountRow>(
       `select account.id, account.display_name, account.normalized_username,
-              account.password_hash, account.role, account.is_active,
+              account.password_hash, account.role, account.ui_language, account.is_active,
               account.must_change_password, account.session_epoch,
               coalesce(
                 (
@@ -174,6 +176,43 @@ export class DatabaseAuthRepository implements AuthRepository {
       await insertLoginAudit(transaction, audit);
     });
   }
+
+  async updateAccountUiLanguage(input: {
+    accountId: number;
+    uiLanguage: "zh" | "en";
+    occurredAt: Date;
+    context: { requestId: string; ipAddress?: string | null; userAgent?: string | null };
+  }): Promise<void> {
+    await this.database.transaction(async (transaction) => {
+      const current = await transaction.query<{ ui_language: "zh" | "en" }>(
+        `select ui_language
+         from staff_accounts
+         where id = $1 and is_active = true
+         for update`,
+        [input.accountId],
+      );
+      if (!current[0]) throw new Error("Authenticated account is unavailable");
+      if (current[0].ui_language === input.uiLanguage) return;
+      await transaction.query(
+        `update staff_accounts
+         set ui_language = $2, updated_at = $3, version = version + 1
+         where id = $1`,
+        [input.accountId, input.uiLanguage, input.occurredAt],
+      );
+      await writeAuditEvent(transaction, {
+        occurredAt: input.occurredAt,
+        actorAccountId: input.accountId,
+        eventType: "account.ui_language_changed",
+        objectType: "staff_account_preference",
+        objectId: String(input.accountId),
+        before: { uiLanguage: current[0].ui_language },
+        after: { uiLanguage: input.uiLanguage },
+        requestId: input.context.requestId,
+        ipAddress: input.context.ipAddress ?? null,
+        userAgent: input.context.userAgent ?? null,
+      });
+    });
+  }
 }
 
 async function insertLoginAudit(
@@ -204,6 +243,7 @@ async function selectSession(
             account.normalized_username as account_normalized_username,
             account.password_hash as account_password_hash,
             account.role as account_role,
+            account.ui_language as account_ui_language,
             account.is_active as account_is_active,
             account.must_change_password as account_must_change_password,
             account.session_epoch as account_session_epoch,
@@ -232,6 +272,7 @@ function mapAccount(row: AccountRow): AuthAccountRecord {
     normalizedUsername: row.normalized_username,
     passwordHash: row.password_hash,
     role: row.role,
+    uiLanguage: row.ui_language,
     isActive: row.is_active,
     mustChangePassword: row.must_change_password,
     sessionEpoch: row.session_epoch,
@@ -255,6 +296,7 @@ function mapSession(row: SessionRow): AuthSessionRecord {
       normalizedUsername: row.account_normalized_username,
       passwordHash: row.account_password_hash,
       role: row.account_role,
+      uiLanguage: row.account_ui_language,
       isActive: row.account_is_active,
       mustChangePassword: row.account_must_change_password,
       sessionEpoch: row.account_session_epoch,

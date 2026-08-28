@@ -13,6 +13,7 @@ import {
 import { useTheme } from "@/components/theme/theme-provider";
 import type { ThemeMode } from "@/components/theme/theme-contract";
 import { useI18n, type UiLanguage } from "@/lib/i18n/language";
+import { saveAccountUiLanguage } from "@/lib/api/account-preferences";
 import type { Identity } from "@/lib/types";
 import { cn } from "@/lib/utils";
 
@@ -74,6 +75,7 @@ export function AccountSettingsPopover({
   const { mode, setMode } = useTheme();
   const [open, setOpen] = useState(false);
   const [position, setPosition] = useState<PopoverPosition | null>(null);
+  const [languageSaveError, setLanguageSaveError] = useState<string | null>(null);
   const triggerRef = useRef<HTMLButtonElement>(null);
   const panelRef = useRef<HTMLDivElement>(null);
 
@@ -147,6 +149,20 @@ export function AccountSettingsPopover({
     ? "account-settings-trigger-drawer"
     : "account-settings-trigger";
 
+  const selectLanguage = async (nextLanguage: UiLanguage) => {
+    if (nextLanguage === language) return;
+    const previous = language;
+    setLanguageSaveError(null);
+    setLanguage(nextLanguage);
+    if (!formalAuthEnabled) return;
+    try {
+      await saveAccountUiLanguage(nextLanguage);
+    } catch {
+      setLanguage(previous);
+      setLanguageSaveError(t("account.languageSaveFailed"));
+    }
+  };
+
   const panel = open && position ? (
     <div
       ref={panelRef}
@@ -215,11 +231,12 @@ export function AccountSettingsPopover({
             className="flex gap-1 rounded-xl bg-layer-2 p-1"
           >
             {(["zh", "en"] as UiLanguage[]).map((option) => (
-              <PreferenceOption key={option} checked={language === option} onClick={() => setLanguage(option)}>
+              <PreferenceOption key={option} checked={language === option} onClick={() => void selectLanguage(option)}>
                 {option === "zh" ? "中文" : "English"}
               </PreferenceOption>
             ))}
           </div>
+          {languageSaveError ? <p role="alert" className="mt-2 text-[11px] text-rose-600 dark:text-rose-300">{languageSaveError}</p> : null}
         </section>
 
         <section aria-labelledby={`appearance-title-${surface}`}>
