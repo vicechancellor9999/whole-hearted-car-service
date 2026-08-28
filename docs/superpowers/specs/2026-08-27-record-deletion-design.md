@@ -1,7 +1,7 @@
 # Whole Hearted 记录删除设计
 
 日期：2026-08-27  
-状态：待用户书面确认  
+状态：已确认
 适用系统：`/Volumes/公司文件/Whole Hearted Car Service 单体候选/3210-single-runtime`
 
 ## 1. 目标
