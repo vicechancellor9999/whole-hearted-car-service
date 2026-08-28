@@ -1,8 +1,10 @@
 "use client";
 
-import { createContext, useCallback, useContext, useEffect, useState, type ReactNode } from "react";
+import { createContext, useCallback, useContext, useEffect, useMemo, useState, type ReactNode } from "react";
+import { translate, type MessageKey, type MessageVariables, type UiLanguage } from "./catalog";
+import { formatUiDate, formatUiMoney, formatUiNumber, intlLocale } from "./format";
 
-export type UiLanguage = "zh" | "en";
+export type { UiLanguage } from "./catalog";
 
 const STORAGE_KEY = "wh_language_v1";
 
@@ -49,12 +51,22 @@ interface LanguageContextValue {
   language: UiLanguage;
   setLanguage: (language: UiLanguage) => void;
   toggle: () => void;
+  locale: string;
+  t: (key: MessageKey, variables?: MessageVariables) => string;
+  formatDate: (value: Date | string | number, options?: Intl.DateTimeFormatOptions) => string;
+  formatNumber: (value: number, options?: Intl.NumberFormatOptions) => string;
+  formatMoney: (value: number) => string;
 }
 
 const LanguageContext = createContext<LanguageContextValue>({
   language: "zh",
   setLanguage: () => undefined,
   toggle: () => undefined,
+  locale: "zh-CN",
+  t: (key, variables) => translate(key, "zh", variables),
+  formatDate: (value, options) => formatUiDate(value, "zh", options),
+  formatNumber: (value, options) => formatUiNumber(value, "zh", options),
+  formatMoney: (value) => formatUiMoney(value, "zh"),
 });
 
 export function LanguageProvider({ children }: { children: ReactNode }) {
@@ -68,6 +80,10 @@ export function LanguageProvider({ children }: { children: ReactNode }) {
       // 忽略存储异常
     }
   }, []);
+
+  useEffect(() => {
+    document.documentElement.lang = language === "zh" ? "zh-CN" : "en-JM";
+  }, [language]);
 
   const persistLanguage = useCallback((next: UiLanguage) => {
     setLanguage(next);
@@ -90,8 +106,19 @@ export function LanguageProvider({ children }: { children: ReactNode }) {
     });
   }, []);
 
+  const value = useMemo<LanguageContextValue>(() => ({
+    language,
+    setLanguage: persistLanguage,
+    toggle,
+    locale: intlLocale(language),
+    t: (key, variables) => translate(key, language, variables),
+    formatDate: (input, options) => formatUiDate(input, language, options),
+    formatNumber: (input, options) => formatUiNumber(input, language, options),
+    formatMoney: (input) => formatUiMoney(input, language),
+  }), [language, persistLanguage, toggle]);
+
   return (
-    <LanguageContext.Provider value={{ language, setLanguage: persistLanguage, toggle }}>
+    <LanguageContext.Provider value={value}>
       {children}
     </LanguageContext.Provider>
   );
@@ -100,3 +127,5 @@ export function LanguageProvider({ children }: { children: ReactNode }) {
 export function useLanguage(): LanguageContextValue {
   return useContext(LanguageContext);
 }
+
+export const useI18n = useLanguage;

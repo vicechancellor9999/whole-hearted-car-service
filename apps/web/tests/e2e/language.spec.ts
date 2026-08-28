@@ -50,3 +50,49 @@ test("全局语言切换：导航与页面抬头中英切换并持久化（#17�
   await expect(page.getByRole("heading", { level: 1, name: "客户档案" })).toBeVisible();
   await expect(page.getByTestId("sidebar")).toContainText("收付款与交车");
 });
+
+test("English performance workspace contains no Chinese system copy or untranslated team label", async ({ page }) => {
+  await page.addInitScript(() => localStorage.setItem("wh_language_v1", "en"));
+  await page.route("**/api/formal/performance?month=*", (route) => route.fulfill({
+    status: 200,
+    contentType: "application/json",
+    body: JSON.stringify({
+      month: "2026-08",
+      totalPerformanceMinor: 19_900_00,
+      cancelledHandoffCount: 0,
+      targetStatus: "not_configured",
+      targetPerformanceMinor: null,
+      completionRate: null,
+      targetMissingReasons: ["缺少 2026-08 绩效参数"],
+      teams: [{
+        teamId: 1,
+        teamName: "车间一组",
+        handoffCount: 1,
+        cancelledHandoffCount: 0,
+        performanceMinor: 19_900_00,
+        targetStatus: "not_configured",
+        targetPerformanceMinor: null,
+        completionRate: null,
+        targetMissingReasons: ["缺少 2026-08 绩效参数"],
+      }],
+      handoffs: [{
+        id: 1,
+        businessOrderId: 1,
+        orderNo: "KGN-WH-2026082500001",
+        repairRoundNo: 1,
+        teamId: 1,
+        teamName: "车间一组",
+        performanceMinor: 19_900_00,
+        handedOffAt: "2026-08-28T13:00:00.000Z",
+        plateDisplay: "4321 AB",
+      }],
+    }),
+  }));
+
+  await page.goto("/performance");
+  const workspace = page.getByTestId("performance-page");
+  await expect(workspace.getByRole("heading", { level: 1, name: "Performance" })).toBeVisible();
+  await expect(workspace).toContainText("Formal handoff performance this month");
+  await expect(workspace).toContainText("Team 1 · Translation required");
+  await expect(workspace).not.toContainText(/[\p{Script=Han}]/u);
+});

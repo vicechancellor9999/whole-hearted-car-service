@@ -1,4 +1,7 @@
+"use client";
+
 import { cn } from "@/lib/utils";
+import { useI18n } from "@/lib/i18n/language";
 
 interface LogoProps {
   className?: string;
@@ -6,6 +9,7 @@ interface LogoProps {
 }
 
 export function Logo({ className, collapsed }: LogoProps) {
+  const { t } = useI18n();
   const companyName = "Whole Hearted Car Service Limited";
 
   return (
@@ -29,7 +33,7 @@ export function Logo({ className, collapsed }: LogoProps) {
             {companyName}
           </span>
           <span className="text-[9px] text-ink-faint">
-            综合管理系统
+            {t("brand.systemName")}
           </span>
         </div>
       )}

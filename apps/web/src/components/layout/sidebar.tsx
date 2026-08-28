@@ -27,7 +27,8 @@ import {
 import { cn } from "@/lib/utils";
 import { Logo } from "@/components/ui/logo";
 import { IdentitySwitcher } from "./identity-switcher";
-import { translateUi, useLanguage } from "@/lib/i18n/language";
+import { useI18n } from "@/lib/i18n/language";
+import type { MessageKey } from "@/lib/i18n/catalog";
 import {
   getVisibleNavigationKeys,
   type FormalNavigationKey,
@@ -39,7 +40,7 @@ import { FORMAL_DATA_CHANGED_EVENT } from "@/lib/formal-data-changes";
 
 interface NavNode {
   key: FormalNavigationKey;
-  label: string;
+  labelKey: MessageKey;
   href?: string;
   icon: LucideIcon;
   children?: NavNode[];
@@ -48,23 +49,23 @@ interface NavNode {
 
 /** 导航树：父级可继续展开子菜单（递归渲染，支持任意层级）。 */
 const NAV_TREE: NavNode[] = [
-  { key: "dashboard", label: "经营概览", href: "/", icon: LayoutDashboard },
-  { key: "workbench", label: "业务工作台", href: "/workbench", icon: Briefcase },
-  { key: "business_orders", label: "工单管理", icon: ClipboardList, children: [
-    { key: "business_orders", label: "业务单", href: "/orders/business", icon: FileText },
-    { key: "inspection_reports", label: "检查结果", href: "/orders/inspections", icon: ClipboardCheck },
-    { key: "business_orders", label: "我的提及", href: "/mentions", icon: MessageSquareText },
+  { key: "dashboard", labelKey: "nav.dashboard", href: "/", icon: LayoutDashboard },
+  { key: "workbench", labelKey: "nav.workbench", href: "/workbench", icon: Briefcase },
+  { key: "business_orders", labelKey: "nav.orders", icon: ClipboardList, children: [
+    { key: "business_orders", labelKey: "nav.businessOrders", href: "/orders/business", icon: FileText },
+    { key: "inspection_reports", labelKey: "nav.inspections", href: "/orders/inspections", icon: ClipboardCheck },
+    { key: "business_orders", labelKey: "nav.mentions", href: "/mentions", icon: MessageSquareText },
   ] },
-  { key: "master_data", label: "基础字典", href: "/dictionaries", icon: BookOpen },
-  { key: "employees", label: "员工管理", href: "/employees", icon: UserCog },
-  { key: "performance", label: "绩效管理", href: "/performance", icon: ChartNoAxesCombined },
-  { key: "payments", label: "收付款与交车", href: "/payments", icon: CreditCard },
-  { key: "parking", label: "停车费", href: "/parking", icon: ParkingCircle },
-  { key: "customers", label: "客户与车辆管理", icon: Users, children: [
-    { key: "customers", label: "客户档案", href: "/customers", icon: ContactRound },
-    { key: "vehicles", label: "车辆档案", href: "/vehicles", icon: CarFront },
+  { key: "master_data", labelKey: "nav.masterData", href: "/dictionaries", icon: BookOpen },
+  { key: "employees", labelKey: "nav.employees", href: "/employees", icon: UserCog },
+  { key: "performance", labelKey: "nav.performance", href: "/performance", icon: ChartNoAxesCombined },
+  { key: "payments", labelKey: "nav.payments", href: "/payments", icon: CreditCard },
+  { key: "parking", labelKey: "nav.parking", href: "/parking", icon: ParkingCircle },
+  { key: "customers", labelKey: "nav.customersVehicles", icon: Users, children: [
+    { key: "customers", labelKey: "nav.customers", href: "/customers", icon: ContactRound },
+    { key: "vehicles", labelKey: "nav.vehicles", href: "/vehicles", icon: CarFront },
   ] },
-  { key: "settings", label: "系统设置", href: "/settings", icon: Settings },
+  { key: "settings", labelKey: "nav.settings", href: "/settings", icon: Settings },
 ];
 
 const STORAGE_KEY = "wh_sidebar_collapsed_v1";
@@ -87,8 +88,8 @@ function TreeNode({ node, pathname, depth, collapsed, onNavigate }: {
   collapsed: boolean;
   onNavigate?: () => void;
 }) {
-  const { language } = useLanguage();
-  const label = translateUi(node.label, language);
+  const { t } = useI18n();
+  const label = t(node.labelKey);
   const Icon = node.icon;
   const [open, setOpen] = useState(hasActiveChild(node, pathname));
 
@@ -120,7 +121,7 @@ function TreeNode({ node, pathname, depth, collapsed, onNavigate }: {
         {open ? (
           <div className={cn("mt-0.5 space-y-0.5", depth === 0 && "ml-3 border-l border-line pl-2")}>
             {node.children.map((child) => (
-              <TreeNode key={child.label + (child.href ?? "")} node={child} pathname={pathname} depth={depth + 1} collapsed={collapsed} onNavigate={onNavigate} />
+              <TreeNode key={child.labelKey + (child.href ?? "")} node={child} pathname={pathname} depth={depth + 1} collapsed={collapsed} onNavigate={onNavigate} />
             ))}
           </div>
         ) : null}
@@ -146,7 +147,7 @@ function TreeNode({ node, pathname, depth, collapsed, onNavigate }: {
           : "text-ink-soft hover:bg-layer-2 hover:text-ink")}>
       <Icon size={18} className="shrink-0" />
       <span className="truncate">{label}</span>
-      {node.badge && node.badge > 0 ? <span aria-label={`${node.badge} 条未读提及`} className="ml-auto rounded-full bg-rose-600 px-2 py-0.5 text-[10px] font-bold text-white">{node.badge > 99 ? "99+" : node.badge}</span> : null}
+      {node.badge && node.badge > 0 ? <span aria-label={t("nav.unreadMentions", { count: node.badge })} className="ml-auto rounded-full bg-rose-600 px-2 py-0.5 text-[10px] font-bold text-white">{node.badge > 99 ? "99+" : node.badge}</span> : null}
     </Link>
   );
 }
@@ -155,6 +156,7 @@ function TreeNode({ node, pathname, depth, collapsed, onNavigate }: {
  * 悬浮岛式侧边栏（8/18 老板）：不贴边，毛玻璃圆角卡；多级子菜单；可折叠（收起只留图标）。
  */
 export function Sidebar({ variant = "desktop" }: { variant?: "desktop" | "drawer" }) {
+  const { t } = useI18n();
   const pathname = usePathname();
   const [collapsed, setCollapsed] = useState(false);
   const [formalRole, setFormalRole] = useState<FormalRole | null>(null);
@@ -231,7 +233,7 @@ export function Sidebar({ variant = "desktop" }: { variant?: "desktop" | "drawer
           <Logo className="min-w-0 flex-1" />
         )}
         {!isDrawer && !effectiveCollapsed && (
-          <button type="button" data-testid="sidebar-collapse" onClick={toggleCollapsed} aria-label="折叠侧边栏"
+          <button type="button" data-testid="sidebar-collapse" onClick={toggleCollapsed} aria-label={t("nav.collapse")}
             className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-lg text-ink-faint hover:bg-layer-2 hover:text-ink">
             <PanelLeftClose size={16} />
           </button>
@@ -240,13 +242,13 @@ export function Sidebar({ variant = "desktop" }: { variant?: "desktop" | "drawer
 
       <nav className={cn("flex-1 overflow-y-auto px-3 py-2", effectiveCollapsed && "flex flex-col items-center gap-0.5 px-0")}>
         {visibleNavigation.map((node) => (
-          <TreeNode key={node.label + (node.href ?? "")} node={node} pathname={pathname} depth={0} collapsed={effectiveCollapsed} />
+          <TreeNode key={node.labelKey + (node.href ?? "")} node={node} pathname={pathname} depth={0} collapsed={effectiveCollapsed} />
         ))}
       </nav>
 
       <div data-testid="identity-footer" className="border-t border-line p-3">
         {!isDrawer && effectiveCollapsed && (
-          <button type="button" data-testid="sidebar-collapse" onClick={toggleCollapsed} aria-label="展开侧边栏"
+          <button type="button" data-testid="sidebar-collapse" onClick={toggleCollapsed} aria-label={t("nav.expand")}
             className="mx-auto mb-2 flex h-8 w-8 items-center justify-center rounded-lg text-ink-faint hover:bg-layer-2 hover:text-ink">
             <PanelLeftOpen size={16} />
           </button>
@@ -261,7 +263,7 @@ export function Sidebar({ variant = "desktop" }: { variant?: "desktop" | "drawer
         {!effectiveCollapsed && (
           <div className="mt-2 flex items-center gap-2 rounded-lg bg-surface px-3 py-1.5">
             <div className="h-1.5 w-1.5 rounded-full bg-success" />
-            <span className="text-[10px] text-ink-faint">正式登录 · 业务数据接入中</span>
+            <span className="text-[10px] text-ink-faint">{t("nav.formalConnected")}</span>
           </div>
         )}
       </div>

@@ -12,7 +12,7 @@ import {
 } from "react";
 import { useTheme } from "@/components/theme/theme-provider";
 import type { ThemeMode } from "@/components/theme/theme-contract";
-import { useLanguage, type UiLanguage } from "@/lib/i18n/language";
+import { useI18n, type UiLanguage } from "@/lib/i18n/language";
 import type { Identity } from "@/lib/types";
 import { cn } from "@/lib/utils";
 
@@ -70,40 +70,26 @@ export function AccountSettingsPopover({
   surface = "desktop",
   onSwitchIdentity,
 }: AccountSettingsPopoverProps) {
-  const { language, setLanguage } = useLanguage();
+  const { language, setLanguage, t } = useI18n();
   const { mode, setMode } = useTheme();
   const [open, setOpen] = useState(false);
   const [position, setPosition] = useState<PopoverPosition | null>(null);
   const triggerRef = useRef<HTMLButtonElement>(null);
   const panelRef = useRef<HTMLDivElement>(null);
 
-  const copy = language === "zh"
-    ? {
-      title: "账号设置",
-      subtitle: "个人账号与界面偏好",
-      language: "界面语言",
-      appearance: "外观模式",
-      preview: "切换身份（预览模式）",
-      system: "跟随系统",
-      light: "亮色",
-      dark: "深色",
-      signOut: "退出登录",
-      close: "关闭账号设置",
-      open: "打开账号设置",
-    }
-    : {
-      title: "Account settings",
-      subtitle: "Account and interface preferences",
-      language: "Interface language",
-      appearance: "Appearance",
-      preview: "Switch identity (preview)",
-      system: "System",
-      light: "Light",
-      dark: "Dark",
-      signOut: "Sign out",
-      close: "Close account settings",
-      open: "Open account settings",
-    };
+  const copy = {
+    title: t("account.title"),
+    subtitle: t("account.subtitle"),
+    language: t("account.language"),
+    appearance: t("account.appearance"),
+    preview: t("account.previewIdentity"),
+    system: t("account.theme.system"),
+    light: t("account.theme.light"),
+    dark: t("account.theme.dark"),
+    signOut: t("account.signOut"),
+    close: t("account.close"),
+    open: t("account.open"),
+  };
 
   const updatePosition = useCallback(() => {
     const rect = triggerRef.current?.getBoundingClientRect();
