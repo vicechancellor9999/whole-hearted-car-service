@@ -117,6 +117,7 @@ export function WorkbenchWorkspace() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [employeeName, setEmployeeName] = useState("");
+  const [employeeNameEn, setEmployeeNameEn] = useState("");
   const [greetingIndex] = useState(() => Math.floor(Math.random() * GREETINGS.length));
   const [now, setNow] = useState(new Date());
   const [showCreateBo, setShowCreateBo] = useState(false);
@@ -138,7 +139,8 @@ export function WorkbenchWorkspace() {
       ]);
       setState(store);
       setParkingFollowup(snapshot);
-      setEmployeeName(language === "en" ? session.identity.nameEn : session.identity.name);
+      setEmployeeName(session.identity.name);
+      setEmployeeNameEn(session.identity.nameEn);
     } catch (caught) {
       setError(language === "en" ? "Could not load business data" : caught instanceof Error ? caught.message : "无法读取业务数据");
     } finally {
@@ -183,7 +185,7 @@ export function WorkbenchWorkspace() {
       <div data-testid="workbench-welcome" className="mb-5 rounded-2xl border border-line bg-gradient-to-r from-primary-50 to-blue-50 px-5 py-4 dark:border-slate-700 dark:from-slate-800 dark:to-slate-800/80">
         <div className="flex flex-wrap items-center justify-between gap-3">
           <div>
-            <p className="text-2xl font-bold text-ink dark:text-slate-100">{employeeName}</p>
+            <p data-user-content="staff-name" className="text-2xl font-bold text-ink dark:text-slate-100">{language === "en" ? employeeNameEn || "Staff member" : employeeName}</p>
             <p className="mt-0.5 text-xs text-ink-soft dark:text-slate-400">{tr("前台", "Front Desk")}</p>
           </div>
           <div className="text-right">
