@@ -22,11 +22,14 @@ import { FilterBar } from "./filter-bar";
 import { currentSessionKey, errorMessage, loadWorkspace, pendingVerificationCount, reloadWorkspaceFresh } from "./detail-shared";
 import { ArchivePagination, useArchivePageSize } from "./archive-pagination";
 import { loadFormalSafeLinkedOperations } from "@/lib/customers/formal-customer-vehicle-consumer";
+import { useI18n } from "@/lib/i18n/language";
 
 type CardFilter = "all" | "risk" | "incomplete" | "verification" | "debt";
 
 /** 客户档案页：只装客户，车辆档案在 /vehicles。 */
 export function CustomersWorkspace() {
+  const { language, t } = useI18n();
+  const tr = useCallback((zh: string, en: string) => language === "en" ? en : zh, [language]);
   // 订阅路由状态：pushState/popstate 身份切换时触发重渲染，sessionKey 随之刷新
   const searchParams = useSearchParams();
   void searchParams;
@@ -68,11 +71,11 @@ export function CustomersWorkspace() {
     }).catch((error) => {
       if (!active) return;
       setWorkspaceSessionKey(sessionKey);
-      setWorkspaceError(errorMessage(error));
+      setWorkspaceError(language === "en" ? "Could not load customer records" : errorMessage(error));
       setWorkspaceLoading(false);
     });
     return () => { active = false; };
-  }, [reloadSequence, sessionKey]);
+  }, [language, reloadSequence, sessionKey]);
 
   useEffect(() => {
     if (creating && creatingSessionKey !== sessionKey) {
@@ -143,20 +146,20 @@ export function CustomersWorkspace() {
       setCreatingSessionKey(null);
       setWorkspace(null);
       setWorkspaceSessionKey(savedSessionKey);
-      setWorkspaceError(`保存成功，但刷新失败：${errorMessage(error)}`);
+      setWorkspaceError(language === "en" ? "The record was saved, but the customer list could not be refreshed." : `保存成功，但刷新失败：${errorMessage(error)}`);
     }
-  }, [creatingSessionKey, pageSize]);
+  }, [creatingSessionKey, language, pageSize]);
 
   return (
     <div data-testid="customers-page" className="flex h-full min-h-0 min-w-0 flex-col overflow-hidden bg-[var(--wh-page-bg)] p-3 sm:p-6">
       <div className="mx-auto w-full min-w-0 max-w-[1320px] shrink-0">
         <PageHeader
-          breadcrumb="客户与车辆管理"
-          title="客户档案"
+          breadcrumb={tr("客户与车辆管理", "Customers & Vehicles")}
+          title={tr("客户档案", "Customers")}
           titleTestId="customers-heading"
           description={isFormalCustomerVehicleApiEnabled
-            ? "集中维护客户正式资料、启停状态与当前车辆关系。"
-            : "集中维护客户正式资料、当前车辆关系、风险状态、挂账资格与可追溯的验证证据。"}
+            ? tr("集中维护客户正式资料、启停状态与当前车辆关系。", "Maintain formal customer records, account status and current vehicle relationships.")
+            : tr("集中维护客户正式资料、当前车辆关系、风险状态、挂账资格与可追溯的验证证据。", "Maintain customer records, vehicle relationships, risk status, credit eligibility and traceable verification evidence.")}
           action={
             <button
               type="button"
@@ -166,7 +169,7 @@ export function CustomersWorkspace() {
               className="inline-flex min-h-10 shrink-0 items-center justify-center gap-1.5 rounded-lg bg-primary px-4 text-sm font-semibold text-white transition-colors hover:bg-primary-600 disabled:cursor-not-allowed disabled:opacity-50"
             >
               <UserPlus size={15} aria-hidden />
-              新建客户
+              {tr("新建客户", "New customer")}
             </button>
           }
         />
@@ -182,10 +185,10 @@ export function CustomersWorkspace() {
               if (isFormalCustomerVehicleApiEnabled) {
                 const activeCustomers = customers.filter((customer) => customer.status === "active").length;
                 const facts = [
-                  { key: "all", label: "客户总数", value: customers.length, sub: "正式客户档案" },
-                  { key: "active", label: "启用客户", value: activeCustomers, sub: `停用 ${customers.length - activeCustomers}` },
-                  { key: "individual", label: "个人客户", value: individuals, sub: "个人档案" },
-                  { key: "organization", label: "公司客户", value: organizations, sub: "公司账户" },
+                  { key: "all", label: tr("客户总数", "Total customers"), value: customers.length, sub: tr("正式客户档案", "Formal customer records") },
+                  { key: "active", label: tr("启用客户", "Active customers"), value: activeCustomers, sub: tr(`停用 ${customers.length - activeCustomers}`, `${customers.length - activeCustomers} inactive`) },
+                  { key: "individual", label: tr("个人客户", "Individuals"), value: individuals, sub: tr("个人档案", "Individual records") },
+                  { key: "organization", label: tr("公司客户", "Companies"), value: organizations, sub: tr("公司账户", "Company accounts") },
                 ];
                 return (
                   <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-5">
@@ -197,9 +200,9 @@ export function CustomersWorkspace() {
                       </div>
                     ))}
                     <Link href="/vehicles" data-testid="customer-card-filter-vehicles" className="rounded-xl border border-line bg-white p-3 text-left transition-colors hover:border-primary-200 dark:border-slate-700 dark:bg-slate-800">
-                      <p className="text-[10px] font-semibold text-ink-soft dark:text-slate-400">车辆总数</p>
+                      <p className="text-[10px] font-semibold text-ink-soft dark:text-slate-400">{tr("车辆总数", "Total vehicles")}</p>
                       <p className="mt-1 text-xl font-bold tabular-nums text-ink dark:text-slate-100">{visibleWorkspace.vehicles.length}</p>
-                      <p data-testid="customer-card-subtext" className="mt-0.5 truncate text-[10px] text-ink-soft dark:text-slate-400">在场 {onSite} 辆 →</p>
+                      <p data-testid="customer-card-subtext" className="mt-0.5 truncate text-[10px] text-ink-soft dark:text-slate-400">{tr(`在场 ${onSite} 辆 →`, `${onSite} on site →`)}</p>
                     </Link>
                   </div>
                 );
@@ -239,9 +242,9 @@ export function CustomersWorkspace() {
                     data-testid="customer-card-filter-vehicles"
                     className="rounded-xl border border-line bg-white p-3 text-left transition-colors hover:border-primary-200 dark:border-slate-700 dark:bg-slate-800"
                   >
-                    <p className="text-[10px] font-semibold text-ink-soft dark:text-slate-400">车辆总数</p>
+                    <p className="text-[10px] font-semibold text-ink-soft dark:text-slate-400">{tr("车辆总数", "Total vehicles")}</p>
                     <p className="mt-1 text-xl font-bold tabular-nums text-ink dark:text-slate-100">{visibleWorkspace.vehicles.length}</p>
-                    <p data-testid="customer-card-subtext" className="mt-0.5 truncate text-[10px] text-ink-soft dark:text-slate-400">在场 {onSite} 辆 →</p>
+                    <p data-testid="customer-card-subtext" className="mt-0.5 truncate text-[10px] text-ink-soft dark:text-slate-400">{tr(`在场 ${onSite} 辆 →`, `${onSite} on site →`)}</p>
                   </Link>
                 </div>
               );
@@ -268,11 +271,11 @@ export function CustomersWorkspace() {
             <ArchivePagination page={visiblePage} total={filteredCustomers.length} onPageChange={setPage} testIdPrefix="customer" pageSize={pageSize} />
           </>
         ) : workspaceLoading ? (
-          <div data-testid="customer-workspace-loading" role="status" className="p-12 text-center text-sm text-ink-soft dark:text-slate-400">正在读取客户资料…</div>
+          <div data-testid="customer-workspace-loading" role="status" className="p-12 text-center text-sm text-ink-soft dark:text-slate-400">{tr("正在读取客户资料…", "Loading customer records…")}</div>
         ) : (
           <div data-testid="customer-workspace-error" role="alert" className="p-8 text-center">
             <p className="text-sm font-semibold text-danger">{workspaceError}</p>
-            <button type="button" data-testid="customer-workspace-retry" onClick={() => setReloadSequence((value) => value + 1)} className="mt-3 rounded-lg bg-primary px-4 py-2 text-xs font-bold text-white">重试</button>
+            <button type="button" data-testid="customer-workspace-retry" onClick={() => setReloadSequence((value) => value + 1)} className="mt-3 rounded-lg bg-primary px-4 py-2 text-xs font-bold text-white">{t("common.retry")}</button>
           </div>
         )}
       </div>

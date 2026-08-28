@@ -14,6 +14,7 @@ import type {
   VehicleStatus,
 } from "@/lib/customers/types";
 import { cn } from "@/lib/utils";
+import { useI18n } from "@/lib/i18n/language";
 
 type BadgeTone = "success" | "neutral" | "warning" | "danger" | "info" | "purple";
 
@@ -62,12 +63,13 @@ const channelMeta: Record<PreferredChannel, { label: string; icon: LucideIcon; t
 };
 
 export function ChannelBadge({ channel, dataTestId }: { channel: PreferredChannel; dataTestId?: string }) {
+  const { language } = useI18n();
   const meta = channelMeta[channel];
   const Icon = meta.icon;
   return (
     <LocalBadge tone={meta.tone} dataTestId={dataTestId} className="gap-1">
       <Icon size={11} aria-hidden />
-      {meta.label}
+      {language === "en" ? ({ phone: "Phone", email: "Email", whatsapp: "WhatsApp", sms: "SMS" } as const)[channel] : meta.label}
     </LocalBadge>
   );
 }
@@ -81,8 +83,9 @@ const riskMeta: Record<RiskLevel, { label: string; tone: BadgeTone }> = {
 };
 
 export function RiskBadge({ level, dataTestId }: { level: RiskLevel; dataTestId?: string }) {
+  const { language } = useI18n();
   const meta = riskMeta[level];
-  return <LocalBadge tone={meta.tone} dot dataTestId={dataTestId}>{meta.label}</LocalBadge>;
+  return <LocalBadge tone={meta.tone} dot dataTestId={dataTestId}>{language === "en" ? ({ normal: "Normal", attention: "Attention", high: "High risk" } as const)[level] : meta.label}</LocalBadge>;
 }
 
 export const riskLabel = (risk: RiskLevel) => riskMeta[risk].label;
@@ -94,8 +97,9 @@ const customerStatusMeta: Record<CustomerStatus, { label: string; tone: BadgeTon
 };
 
 export function CustomerStatusBadge({ status, dataTestId }: { status: CustomerStatus; dataTestId?: string }) {
+  const { language } = useI18n();
   const meta = customerStatusMeta[status];
-  return <LocalBadge tone={meta.tone} dataTestId={dataTestId}>{meta.label}</LocalBadge>;
+  return <LocalBadge tone={meta.tone} dataTestId={dataTestId}>{language === "en" ? ({ active: "Active", inactive: "Inactive", blacklisted: "Blacklisted" } as const)[status] : meta.label}</LocalBadge>;
 }
 
 const vehicleStatusMeta: Record<VehicleStatus, { label: string; tone: BadgeTone }> = {
@@ -104,14 +108,17 @@ const vehicleStatusMeta: Record<VehicleStatus, { label: string; tone: BadgeTone 
 };
 
 export function VehicleStatusBadge({ status, dataTestId }: { status: VehicleStatus; dataTestId?: string }) {
+  const { language } = useI18n();
   const meta = vehicleStatusMeta[status];
-  return <LocalBadge tone={meta.tone} dataTestId={dataTestId}>{meta.label}</LocalBadge>;
+  return <LocalBadge tone={meta.tone} dataTestId={dataTestId}>{language === "en" ? ({ on_site: "On site", off_site: "Off site" } as const)[status] : meta.label}</LocalBadge>;
 }
 
 export function ProfileBadge({ completeness, dataTestId }: { completeness: ProfileCompleteness; dataTestId?: string }) {
+  const { language } = useI18n();
   return (
     <LocalBadge tone={completeness === "complete" ? "success" : "warning"} dataTestId={dataTestId}>
-      {completeness === "complete" ? "资料完整" : "待完善"}
+      {language === "en" ? (completeness === "complete" ? "Complete" : "Incomplete") : (completeness === "complete" ? "资料完整" : "待完善")}
     </LocalBadge>
   );
 }
+"use client";

@@ -18,6 +18,7 @@ import {
   ProfileBadge,
   RiskBadge,
 } from "./badges";
+import { useI18n } from "@/lib/i18n/language";
 
 interface CustomerListProps {
   customers: CustomerRecord[];
@@ -32,6 +33,8 @@ export function customerDisplayName(customer: CustomerRecord): string {
 }
 
 function CustomerIdentity({ customer, testIdSuffix = "" }: { customer: CustomerRecord; testIdSuffix?: string }) {
+  const { language } = useI18n();
+  const tr = (zh: string, en: string) => language === "en" ? en : zh;
   const organization = customer.customerType === "organization";
   const Icon = organization ? Building2 : User;
   return (
@@ -45,8 +48,8 @@ function CustomerIdentity({ customer, testIdSuffix = "" }: { customer: CustomerR
           data-testid={`customer-secondary-${customer.id}${testIdSuffix}`}
           className="mt-0.5 truncate text-[10px] text-ink-soft dark:text-slate-400"
         >
-          <span className="font-mono">{customer.id}</span> · {organization ? "机构" : "个人"}
-          {organization ? ` · 联系人 ${customer.nameZh && customer.nameEn ? `${customer.nameZh} / ${customer.nameEn}` : customer.nameZh ?? customer.nameEn ?? "待补"}` : ""}
+          <span className="font-mono">{customer.id}</span> · {organization ? tr("机构", "Company") : tr("个人", "Individual")}
+          {organization ? tr(` · 联系人 ${customer.nameZh && customer.nameEn ? `${customer.nameZh} / ${customer.nameEn}` : customer.nameZh ?? customer.nameEn ?? "待补"}`, ` · Contact ${customer.nameEn ?? customer.nameZh ?? "Not provided"}`) : ""}
           {customer.phone ? ` · ${formatPhoneE164(customer.phone)}` : ""}
           {customer.email ? ` · ${customer.email}` : ""}
         </div>
@@ -67,6 +70,8 @@ function CustomerTableRow({
   formal: boolean;
 }) {
   const router = useRouter();
+  const { language } = useI18n();
+  const tr = (zh: string, en: string) => language === "en" ? en : zh;
   const openDetail = () => router.push(`/customers/${customer.id}`);
   const handleKeyDown = (event: KeyboardEvent<HTMLTableRowElement>) => {
     if (event.target !== event.currentTarget) return;
@@ -83,7 +88,7 @@ function CustomerTableRow({
       data-testid={`customer-row-${customer.id}`}
       role="link"
       tabIndex={0}
-      aria-label={`查看客户 ${customerDisplayName(customer)} 详情`}
+      aria-label={tr(`查看客户 ${customerDisplayName(customer)} 详情`, `View details for ${customerDisplayName(customer)}`)}
       onClick={openDetail}
       onKeyDown={handleKeyDown}
       className="cursor-pointer border-b border-line bg-white transition-colors last:border-b-0 hover:bg-gray-50 focus-visible:outline focus-visible:outline-2 focus-visible:outline-primary dark:bg-slate-800 dark:hover:bg-slate-700/40"
@@ -97,7 +102,7 @@ function CustomerTableRow({
       </td> : null}
       <td className="px-3 py-2 text-center">
         <span data-testid={`customer-active-vehicle-count-${customer.id}`} className="text-sm font-semibold tabular-nums text-ink dark:text-slate-100">{vehicleCount}</span>
-        <span className="ml-0.5 text-[10px] text-ink-soft dark:text-slate-400">辆</span>
+        <span className="ml-0.5 text-[10px] text-ink-soft dark:text-slate-400">{tr("辆", "")}</span>
       </td>
       {!formal ? <td className="px-3 py-2 text-center">
         {pending > 0 ? (
@@ -127,7 +132,7 @@ function CustomerTableRow({
           <button
             type="button"
             data-testid={`customer-open-${customer.id}`}
-            aria-label={`查看客户 ${customerDisplayName(customer)} 详情`}
+            aria-label={tr(`查看客户 ${customerDisplayName(customer)} 详情`, `View details for ${customerDisplayName(customer)}`)}
             onClick={(event) => {
               event.stopPropagation();
               openDetail();
@@ -154,6 +159,8 @@ function CustomerCard({
   formal: boolean;
 }) {
   const router = useRouter();
+  const { language } = useI18n();
+  const tr = (zh: string, en: string) => language === "en" ? en : zh;
   const riskLevel = deriveCustomerRiskLevel(customer);
   const profileCompleteness = deriveProfileCompleteness(customer);
   const pending = pendingVerificationCount(customer);
@@ -161,7 +168,7 @@ function CustomerCard({
     <button
       type="button"
       data-testid={`customer-card-${customer.id}`}
-      aria-label={`查看客户 ${customerDisplayName(customer)} 详情`}
+      aria-label={tr(`查看客户 ${customerDisplayName(customer)} 详情`, `View details for ${customerDisplayName(customer)}`)}
       onClick={() => router.push(`/customers/${customer.id}`)}
       className="w-full rounded-xl border border-line bg-white p-3 text-left shadow-card transition-colors hover:border-primary-200 focus-visible:outline focus-visible:outline-2 focus-visible:outline-primary dark:bg-slate-800"
     >
@@ -172,7 +179,7 @@ function CustomerCard({
         <CustomerStatusBadge status={customer.status} dataTestId={`customer-status-${customer.status}-${customer.id}-mobile`} />
         {!formal ? <span data-testid={`customer-profile-${customer.id}-mobile`}><ProfileBadge completeness={profileCompleteness} /></span> : null}
         <span className="inline-flex rounded-full bg-gray-100 px-2 py-0.5 text-[10px] font-semibold text-ink-soft dark:bg-slate-700 dark:text-slate-200">
-          <span data-testid={`customer-active-vehicle-count-${customer.id}-mobile`}>{vehicleCount}</span>&nbsp;辆当前车辆
+          <span data-testid={`customer-active-vehicle-count-${customer.id}-mobile`}>{vehicleCount}</span>&nbsp;{tr("辆当前车辆", "current vehicles")}
         </span>
         {!formal && pending > 0 ? (
           <span data-testid={`customer-pending-${customer.id}-mobile`} className="inline-flex rounded-full bg-amber-50 px-2 py-0.5 text-[10px] font-semibold text-amber-700 dark:bg-amber-500/10 dark:text-amber-300">{pending} 项验证待补</span>
@@ -186,12 +193,14 @@ function CustomerCard({
 }
 
 export function CustomerList({ customers, vehicleCounts, debtByCustomer, formal = false }: CustomerListProps) {
+  const { language } = useI18n();
+  const tr = (zh: string, en: string) => language === "en" ? en : zh;
   if (customers.length === 0) {
     return (
       <div data-testid="customer-list-empty" className="flex flex-col items-center justify-center py-16 text-center">
         <User size={32} className="text-ink-soft dark:text-slate-400" aria-hidden />
-        <p className="mt-2 text-sm text-ink-soft dark:text-slate-400">未找到匹配的客户</p>
-        <p className="mt-1 text-xs text-ink-soft dark:text-slate-400">尝试调整搜索条件或重置筛选</p>
+        <p className="mt-2 text-sm text-ink-soft dark:text-slate-400">{tr("未找到匹配的客户", "No matching customers")}</p>
+        <p className="mt-1 text-xs text-ink-soft dark:text-slate-400">{tr("尝试调整搜索条件或重置筛选", "Change the search terms or reset the filters.")}</p>
       </div>
     );
   }
@@ -202,13 +211,13 @@ export function CustomerList({ customers, vehicleCounts, debtByCustomer, formal 
         <table className="w-full table-fixed border-collapse">
           <thead>
             <tr className="border-b border-line bg-surface text-left dark:bg-slate-900/40">
-              <th className="px-3 py-2 text-[11px] font-semibold text-ink-soft dark:text-slate-400">客户 / 联系方式</th>
+              <th className="px-3 py-2 text-[11px] font-semibold text-ink-soft dark:text-slate-400">{tr("客户 / 联系方式", "Customer / Contact")}</th>
               {!formal ? <th className="hidden w-[105px] px-3 py-2 text-[11px] font-semibold text-ink-soft dark:text-slate-400 lg:table-cell">渠道</th> : null}
               {!formal ? <th className="hidden w-[105px] px-3 py-2 text-[11px] font-semibold text-ink-soft dark:text-slate-400 lg:table-cell">档案</th> : null}
-              <th className="w-[80px] px-3 py-2 text-center text-[11px] font-semibold text-ink-soft dark:text-slate-400">当前车辆</th>
+              <th className="w-[80px] px-3 py-2 text-center text-[11px] font-semibold text-ink-soft dark:text-slate-400">{tr("当前车辆", "Vehicles")}</th>
               {!formal ? <th className="w-[120px] px-3 py-2 text-center text-[11px] font-semibold text-ink-soft dark:text-slate-400">验证证据</th> : null}
               {!formal ? <th className="w-[110px] px-3 py-2 text-right text-[11px] font-semibold text-ink-soft dark:text-slate-400">欠账</th> : null}
-              <th className="w-[180px] px-3 py-2 text-right text-[11px] font-semibold text-ink-soft dark:text-slate-400">{formal ? "状态 / 操作" : "风险 / 状态 / 操作"}</th>
+              <th className="w-[180px] px-3 py-2 text-right text-[11px] font-semibold text-ink-soft dark:text-slate-400">{formal ? tr("状态 / 操作", "Status / Actions") : tr("风险 / 状态 / 操作", "Risk / Status / Actions")}</th>
             </tr>
           </thead>
           <tbody>
