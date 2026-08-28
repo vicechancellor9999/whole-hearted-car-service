@@ -251,19 +251,18 @@ function RepairHistoryDialog({
 }: {
   rounds: FormalRepairRoundWorkspace;
   masterData: FormalMasterData;
-  onClose: () => void;
+  onClose?: () => void;
 }) {
   const teamName = (teamId: number | null) => {
     if (!teamId) return null;
     return masterData.teams.find((team) => team.id === teamId)?.name ?? `维修班组 #${teamId}`;
   };
 
-  return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/45 p-4" role="dialog" aria-modal="true" aria-label="Business Order 全部维修历史" onMouseDown={(event) => { if (event.target === event.currentTarget) onClose(); }}>
-      <section className="max-h-[88vh] w-full max-w-4xl overflow-y-auto rounded-2xl bg-white p-4 shadow-2xl dark:bg-slate-900">
+  const content = (
+    <>
         <div className="flex items-center justify-between gap-3 border-b border-line pb-3">
           <div><h2 className="text-base font-bold">Business Order 全部历史与修改记录</h2><p className="mt-1 text-xs text-ink-soft">按时间显示操作人、业务动作和操作结果。</p></div>
-          <button type="button" onClick={onClose} className="min-h-9 rounded-lg border border-line px-3 text-xs font-bold">关闭并返回</button>
+          {onClose ? <button type="button" onClick={onClose} className="min-h-9 rounded-lg border border-line px-3 text-xs font-bold">关闭并返回</button> : null}
         </div>
         <div className="mt-3 space-y-3">
           {[...rounds.history].sort((left, right) => right.roundNo - left.roundNo).map((round) => {
@@ -300,7 +299,13 @@ function RepairHistoryDialog({
             })}
           </ol> : <p className="mt-3 rounded-xl bg-surface px-3 py-4 text-xs text-ink-soft">尚无可展示的审计记录。</p>}
         </section>
-      </section>
+    </>
+  );
+
+  if (!onClose) return <div>{content}</div>;
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/45 p-4" role="dialog" aria-modal="true" aria-label="Business Order 全部维修历史" onMouseDown={(event) => { if (event.target === event.currentTarget) onClose(); }}>
+      <section className="max-h-[88vh] w-full max-w-4xl overflow-y-auto rounded-2xl bg-white p-4 shadow-2xl dark:bg-slate-900">{content}</section>
     </div>
   );
 }
@@ -967,11 +972,7 @@ export function FormalBusinessOrderDetailView({ businessOrderId }: { businessOrd
         {historyOpen && rounds && masterData ? <RepairHistoryDialog rounds={rounds} masterData={masterData} onClose={() => setHistoryOpen(false)} /> : null}
 
         <section id="business-order-history-workspace" role="tabpanel" hidden={activeWorkspace !== "history"} className="rounded-2xl border border-line bg-white p-4 shadow-card dark:border-slate-700 dark:bg-slate-900/50 xl:col-span-2">
-          <div className="flex flex-wrap items-center justify-between gap-3">
-            <div><h2 className="text-sm font-bold">Business Order 全部历史与修改记录</h2><p className="mt-1 text-xs text-ink-soft">维修轮次、收费财务和文件操作按正式审计事实保留。</p></div>
-            <button type="button" onClick={() => setHistoryOpen(true)} className="min-h-9 rounded-lg bg-primary px-4 text-xs font-bold text-white">查看完整时间线</button>
-          </div>
-          <p className="mt-3 rounded-xl bg-surface px-3 py-3 text-xs text-ink-soft">完整时间线沿用现有正式历史视图；下一步将直接展开在本工作区内。</p>
+          {rounds && masterData ? <RepairHistoryDialog rounds={rounds} masterData={masterData} /> : <p className="rounded-xl bg-surface px-3 py-4 text-xs text-ink-soft">正在读取完整历史与修改记录…</p>}
         </section>
 
         <section id="business-order-documents-workspace" role="tabpanel" hidden={activeWorkspace !== "documents"} className="rounded-2xl border border-line bg-white p-4 shadow-card dark:border-slate-700 dark:bg-slate-900/50 xl:col-span-2">
