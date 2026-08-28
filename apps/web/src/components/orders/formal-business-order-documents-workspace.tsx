@@ -117,8 +117,12 @@ export function FormalBusinessOrderDocumentsWorkspace({
     ? selectedDocumentId
     : newestDocumentId;
   const selectedDocument = documents.find((document) => document.id === effectiveSelectedDocumentId) ?? null;
-  const selectedRevision = detail?.revisions.find((revision) => revision.id === selectedRevisionId)
-    ?? detail?.revisions.at(-1) ?? null;
+  const currentRenderer = detail?.revisions.at(-1)?.rendererVersion ?? null;
+  const availableRevisions = detail?.revisions.filter(
+    (revision) => revision.rendererVersion === currentRenderer,
+  ) ?? [];
+  const selectedRevision = availableRevisions.find((revision) => revision.id === selectedRevisionId)
+    ?? availableRevisions.at(-1) ?? null;
   const editableContent = detail
     ? applyDocumentOverrides(buildBusinessOrderDocumentContent(detail.document.snapshot), fieldOverrides)
     : null;
@@ -203,7 +207,7 @@ export function FormalBusinessOrderDocumentsWorkspace({
           </div>
           <div className="min-w-0 overflow-hidden rounded-xl border border-line bg-surface/50">
             <div className="flex flex-wrap items-center justify-between gap-2 border-b border-line bg-card px-3 py-2">
-              <div className="inline-flex flex-wrap items-center gap-2"><FileText size={15} className="text-primary" /><strong className="text-xs">A4 单据</strong>{selectedDocument ? <span className="text-[11px] text-ink-soft">{selectedDocument.documentNo}</span> : null}{detail?.revisions.length ? <select aria-label="打印版本" value={selectedRevision?.id ?? ""} onChange={(event) => selectRevision(Number(event.target.value))} className="min-h-8 rounded-lg border border-line bg-layer-2 px-2 text-xs">{detail.revisions.map((revision) => <option key={revision.id} value={revision.id}>R{revision.revisionNo} · {formatDateTime(revision.createdAt)}</option>)}</select> : null}</div>
+              <div className="inline-flex flex-wrap items-center gap-2"><FileText size={15} className="text-primary" /><strong className="text-xs">A4 单据</strong>{selectedDocument ? <span className="text-[11px] text-ink-soft">{selectedDocument.documentNo}</span> : null}{availableRevisions.length ? <select aria-label="打印版本" value={selectedRevision?.id ?? ""} onChange={(event) => selectRevision(Number(event.target.value))} className="min-h-8 rounded-lg border border-line bg-layer-2 px-2 text-xs">{availableRevisions.map((revision) => <option key={revision.id} value={revision.id}>R{revision.revisionNo} · {formatDateTime(revision.createdAt)}</option>)}</select> : null}</div>
               <div className="flex flex-wrap gap-2"><button type="button" onClick={() => setView("edit")} className={`min-h-8 rounded-lg px-3 text-xs font-bold ${view === "edit" ? "bg-primary text-white" : "border border-line"}`}>编辑文字</button><button type="button" onClick={() => setView("preview")} className={`min-h-8 rounded-lg px-3 text-xs font-bold ${view === "preview" ? "bg-primary text-white" : "border border-line"}`}>PDF 预览</button>{canWrite ? <button type="button" disabled={!detail || documentBusy} onClick={() => void saveRevision()} className="inline-flex min-h-8 items-center gap-1.5 rounded-lg border border-primary px-3 text-xs font-bold text-primary disabled:opacity-40"><Save size={14} />保存新版本</button> : null}<button type="button" disabled={!pdfBytes} onClick={() => void printCurrent()} className="inline-flex min-h-8 items-center gap-1.5 rounded-lg bg-primary px-3 text-xs font-bold text-white disabled:opacity-40"><Printer size={14} />系统打印</button>{selectedDocument && selectedRevision ? <a href={formalDocumentRevisionFileUrl(businessOrderId, selectedDocument.id, selectedRevision.id, true)} className="inline-flex min-h-8 items-center gap-1.5 rounded-lg border border-line px-3 text-xs font-bold"><Download size={13} />下载 PDF</a> : null}</div>
             </div>
             {documentError ? <p role="alert" className="m-3 rounded-lg bg-rose-50 px-3 py-2 text-xs font-semibold text-rose-700">{documentError}</p> : null}
