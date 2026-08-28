@@ -8,6 +8,7 @@ type RouteContext = { params: Promise<{ businessOrderId: string }> };
 const messageSchema = z.object({
   body: z.string().trim().min(1).max(4000),
   mentionedAccountIds: z.array(z.number().int().positive()).max(50).default([]),
+  attachmentIds: z.array(z.number().int().positive()).max(20).default([]),
 });
 
 export async function GET(_request: Request, context: RouteContext) {

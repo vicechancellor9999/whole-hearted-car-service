@@ -3,6 +3,7 @@ import { existsSync, readFileSync } from "node:fs";
 import { resolve } from "node:path";
 
 const DETAIL = "src/components/orders/formal-business-order-detail.tsx";
+const DOCUMENTS_WORKSPACE = "src/components/orders/formal-business-order-documents-workspace.tsx";
 const PRINT = "src/components/orders/formal-business-order-print.tsx";
 const RECEIPT_ROUTE = "src/app/orders/business/[id]/receipt/[paymentId]/print/page.tsx";
 const DOCUMENT_ROUTE = "src/app/orders/business/[id]/documents/[documentId]/print/page.tsx";
@@ -18,11 +19,12 @@ test("formal Business Order exposes each Receipt and immutable print document", 
   expect(existsSync(resolve(process.cwd(), DOCUMENT_ROUTE))).toBe(true);
   expect(source(RECEIPT_ROUTE)).toMatch(/FormalReceiptPrintSheet/);
   expect(source(DOCUMENT_ROUTE)).toMatch(/FormalBusinessOrderDocumentPrintSheet/);
-  expect(source(DETAIL)).toMatch(/生成客户联/);
-  expect(source(DETAIL)).toMatch(/生成办公室签字留底联/);
-  expect(source(DETAIL)).toMatch(/生成维修工联/);
+  expect(source(DOCUMENTS_WORKSPACE)).toMatch(/生成客户联/);
+  expect(source(DOCUMENTS_WORKSPACE)).toMatch(/生成办公室签字留底联/);
+  expect(source(DOCUMENTS_WORKSPACE)).toMatch(/生成维修工联/);
   expect(source(DETAIL)).toMatch(/Receipt：\{transaction\.referenceNo\}/);
-  expect(source(DETAIL)).toMatch(/打开 \/ 补打/);
+  expect(source(DOCUMENTS_WORKSPACE)).toMatch(/系统打印/);
+  expect(source(DOCUMENTS_WORKSPACE)).toMatch(/新窗口/);
 });
 
 test("print renderer preserves the three-copy business boundaries", () => {

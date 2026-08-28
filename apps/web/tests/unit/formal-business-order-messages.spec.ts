@@ -14,10 +14,10 @@ test("留言发布和编辑通过正式 API 传递提及与版本", async () => 
     return new Response(JSON.stringify({ id: 8, body: "请确认", mentions: [] }), { status: 200, headers: { "content-type": "application/json" } });
   }) as typeof fetch;
   try {
-    await createFormalBusinessOrderMessage(7, { body: "请确认", mentionedAccountIds: [2] });
+    await createFormalBusinessOrderMessage(7, { body: "请确认", mentionedAccountIds: [2], attachmentIds: [14] });
     await editFormalBusinessOrderMessage(7, 8, { body: "请最终确认", mentionedAccountIds: [2], expectedVersion: 3 });
     expect(String(requests[0]?.input)).toBe("/api/formal/business-orders/7/messages");
-    expect(JSON.parse(String(requests[0]?.init?.body))).toEqual({ body: "请确认", mentionedAccountIds: [2] });
+    expect(JSON.parse(String(requests[0]?.init?.body))).toEqual({ body: "请确认", mentionedAccountIds: [2], attachmentIds: [14] });
     expect(String(requests[1]?.input)).toBe("/api/formal/business-orders/7/messages/8");
     expect(JSON.parse(String(requests[1]?.init?.body))).toEqual({ body: "请最终确认", mentionedAccountIds: [2], expectedVersion: 3 });
   } finally { globalThis.fetch = originalFetch; }
@@ -25,11 +25,22 @@ test("留言发布和编辑通过正式 API 传递提及与版本", async () => 
 
 test("沟通工作区提供发布、提及、作者编辑和已编辑标记", () => {
   const source = readFileSync(resolve(process.cwd(), "src/components/orders/formal-business-order-messages.tsx"), "utf8");
-  expect(source).toMatch(/发布留言/);
+  expect(source).toMatch(/发布评论/);
   expect(source).toMatch(/mentionedIds/);
   expect(source).toMatch(/authorAccountId === currentAccountId/);
   expect(source).toMatch(/已编辑/);
   expect(source).toMatch(/markFormalBusinessOrderMentionsRead/);
+});
+
+test("沟通工作区使用评论流并支持上传照片", () => {
+  const source = readFileSync(resolve(process.cwd(), "src/components/orders/formal-business-order-messages.tsx"), "utf8");
+  expect(source).toMatch(/评论区/);
+  expect(source).toMatch(/type="file"/);
+  expect(source).toMatch(/accept="image\/jpeg,image\/png,image\/webp"/);
+  expect(source).toMatch(/multiple/);
+  expect(source).toMatch(/uploadFormalBusinessOrderAttachment/);
+  expect(source).toMatch(/message\.attachments/);
+  expect(source).toMatch(/body\.trim\(\) \|\| "上传了照片"/);
 });
 
 test("我的提及深链到对应业务单留言", () => {

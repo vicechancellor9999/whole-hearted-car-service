@@ -1,6 +1,7 @@
 import type { AuthSqlDatabase, AuthSqlExecutor } from "@formal/modules/auth/session-repository";
 import { writeAuditEvent } from "@formal/modules/audit/audit-service";
 import type { BusinessOrderActionContext } from "@formal/modules/business-order/business-order-service";
+import { linkBusinessOrderAttachmentsToMessage } from "@formal/modules/business-order/business-order-attachment-service";
 
 export class BusinessOrderCollaborationError extends Error {
   constructor(message: string, readonly status = 400, readonly code = "business_order_collaboration_error") {
@@ -22,6 +23,10 @@ type MessageRow = {
 };
 
 type MentionRow = { message_id: number; account_id: number; display_name: string };
+type MessageAttachmentRow = {
+  id: number; message_id: number; original_name: string; media_type: string;
+  size_bytes: number; caption: string | null;
+};
 
 export type BusinessOrderMessageRecord = {
   id: number;
@@ -34,6 +39,9 @@ export type BusinessOrderMessageRecord = {
   createdAt: Date;
   editedAt: Date | null;
   mentions: Array<{ accountId: number; displayName: string }>;
+  attachments: Array<{
+    id: number; originalName: string; mediaType: string; sizeBytes: number; caption: string | null;
+  }>;
 };
 
 export class BusinessOrderCollaborationService {
@@ -56,6 +64,7 @@ export class BusinessOrderCollaborationService {
     businessOrderId: number;
     body: string;
     mentionedAccountIds?: number[];
+    attachmentIds?: number[];
     context: BusinessOrderActionContext;
   }) {
     const body = validBody(input.body);
@@ -82,6 +91,13 @@ export class BusinessOrderCollaborationService {
           [message.id, accountId, now],
         );
       }
+      await linkBusinessOrderAttachmentsToMessage(transaction, {
+        businessOrderId: input.businessOrderId,
+        messageId: Number(message.id),
+        attachmentIds: input.attachmentIds ?? [],
+        actorAccountId: input.context.actorAccountId,
+        context: input.context,
+      });
       await writeAuditEvent(transaction, {
         occurredAt: now,
         actorAccountId: actor.id,
@@ -286,11 +302,28 @@ async function mapMessages(executor: AuthSqlExecutor, rows: MessageRow[]): Promi
      where mention.message_id = any($1::bigint[])
      order by account.display_name, account.id`, [ids],
   );
+  const attachments = await executor.query<MessageAttachmentRow>(
+    `select attachment.id, attachment.message_id, file.original_name,
+            file.media_type, file.size_bytes, attachment.caption
+     from business_order_attachments as attachment
+     join stored_files as file on file.id = attachment.file_id
+     where attachment.message_id = any($1::bigint[])
+     order by attachment.linked_at, attachment.id`, [ids],
+  );
   return rows.map((row) => ({
     id: Number(row.id), businessOrderId: Number(row.business_order_id),
     authorAccountId: Number(row.author_account_id), authorDisplayName: row.author_display_name,
     authorRole: row.author_role, body: row.body, version: Number(row.version),
     createdAt: new Date(row.created_at), editedAt: row.edited_at ? new Date(row.edited_at) : null,
     mentions: mentions.filter((mention) => Number(mention.message_id) === Number(row.id)).map((mention) => ({ accountId: Number(mention.account_id), displayName: mention.display_name })),
+    attachments: attachments
+      .filter((attachment) => Number(attachment.message_id) === Number(row.id))
+      .map((attachment) => ({
+        id: Number(attachment.id),
+        originalName: attachment.original_name,
+        mediaType: attachment.media_type,
+        sizeBytes: Number(attachment.size_bytes),
+        caption: attachment.caption,
+      })),
   }));
 }

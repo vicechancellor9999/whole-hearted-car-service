@@ -225,6 +225,20 @@
       "when": 1787911200000,
       "tag": "0031_business_order_messages",
       "breakpoints": true
+    },
+    {
+      "idx": 32,
+      "version": "7",
+      "when": 1787932800000,
+      "tag": "0032_business_order_attachments",
+      "breakpoints": true
+    },
+    {
+      "idx": 33,
+      "version": "7",
+      "when": 1787936400000,
+      "tag": "0033_record_deletion_collaboration_files",
+      "breakpoints": true
     }
   ]
 }

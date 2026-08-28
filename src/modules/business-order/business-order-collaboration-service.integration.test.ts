@@ -25,16 +25,25 @@ beforeEach(async () => {
     create table staff_members (id bigint primary key generated always as identity, account_id bigint, status text, current_team_id bigint);
     create table business_orders (id bigint primary key generated always as identity, order_no text not null, current_repair_round_no integer not null default 1);
     create table repair_rounds (id bigint primary key generated always as identity, business_order_id bigint not null, round_no integer not null, assigned_team_id bigint);
+    create table stored_files (id bigint primary key generated always as identity, storage_key text not null unique, original_name text not null, media_type text not null, size_bytes bigint not null, sha256_hex text not null, uploaded_by bigint not null, uploaded_at timestamptz not null default now());
     create table audit_events (id bigint primary key generated always as identity, occurred_at timestamptz not null, actor_account_id bigint, event_type text not null, object_type text not null, object_id text not null, reason text, before_state jsonb, after_state jsonb, request_id text not null, ip_address inet, user_agent text);
   `);
   const migration = await readFile(resolve(process.cwd(), "drizzle/0031_business_order_messages.sql"), "utf8");
   for (const statement of migration.split("--> statement-breakpoint")) {
     if (statement.trim() && !statement.includes("business_order_document_snapshots")) await database.exec(statement);
   }
+  const attachmentMigration = await readFile(resolve(process.cwd(), "drizzle/0032_business_order_attachments.sql"), "utf8");
+  for (const statement of attachmentMigration.split("--> statement-breakpoint")) {
+    if (statement.trim()) await database.exec(statement);
+  }
   await database.exec(`
     insert into staff_accounts (display_name, role) values ('前台', 'front_desk'), ('老板', 'owner');
     insert into business_orders (order_no) values ('KGN-WH-TEST');
     insert into repair_rounds (business_order_id, round_no) values (1, 1);
+    insert into stored_files (storage_key, original_name, media_type, size_bytes, sha256_hex, uploaded_by)
+      values ('business-order-files/2026/08/comment.jpg', '评论照片.jpg', 'image/jpeg', 12, '${"a".repeat(64)}', 1);
+    insert into business_order_attachments (business_order_id, file_id, category, linked_by)
+      values (1, 1, 'service_photo', 1);
   `);
   service = new BusinessOrderCollaborationService(wrapped(database));
 });
@@ -47,10 +56,14 @@ describe("BusinessOrderCollaborationService", () => {
       businessOrderId: 1,
       body: "  请老板确认收费项目  ",
       mentionedAccountIds: [2, 2],
+      attachmentIds: [1],
       context: { actorAccountId: 1, requestId: "create-message", now: new Date("2026-08-28T10:00:00Z") },
     });
     expect(created.body).toBe("请老板确认收费项目");
     expect(created.mentions.map((item) => item.accountId)).toEqual([2]);
+    expect(created.attachments).toEqual([expect.objectContaining({ id: 1, originalName: "评论照片.jpg" })]);
+    expect((await database.query<{ message_id: number }>("select message_id from business_order_attachments where id = 1")).rows[0]?.message_id)
+      .toBe(created.id);
     expect((await service.listMyMentions({ accountId: 2 })).items[0]?.readAt).toBeNull();
     expect(await service.markMentionsRead({ businessOrderId: 1, accountId: 2 })).toEqual({ updated: 1 });
 

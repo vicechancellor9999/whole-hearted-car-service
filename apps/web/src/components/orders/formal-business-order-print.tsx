@@ -2,6 +2,7 @@
 
 import { useEffect, useState, type ReactNode } from "react";
 import Link from "next/link";
+import { useSearchParams } from "next/navigation";
 import {
   fetchFormalDocument,
   fetchFormalReceipt,
@@ -70,6 +71,8 @@ function PrintPage({
   title: string;
   titleAnnotation?: string;
 }) {
+  const searchParams = useSearchParams();
+  const embedded = searchParams.get("embed") === "1";
   return (
     <main className="formal-print-page mx-auto min-h-screen max-w-[210mm] bg-white px-[10mm] py-[9mm] text-[11px] leading-[1.45] text-slate-900 print:min-h-0 print:max-w-none print:p-0">
       <style>{`
@@ -81,7 +84,7 @@ function PrintPage({
           .formal-print-page { width: 100%; }
         }
       `}</style>
-      <nav className="formal-print-toolbar mb-5 flex items-center justify-between gap-3">
+      <nav hidden={embedded} className="formal-print-toolbar mb-5 flex items-center justify-between gap-3">
         <Link href={backHref} className="rounded-lg border border-slate-300 px-3 py-2 text-xs font-semibold text-slate-700">{backLabel}</Link>
         <button type="button" onClick={() => window.print()} className="rounded-lg bg-blue-700 px-4 py-2 text-xs font-bold text-white">{printLabel}</button>
       </nav>

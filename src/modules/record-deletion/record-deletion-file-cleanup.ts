@@ -2,6 +2,7 @@ import type { AuthSqlDatabase } from "@formal/modules/auth/session-repository";
 import { removeStoredVehicleUpload } from "@formal/modules/customer-vehicle/attachment-storage";
 import { removeStoredCustomerDriverLicenseUpload } from "@formal/modules/customer-vehicle/customer-driver-license-storage";
 import { removeStoredRefundUpload } from "@formal/modules/payment/refund-attachment-storage";
+import { removeStoredBusinessOrderUpload } from "@formal/modules/business-order/business-order-attachment-storage";
 
 export type RecordDeletionFileCleanupOptions = {
   limit?: number;
@@ -64,6 +65,10 @@ async function removeStoredDeletionFile(storageKey: string): Promise<void> {
   }
   if (storageKey.startsWith("refund-files/")) {
     await removeStoredRefundUpload(storageKey);
+    return;
+  }
+  if (storageKey.startsWith("business-order-files/")) {
+    await removeStoredBusinessOrderUpload(storageKey);
     return;
   }
   throw new Error("unsupported record deletion storage key");

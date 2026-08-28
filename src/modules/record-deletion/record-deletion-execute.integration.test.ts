@@ -280,4 +280,75 @@ describe("RecordDeletionService execute", () => {
       linkedRecord: { kind: "vehicle", recordNo: fixture.vehicleNo },
     }));
   });
+
+  it("deletes comment-linked Business Order attachments and queues the physical files", async () => {
+    const fixture = await seedFixture(5);
+    const order = await database.query<{ id: number }>(
+      `insert into business_orders
+        (order_no, vehicle_id, payer_person_customer_id,
+         payer_display_name_snapshot, vehicle_plate_snapshot,
+         vehicle_description_snapshot, created_by)
+       values ('KGN-WH-2026082700005', $1, $2, '付款人', 'DEL 101',
+               'Test Delete', $3)
+       returning id`,
+      [fixture.vehicleId, fixture.customerId, frontDeskId],
+    );
+    const orderId = Number(order.rows[0]?.id);
+    await database.query(
+      `insert into repair_rounds
+        (business_order_id, round_no, source, status, created_by)
+       values ($1, 1, 'initial', 'waiting_assignment', $2)`,
+      [orderId, frontDeskId],
+    );
+    const message = await database.query<{ id: number }>(
+      `insert into business_order_messages
+        (business_order_id, author_account_id, author_display_name, author_role, body)
+       values ($1, $2, '前台删除', 'front_desk', '测试评论') returning id`,
+      [orderId, frontDeskId],
+    );
+    const file = await database.query<{ id: number }>(
+      `insert into stored_files
+        (storage_key, original_name, media_type, size_bytes, sha256_hex, uploaded_by)
+       values ('business-order-files/2026/08/delete-me.jpg', 'delete-me.jpg',
+               'image/jpeg', 3, $1, $2) returning id`,
+      ["a".repeat(64), frontDeskId],
+    );
+    await database.query(
+      `insert into business_order_attachments
+        (business_order_id, file_id, category, message_id, linked_by)
+       values ($1, $2, 'service_photo', $3, $4)`,
+      [orderId, Number(file.rows[0]?.id), Number(message.rows[0]?.id), frontDeskId],
+    );
+
+    const root = { kind: "business_order" as const, recordNo: "KGN-WH-2026082700005" };
+    const preview = await service.preview({ actorAccountId: frontDeskId, root, selectedRecords: [root] });
+    expect(preview.eligible).toBe(true);
+    expect(preview.dependentCounts).toMatchObject({
+      business_order_messages: 1,
+      business_order_attachments: 1,
+    });
+
+    const result = await service.execute({
+      actorAccountId: frontDeskId,
+      root,
+      selectedRecords: [root],
+      reasonCode: "test_data",
+      reasonNote: null,
+      confirmationRecordNo: root.recordNo,
+      previewFingerprint: preview.previewFingerprint,
+      requestId: "delete-order-attachment-5",
+    });
+
+    expect(result.fileCleanupPending).toBe(1);
+    const remaining = await database.query<{ orders: number; messages: number; attachments: number; files: number; tasks: number }>(
+      `select
+        (select count(*)::int from business_orders where id = $1) as orders,
+        (select count(*)::int from business_order_messages where business_order_id = $1) as messages,
+        (select count(*)::int from business_order_attachments where business_order_id = $1) as attachments,
+        (select count(*)::int from stored_files where id = $2) as files,
+        (select count(*)::int from record_deletion_file_tasks where storage_key = 'business-order-files/2026/08/delete-me.jpg') as tasks`,
+      [orderId, Number(file.rows[0]?.id)],
+    );
+    expect(remaining.rows[0]).toEqual({ orders: 0, messages: 0, attachments: 0, files: 0, tasks: 1 });
+  });
 });

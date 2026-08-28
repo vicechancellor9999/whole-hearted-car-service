@@ -4,6 +4,7 @@ import { resolve } from "node:path";
 import { formalGroupedChargeDiscounts } from "../../src/lib/api/formal-business-orders";
 
 const detail = () => readFileSync(resolve(process.cwd(), "src/components/orders/formal-business-order-detail.tsx"), "utf8");
+const component = (name: string) => readFileSync(resolve(process.cwd(), `src/components/${name}`), "utf8");
 
 test("派单用维修班组按钮选择，不使用下拉菜单", () => {
   const source = detail();
@@ -105,12 +106,39 @@ test("正式交单前可撤回当前维修轮次再重新派单", () => {
   expect(source).toMatch(/撤回派单/);
 });
 
-test("收款和退款表单只在点击对应按钮后展开", () => {
+test("收款和退款通过可关闭的浮窗填写", () => {
   const source = detail();
   expect(source).toMatch(/登记收款/);
   expect(source).toMatch(/生成退款/);
   expect(source).toMatch(/paymentFormOpen/);
   expect(source).toMatch(/refundFormOpen/);
+  expect(source).toMatch(/ActionDialog/);
+  expect(component("shared/action-dialog.tsx")).toMatch(/role="dialog"/);
+});
+
+test("收费编辑与保存占用同一个标题操作位置", () => {
+  const source = detail();
+  expect(source).toMatch(/chargeEditing \? "保存收费项目" : "编辑收费项目"/);
+  expect(source).toMatch(/取消编辑/);
+  expect(source).toMatch(/新增工时/);
+  expect(source).toMatch(/新增配件/);
+  expect(source).toMatch(/新增其他费用/);
+  expect(source).toMatch(/新增备注/);
+});
+
+test("单据工作区提供页面内预览、系统打印和业务附件中心", () => {
+  const source = detail();
+  expect(source).toMatch(/FormalBusinessOrderDocumentsWorkspace/);
+  const workspace = component("orders/formal-business-order-documents-workspace.tsx");
+  expect(workspace).toMatch(/单据预览/);
+  expect(workspace).toMatch(/系统打印/);
+  expect(workspace).toMatch(/业务附件/);
+});
+
+test("历史工作区默认使用简洁时间线并可展开字段明细", () => {
+  const source = detail();
+  expect(source).toMatch(/FormalBusinessOrderHistoryTimeline/);
+  expect(component("orders/formal-business-order-history-timeline.tsx")).toMatch(/查看修改明细/);
 });
 
 test("退款先落账再打印纸质签收单并可选回传签字件", () => {

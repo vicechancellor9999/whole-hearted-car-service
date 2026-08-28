@@ -7,6 +7,7 @@ import { InspectionReportService } from "@formal/modules/inspection-report/inspe
 import { PaymentService } from "@formal/modules/payment/payment-service";
 import { BusinessOrderDocumentService } from "@formal/modules/business-order/business-order-document-service";
 import { BusinessOrderCollaborationService } from "@formal/modules/business-order/business-order-collaboration-service";
+import { BusinessOrderAttachmentService } from "@formal/modules/business-order/business-order-attachment-service";
 
 export function createBusinessOrderRuntime(
   source: Record<string, unknown> = process.env,
@@ -21,6 +22,7 @@ export function createBusinessOrderRuntime(
     payments: new PaymentService(database),
     documents: new BusinessOrderDocumentService(database),
     collaboration: new BusinessOrderCollaborationService(database),
+    attachments: new BusinessOrderAttachmentService(database),
     close: databaseClient.close,
   };
 }

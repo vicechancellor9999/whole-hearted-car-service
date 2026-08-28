@@ -598,7 +598,9 @@ async function loadBusinessOrderFact(
        (select count(*)::int from vehicle_pickup_notices where (origin_business_order_id = $1 or paused_by_business_order_id = $1) and picked_up_at is null) as parking_count,
        (select count(*)::int from business_order_charge_versions where business_order_id = $1) as charge_version_count,
        (select count(*)::int from business_order_charge_items as item join business_order_charge_versions as charge on charge.id = item.charge_version_id where charge.business_order_id = $1) as charge_item_count,
-       (select count(*)::int from business_order_notes as note join business_order_charge_versions as charge on charge.id = note.charge_version_id where charge.business_order_id = $1) as note_count`,
+       (select count(*)::int from business_order_notes as note join business_order_charge_versions as charge on charge.id = note.charge_version_id where charge.business_order_id = $1) as note_count,
+       (select count(*)::int from business_order_messages where business_order_id = $1) as message_count,
+       (select count(*)::int from business_order_attachments where business_order_id = $1) as attachment_count`,
     [record.id],
   );
   const count = counts[0] ?? {};
@@ -612,6 +614,8 @@ async function loadBusinessOrderFact(
       business_order_charge_versions: numberAt(count, "charge_version_count"),
       business_order_charge_items: numberAt(count, "charge_item_count"),
       business_order_notes: numberAt(count, "note_count"),
+      business_order_messages: numberAt(count, "message_count"),
+      business_order_attachments: numberAt(count, "attachment_count"),
     },
     releasedIdentityKinds: [],
     status: row[0]?.status ?? "waiting_assignment",
@@ -769,6 +773,69 @@ async function deleteSelectedGraph(
   }
 
   if (orderIds.length > 0) {
+    const attachmentFiles = await transaction.query<{ file_id: number }>(
+      `select file_id from business_order_attachments
+       where business_order_id = any($1::bigint[])`,
+      [orderIds],
+    );
+    attachmentFiles.forEach((row) => candidateFileIds.add(Number(row.file_id)));
+    await authorizeRowsFromQuery(
+      transaction,
+      requestId,
+      "business_order_attachments",
+      `select id::text from business_order_attachments
+       where business_order_id = any($2::bigint[])`,
+      [orderIds],
+    );
+    await transaction.query(
+      `delete from business_order_attachments
+       where business_order_id = any($1::bigint[])`,
+      [orderIds],
+    );
+    for (const [tableName, source] of [
+      [
+        "business_order_message_mentions",
+        `select mention.id::text
+         from business_order_message_mentions as mention
+         join business_order_messages as message on message.id = mention.message_id
+         where message.business_order_id = any($2::bigint[])`,
+      ],
+      [
+        "business_order_message_revisions",
+        `select revision.id::text
+         from business_order_message_revisions as revision
+         join business_order_messages as message on message.id = revision.message_id
+         where message.business_order_id = any($2::bigint[])`,
+      ],
+      [
+        "business_order_messages",
+        `select id::text from business_order_messages
+         where business_order_id = any($2::bigint[])`,
+      ],
+    ] as const) {
+      await authorizeRowsFromQuery(transaction, requestId, tableName, source, [orderIds]);
+    }
+    await transaction.query(
+      `delete from business_order_message_mentions
+       where message_id in (
+         select id from business_order_messages
+         where business_order_id = any($1::bigint[])
+       )`,
+      [orderIds],
+    );
+    await transaction.query(
+      `delete from business_order_message_revisions
+       where message_id in (
+         select id from business_order_messages
+         where business_order_id = any($1::bigint[])
+       )`,
+      [orderIds],
+    );
+    await transaction.query(
+      `delete from business_order_messages
+       where business_order_id = any($1::bigint[])`,
+      [orderIds],
+    );
     for (const [tableName, source] of [
       [
         "business_order_charge_items",
@@ -969,6 +1036,7 @@ async function deleteSelectedGraph(
        and not exists (select 1 from customer_driver_license_records where file_id = file.id)
        and not exists (select 1 from repair_round_intake_photos where file_id = file.id)
        and not exists (select 1 from refund_evidence_files where file_id = file.id)
+       and not exists (select 1 from business_order_attachments where file_id = file.id)
        and not exists (select 1 from inspection_reports where paper_photo_file_id = file.id)
      order by file.id`,
     [[...candidateFileIds]],
