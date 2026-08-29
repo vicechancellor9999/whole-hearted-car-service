@@ -406,11 +406,23 @@ const STATUS_LABELS: Record<FormalBusinessOrderStatus, string> = {
   formally_handed_off: "已交单",
 };
 
-export function formalBusinessOrderStatusLabel(status: FormalBusinessOrderStatus): string {
-  return STATUS_LABELS[status];
+const STATUS_LABELS_EN: Record<FormalBusinessOrderStatus, string> = {
+  waiting_assignment: "Awaiting assignment",
+  assigned: "Assigned",
+  in_repair: "In repair",
+  return_pending_review: "Work return awaiting review",
+  formally_handed_off: "Formally handed off",
+};
+
+export function formalBusinessOrderStatusLabel(status: FormalBusinessOrderStatus, language: "zh" | "en" = "zh"): string {
+  return language === "en" ? STATUS_LABELS_EN[status] : STATUS_LABELS[status];
 }
 
-export function formalDocumentKindLabel(kind: FormalBusinessOrderDocument["kind"]): string {
+export function formalDocumentKindLabel(kind: FormalBusinessOrderDocument["kind"], language: "zh" | "en" = "zh"): string {
+  if (language === "en") {
+    if (kind === "customer_copy") return "Customer copy";
+    return kind === "office_archive" ? "Office signature archive" : "Mechanic work copy";
+  }
   if (kind === "customer_copy") return "客户联";
   return kind === "office_archive" ? "办公室签字留底联" : "维修工联";
 }

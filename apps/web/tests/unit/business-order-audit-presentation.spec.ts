@@ -14,6 +14,30 @@ const masterData: FormalMasterData = {
 };
 
 test.describe("businessOrderAuditSummary", () => {
+  test("renders system-owned audit copy in English without leaking Chinese labels", () => {
+    expect(businessOrderAuditSummary("business_order.payment_recorded", {
+      amountMinor: 2470000,
+      paymentMethodCode: "cash",
+      receiptNo: "RCT-20260826-0001",
+      balanceAfterMinor: 0,
+    }, masterData, "en")).toBe("Recorded payment JMD 24,700.00 (Cash); generated Receipt RCT-20260826-0001; outstanding balance is now JMD 0.00");
+
+    expect(businessOrderAuditSummary("business_order.round_assigned", {
+      assignedTeamId: 1,
+      roundNo: 2,
+    }, masterData, "en")).toBe("Repair round 2 assigned to Team 1 · Translation required");
+
+    expect(businessOrderAuditChanges(null, {
+      category: "customer_signature",
+      mediaType: "image/png",
+      sizeBytes: 630724,
+    }, masterData, "en")).toEqual([
+      { key: "category", label: "Attachment category", before: "Empty", after: "Customer signature", hasBefore: false, hasAfter: true },
+      { key: "mediaType", label: "File type", before: "Empty", after: "PNG", hasBefore: false, hasAfter: true },
+      { key: "sizeBytes", label: "File size", before: "Empty", after: "616 KB", hasBefore: false, hasAfter: true },
+    ]);
+  });
+
   test("describes a customer-signature upload with its actual file type and size", () => {
     expect(businessOrderAuditSummary("business_order.attachment_uploaded", {
       attachmentId: 2,

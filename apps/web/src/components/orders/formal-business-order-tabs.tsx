@@ -1,4 +1,7 @@
+"use client";
+
 import Link from "next/link";
+import { useI18n } from "@/lib/i18n/language";
 
 export type FormalBusinessOrderWorkspace =
   | "operations"
@@ -8,12 +11,13 @@ export type FormalBusinessOrderWorkspace =
 
 const TABS: ReadonlyArray<{
   id: FormalBusinessOrderWorkspace;
-  label: string;
+  labelZh: string;
+  labelEn: string;
 }> = [
-  { id: "operations", label: "收费 · 收款 · 维修班组" },
-  { id: "documents", label: "三联生成 · 预览 · 打印" },
-  { id: "history", label: "历史记录" },
-  { id: "messages", label: "沟通交流" },
+  { id: "operations", labelZh: "收费 · 收款 · 维修班组", labelEn: "Charges · Payments · Repair team" },
+  { id: "documents", labelZh: "三联生成 · 预览 · 打印", labelEn: "Documents · Preview · Print" },
+  { id: "history", labelZh: "历史记录", labelEn: "History" },
+  { id: "messages", labelZh: "沟通交流", labelEn: "Comments" },
 ];
 
 export function parseBusinessOrderWorkspace(
@@ -47,9 +51,10 @@ export function FormalBusinessOrderTabs({
   active: FormalBusinessOrderWorkspace;
   unreadMessageCount?: number;
 }) {
+  const { language } = useI18n();
   return (
     <nav
-      aria-label="Business Order 工作区"
+      aria-label={language === "en" ? "Business Order workspace" : "Business Order 工作区"}
       role="tablist"
       className="sticky top-0 z-20 grid gap-1 rounded-2xl border border-line bg-card p-1.5 shadow-card sm:grid-cols-2 xl:grid-cols-4"
     >
@@ -70,10 +75,10 @@ export function FormalBusinessOrderTabs({
                 : "text-ink-soft hover:bg-layer-2 hover:text-accent"
             }`}
           >
-            <span>{tab.label}</span>
+            <span>{language === "en" ? tab.labelEn : tab.labelZh}</span>
             {unread > 0 ? (
               <span
-                aria-label={`${unread} 条未读提及`}
+                aria-label={language === "en" ? `${unread} unread mentions` : `${unread} 条未读提及`}
                 className={`inline-flex min-w-5 items-center justify-center rounded-full px-1.5 py-0.5 text-[10px] ${
                   selected ? "bg-card text-accent-solid" : "bg-rose-600 text-white"
                 }`}

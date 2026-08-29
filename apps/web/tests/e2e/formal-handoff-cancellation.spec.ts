@@ -200,6 +200,49 @@ test("只读账号看不到取消交单和售后回厂写入口", async ({ page 
   await expect(page.getByRole("button", { name: "售后回厂" })).toHaveCount(0);
 });
 
+test("English Business Order localizes all four workspaces and action cards", async ({ page }) => {
+  await page.addInitScript(() => localStorage.setItem("wh_language_v1", "en"));
+  await installFormalFixtures(page);
+  await page.route("**/api/formal/business-orders/7/attachments", (route) => route.fulfill({
+    status: 200,
+    contentType: "application/json",
+    body: JSON.stringify({ items: [] }),
+  }));
+  await page.route("**/api/formal/business-orders/7/messages", (route) => route.fulfill({
+    status: 200,
+    contentType: "application/json",
+    body: JSON.stringify({ items: [], page: 1, pageSize: 50, pageCount: 0, total: 0 }),
+  }));
+  await page.route("**/api/formal/me/mentionable-accounts", (route) => route.fulfill({
+    status: 200,
+    contentType: "application/json",
+    body: JSON.stringify([]),
+  }));
+  await page.route("**/api/formal/business-orders/7/messages/read", (route) => route.fulfill({
+    status: 200,
+    contentType: "application/json",
+    body: JSON.stringify({ ok: true }),
+  }));
+
+  await page.goto("/orders/business/7?tab=operations");
+  await expect(page.getByRole("tab", { name: "Charges · Payments · Repair team" })).toBeVisible();
+  await expect(page.locator("#business-order-operations-workspace")).not.toContainText(/[\p{Script=Han}]/u);
+  await expect(page.locator("#business-order-repair-workspace")).not.toContainText(/[\p{Script=Han}]/u);
+  await expect(page.locator("#business-order-finance-workspace")).not.toContainText(/[\p{Script=Han}]/u);
+
+  await page.getByRole("tab", { name: "Documents · Preview · Print" }).click();
+  await expect(page.locator("#business-order-documents-workspace")).toContainText("Documents, preview and print");
+  await expect(page.locator("#business-order-documents-workspace")).not.toContainText(/[\p{Script=Han}]/u);
+
+  await page.getByRole("tab", { name: "History" }).click();
+  await expect(page.locator("#business-order-history-workspace")).toContainText("No history to display");
+  await expect(page.locator("#business-order-history-workspace")).not.toContainText(/[\p{Script=Han}]/u);
+
+  await page.getByRole("tab", { name: "Comments" }).click();
+  await expect(page.locator("#business-order-messages-workspace")).toContainText("Comments");
+  await expect(page.locator("#business-order-messages-workspace")).not.toContainText(/[\p{Script=Han}]/u);
+});
+
 test("业务单右栏的四个金额卡片在桌面窄栏内不溢出", async ({ page }) => {
   await page.setViewportSize({ width: 1792, height: 1000 });
   await installFormalFixtures(page);
