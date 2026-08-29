@@ -1,3 +1,5 @@
+"use client";
+
 import {
   Mail,
   MessageCircle,
@@ -121,4 +123,3 @@ export function ProfileBadge({ completeness, dataTestId }: { completeness: Profi
     </LocalBadge>
   );
 }
-"use client";
