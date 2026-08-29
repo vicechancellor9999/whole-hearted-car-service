@@ -13,6 +13,13 @@ type VehicleCreateContext = {
 
 type VehicleApiDependencies = {
   readSession(): Promise<VehicleApiSession | null>;
+  listVehicles?(input: {
+    viewerAccountId: number;
+    search?: string;
+    activeOnly: boolean;
+    page: number;
+    pageSize: number;
+  }): Promise<unknown>;
   resolveOwner(customerNo: string, viewerAccountId: number): Promise<VehicleOwner | null>;
   createVehicle(input: {
     plate?: string;
@@ -64,6 +71,27 @@ export function createVehicleApiHandler(dependencies: VehicleApiDependencies) {
     const session = await dependencies.readSession();
     if (!session) return NextResponse.json({ error: "unauthorized" }, { status: 401 });
     try {
+      if (request.method === "GET") {
+        if (!dependencies.listVehicles) {
+          return NextResponse.json({ error: "车辆搜索服务不可用" }, { status: 503 });
+        }
+        const url = new URL(request.url);
+        const search = url.searchParams.get("search")?.normalize("NFKC").trim() || undefined;
+        const requestedPageSize = Number(url.searchParams.get("pageSize"));
+        const pageSize = Number.isSafeInteger(requestedPageSize) && requestedPageSize > 0
+          ? Math.min(requestedPageSize, 8)
+          : 8;
+        return NextResponse.json(await dependencies.listVehicles({
+          viewerAccountId: session.account.id,
+          ...(search ? { search } : {}),
+          activeOnly: true,
+          page: 1,
+          pageSize,
+        }));
+      }
+      if (request.method !== "POST") {
+        return NextResponse.json({ error: "method_not_allowed" }, { status: 405 });
+      }
       const body = await request.json() as VehicleCreateBody;
       const plate = optionalTextField(body.plate);
       const make = requiredText(body.make);
@@ -130,8 +158,13 @@ export async function POST(request: Request): Promise<Response> {
         return company ? { type: "company", id: company.id } : null;
       },
       createVehicle: (input) => runtime.service.createVehicle(input),
+      listVehicles: (input) => runtime.service.listVehicles(input),
     })(request);
   } finally {
     await runtime.close();
   }
+}
+
+export async function GET(request: Request): Promise<Response> {
+  return POST(request);
 }

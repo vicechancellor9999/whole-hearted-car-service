@@ -18,6 +18,7 @@ export function InspectionReportsView({
   error,
   mechanics,
   reports,
+  teams = [],
   selectedVehicleId,
   sourceBusinessOrderId,
   sourceRepairRoundId,
@@ -30,6 +31,7 @@ export function InspectionReportsView({
   error?: string;
   mechanics: Array<{ id: number; fullName: string }>;
   reports: InspectionReportRecord[];
+  teams?: Array<{ id: number; name: string }>;
   selectedVehicleId: number | null;
   sourceBusinessOrderId?: number | null;
   sourceRepairRoundId?: number | null;
@@ -47,8 +49,10 @@ export function InspectionReportsView({
         <section className="record-editor-card"><h2>新建 Inspection Report 草稿</h2><form action={action} className="record-form ir-create-form">
           <input name="operation" type="hidden" value="create_inspection_report" /><input name="vehicleId" type="hidden" value={selectedVehicleId} />
           <input name="sourceBusinessOrderId" type="hidden" value={sourceBusinessOrderId ?? ""} /><input name="sourceRepairRoundId" type="hidden" value={sourceRepairRoundId ?? ""} />
-          <label>实际检查人<select name="actualInspectorStaffMemberId" required><option value="">选择维修工</option>{mechanics.map((member) => <option key={member.id} value={member.id}>{member.fullName}</option>)}</select></label>
-          <label>中文摘要<textarea name="summaryZh" required /></label><label>English summary<textarea name="summaryEn" /></label>
+          <label>提交班组<select name="inspectionTeamId" required><option value="">选择班组</option>{teams.map((team) => <option key={team.id} value={team.id}>{team.name}</option>)}</select></label>
+          <label>实际检查人（可选）<select name="actualInspectorStaffMemberId"><option value="">未填写</option>{mechanics.map((member) => <option key={member.id} value={member.id}>{member.fullName}</option>)}</select></label>
+          <label>检查结果<textarea name="summaryZh" required /></label><label>English summary<textarea name="summaryEn" /></label>
+          <label>特殊情况备注<textarea name="specialCaseNotesZh" /></label>
           <label>检查发现（中文）<textarea name="findingZh" /></label><label>Finding (English)<textarea name="findingEn" /></label>
           <label>处理建议（中文）<textarea name="recommendationZh" /></label><label>Recommendation (English)<textarea name="recommendationEn" /></label>
           <button type="submit">创建独立检查报告</button>
@@ -72,12 +76,13 @@ export default async function InspectionReportsPage({ searchParams }: {
   const selectedVehicleId = Number(query.vehicleId) || null;
   const [businessRuntime, customerRuntime, masterRuntime] = [createBusinessOrderRuntime(), createCustomerVehicleRuntime(), createMasterDataRuntime()];
   try {
-    const [reportPage, candidates, staff] = await Promise.all([
+    const [reportPage, candidates, staff, teams] = await Promise.all([
       selectedVehicleId ? businessRuntime.inspectionReports.listVehicleInspectionReports({ vehicleId: selectedVehicleId, viewerAccountId: viewer.id, page: 1, pageSize: 50 }) : Promise.resolve({ items: [], page: 1, pageSize: 50, pageCount: 1, total: 0 }),
       query.vehicleSearch ? customerRuntime.service.listVehicles({ viewerAccountId: viewer.id, search: query.vehicleSearch, page: 1, pageSize: 10 }) : Promise.resolve({ items: [], page: 1, pageSize: 10, pageCount: 1, total: 0 }),
       masterRuntime.service.listStaffMembers({ viewerAccountId: viewer.id }),
+      masterRuntime.service.listRepairTeams({ viewerAccountId: viewer.id, activeOnly: true }),
     ]);
-    return <InspectionReportsView canWrite={hasPermission(viewer.role, "business_order.write", viewer.delegatedPermissions)} error={query.error} mechanics={staff.filter((member) => member.status === "active").map((member) => ({ id: member.id, fullName: member.fullName }))} reports={reportPage.items} selectedVehicleId={selectedVehicleId} sourceBusinessOrderId={Number(query.businessOrderId) || null} sourceRepairRoundId={Number(query.repairRoundId) || null} success={query.success} vehicleCandidates={candidates.items} vehicleSearch={query.vehicleSearch} />;
+    return <InspectionReportsView canWrite={hasPermission(viewer.role, "business_order.write", viewer.delegatedPermissions)} error={query.error} mechanics={staff.filter((member) => member.status === "active").map((member) => ({ id: member.id, fullName: member.fullName }))} reports={reportPage.items} teams={teams.map((team) => ({ id: team.id, name: team.name }))} selectedVehicleId={selectedVehicleId} sourceBusinessOrderId={Number(query.businessOrderId) || null} sourceRepairRoundId={Number(query.repairRoundId) || null} success={query.success} vehicleCandidates={candidates.items} vehicleSearch={query.vehicleSearch} />;
   } finally {
     await Promise.all([businessRuntime.close(), customerRuntime.close(), masterRuntime.close()]);
   }

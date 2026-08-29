@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useEffect } from "react";
+import { useRouter } from "next/navigation";
 import type { Identity, Session } from "@/lib/types";
 import { api, isMockApiEnabled } from "@/lib/api/client";
 import { getFormalPcPolicy } from "@/lib/auth/formal-pc-access";
@@ -77,6 +78,7 @@ export function IdentitySwitcher({
   collapsed = false,
 }: IdentitySwitcherProps) {
   const { setLanguage } = useI18n();
+  const router = useRouter();
   const [identities, setIdentities] = useState<Identity[]>([]);
   const [session, setSession] = useState<Session | null>(null);
 
@@ -86,7 +88,7 @@ export function IdentitySwitcher({
       void fetch("/api/formal/auth/session", { credentials: "same-origin", cache: "no-store" })
         .then(async (response) => {
           if (response.status === 401) {
-            window.location.assign("/login");
+            router.replace("/login");
             return null;
           }
           if (!response.ok) throw new Error("正式会话读取失败");
@@ -101,7 +103,7 @@ export function IdentitySwitcher({
             payload.account.delegatedPermissions,
           );
           if (!policy.pcAccess) {
-            window.location.assign("/pc-not-available");
+            router.replace(payload.account.role === "mechanic" ? "/mechanic" : "/pc-not-available");
             return;
           }
           const formalSession: Session = {
@@ -165,7 +167,7 @@ export function IdentitySwitcher({
       active = false;
       window.removeEventListener("wh:employees-changed", load);
     };
-  }, [setLanguage]);
+  }, [router, setLanguage]);
 
   const handleSwitch = async (id: string) => {
     const s = await api.previewSession(id);

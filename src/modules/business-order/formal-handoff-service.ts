@@ -143,145 +143,7 @@ export class FormalHandoffService {
     performanceValue: string;
     context: BusinessOrderActionContext;
   }): Promise<FormalHandoffRecord> {
-    const businessOrderId = positiveId(input.businessOrderId, "Business Order");
-    const expectedRoundVersion = positiveId(
-      input.expectedRepairRoundVersion,
-      "维修轮次版本",
-    );
-    const performanceMinor = parseSignedMoney(
-      input.performanceValue,
-      "绩效值",
-    );
-    const now = input.context.now ?? new Date();
-    const monthDate = jamaicaMonthDate(now);
-
-    return this.database.transaction(async (transaction) => {
-      await requireWriter(transaction, input.context.actorAccountId);
-      const candidateRows = await transaction.query<FormalHandoffCandidateRow>(
-        `select business_order.id as business_order_id,
-                business_order.version as business_order_version,
-                business_order.voided_at,
-                business_order.current_charge_version_no,
-                repair_round.id as repair_round_id,
-                repair_round.round_no as repair_round_no,
-                repair_round.version as repair_round_version,
-                repair_round.status as repair_round_status,
-                repair_round.assigned_team_id as team_id
-         from business_orders as business_order
-         join repair_rounds as repair_round
-           on repair_round.business_order_id = business_order.id
-          and repair_round.round_no = business_order.current_repair_round_no
-         where business_order.id = $1
-         for update of business_order, repair_round`,
-        [businessOrderId],
-      );
-      const candidate = candidateRows[0];
-      if (!candidate) throw new FormalHandoffNotFoundError("Business Order 或当前维修轮次不存在");
-      if (candidate.voided_at) {
-        throw new FormalHandoffValidationError("已作废的 Business Order 不能正式交单");
-      }
-      if (candidate.repair_round_version !== expectedRoundVersion) {
-        throw new FormalHandoffValidationError("维修轮次已发生变化，请刷新后重试");
-      }
-      if (candidate.repair_round_status !== "return_pending_review") {
-        throw new FormalHandoffValidationError("只有回单已审核的当前维修轮次可以正式交单");
-      }
-      if (candidate.team_id === null) {
-        throw new FormalHandoffValidationError("当前维修轮次没有维修班组");
-      }
-      const approved = await transaction.query<{ approved: boolean }>(
-        `select true as approved
-         from repair_round_work_returns as work_return
-         join repair_round_events as approval
-           on approval.repair_round_id = work_return.repair_round_id
-          and approval.work_return_id = work_return.id
-          and approval.event_type = 'work_return_approved'
-         where work_return.repair_round_id = $1
-           and work_return.submission_no = (
-             select max(submission_no) from repair_round_work_returns
-             where repair_round_id = $1
-           )
-         limit 1`,
-        [candidate.repair_round_id],
-      );
-      if (!approved[0]) {
-        throw new FormalHandoffValidationError("最新回单尚未审核通过");
-      }
-      const active = await transaction.query<{ id: number }>(
-        `select handoff.id
-         from formal_handoffs as handoff
-         left join formal_handoff_cancellations as cancellation
-           on cancellation.formal_handoff_id = handoff.id
-         where handoff.repair_round_id = $1 and cancellation.id is null
-         limit 1`,
-        [candidate.repair_round_id],
-      );
-      if (active[0]) {
-        throw new FormalHandoffValidationError("当前维修轮次已经正式交单");
-      }
-
-      const chargeRows = await transaction.query<ChargeVersionRow>(
-        `select id, version_no, gross_minor, line_discount_minor,
-                labor_discount_minor, part_discount_minor, other_discount_minor,
-                category_discount_minor, whole_order_discount_minor,
-                total_due_minor, included_gct_minor
-         from business_order_charge_versions
-         where business_order_id = $1 and version_no = $2
-         limit 1`,
-        [businessOrderId, candidate.current_charge_version_no],
-      );
-      const charge = chargeRows[0];
-      if (!charge) throw new FormalHandoffNotFoundError("当前收费版本不存在");
-      const chargeSnapshot = await buildChargeSnapshot(transaction, charge);
-      const counts = await transaction.query<{ current_no: number }>(
-        `select coalesce(max(handoff_no), 0)::integer as current_no
-         from formal_handoffs where business_order_id = $1`,
-        [businessOrderId],
-      );
-      const handoffNo = Number(counts[0]?.current_no ?? 0) + 1;
-      const inserted = await transaction.query<FormalHandoffRow>(
-        `insert into formal_handoffs
-          (business_order_id, handoff_no, repair_round_id, repair_round_no,
-           team_id, performance_minor, jamaica_month,
-           charge_version_id, charge_version_no,
-           gross_minor, line_discount_minor,
-           labor_discount_minor, part_discount_minor, other_discount_minor,
-           category_discount_minor, whole_order_discount_minor,
-           total_due_minor, included_gct_minor, charge_snapshot,
-           handed_off_at, handed_off_by)
-         values
-          ($1, $2, $3, $4, $5, $6, $7::date, $8, $9,
-           $10, $11, $12, $13, $14, $15, $16, $17, $18, $19::jsonb,
-           $20, $21)
-         returning *`,
-        [businessOrderId, handoffNo, candidate.repair_round_id,
-          candidate.repair_round_no, candidate.team_id, performanceMinor,
-          monthDate, charge.id, charge.version_no,
-          charge.gross_minor, charge.line_discount_minor,
-          charge.labor_discount_minor, charge.part_discount_minor,
-          charge.other_discount_minor, charge.category_discount_minor,
-          charge.whole_order_discount_minor, charge.total_due_minor,
-          charge.included_gct_minor, JSON.stringify(chargeSnapshot), now,
-          input.context.actorAccountId],
-      );
-      const handoff = inserted[0];
-      if (!handoff) throw new FormalHandoffValidationError("正式交单未能写入");
-      await audit(transaction, input.context, now, {
-        eventType: "business_order.formally_handed_off",
-        businessOrderId,
-        after: {
-          formalHandoffId: Number(handoff.id),
-          handoffNo,
-          repairRoundNo: candidate.repair_round_no,
-          teamId: Number(candidate.team_id),
-          performanceMinor,
-          jamaicaMonth: monthDate.slice(0, 7),
-          chargeVersionNo: charge.version_no,
-          totalDueMinor: Number(charge.total_due_minor),
-        },
-      });
-      return mapHandoff(handoff);
-    });
+    return this.database.transaction((transaction) => formallyHandOffRoundInTransaction(transaction, input));
   }
 
   async cancelFormalHandoffInSameMonth(input: {
@@ -392,6 +254,139 @@ export class FormalHandoffService {
     );
     return rows.map(mapHandoff);
   }
+}
+
+export async function formallyHandOffRoundInTransaction(
+  transaction: AuthSqlExecutor,
+  input: {
+    businessOrderId: number;
+    expectedRepairRoundVersion: number;
+    performanceValue: string;
+    context: BusinessOrderActionContext;
+  },
+): Promise<FormalHandoffRecord> {
+  const businessOrderId = positiveId(input.businessOrderId, "Business Order");
+  const expectedRoundVersion = positiveId(input.expectedRepairRoundVersion, "维修轮次版本");
+  const performanceMinor = parseSignedMoney(input.performanceValue, "绩效值");
+  const now = input.context.now ?? new Date();
+  const monthDate = jamaicaMonthDate(now);
+  await requireWriter(transaction, input.context.actorAccountId);
+  const candidateRows = await transaction.query<FormalHandoffCandidateRow>(
+    `select business_order.id as business_order_id,
+            business_order.version as business_order_version,
+            business_order.voided_at,
+            business_order.current_charge_version_no,
+            repair_round.id as repair_round_id,
+            repair_round.round_no as repair_round_no,
+            repair_round.version as repair_round_version,
+            repair_round.status as repair_round_status,
+            repair_round.assigned_team_id as team_id
+     from business_orders as business_order
+     join repair_rounds as repair_round
+       on repair_round.business_order_id = business_order.id
+      and repair_round.round_no = business_order.current_repair_round_no
+     where business_order.id = $1
+     for update of business_order, repair_round`,
+    [businessOrderId],
+  );
+  const candidate = candidateRows[0];
+  if (!candidate) throw new FormalHandoffNotFoundError("Business Order 或当前维修轮次不存在");
+  if (candidate.voided_at) throw new FormalHandoffValidationError("已作废的 Business Order 不能正式交单");
+  if (candidate.repair_round_version !== expectedRoundVersion) {
+    throw new FormalHandoffValidationError("维修轮次已发生变化，请刷新后重试");
+  }
+  if (candidate.repair_round_status !== "return_pending_review") {
+    throw new FormalHandoffValidationError("只有回单已审核的当前维修轮次可以正式交单");
+  }
+  if (candidate.team_id === null) throw new FormalHandoffValidationError("当前维修轮次没有维修班组");
+  const approved = await transaction.query<{ approved: boolean }>(
+    `select true as approved
+     from repair_round_work_returns as work_return
+     join repair_round_events as approval
+       on approval.repair_round_id = work_return.repair_round_id
+      and approval.work_return_id = work_return.id
+      and approval.event_type = 'work_return_approved'
+     where work_return.repair_round_id = $1
+       and work_return.submission_no = (
+         select max(submission_no) from repair_round_work_returns
+         where repair_round_id = $1
+       )
+     limit 1`,
+    [candidate.repair_round_id],
+  );
+  if (!approved[0]) throw new FormalHandoffValidationError("最新回单尚未审核通过");
+  const active = await transaction.query<{ id: number }>(
+    `select handoff.id
+     from formal_handoffs as handoff
+     left join formal_handoff_cancellations as cancellation
+       on cancellation.formal_handoff_id = handoff.id
+     where handoff.repair_round_id = $1 and cancellation.id is null
+     limit 1`,
+    [candidate.repair_round_id],
+  );
+  if (active[0]) throw new FormalHandoffValidationError("当前维修轮次已经正式交单");
+
+  const chargeRows = await transaction.query<ChargeVersionRow>(
+    `select id, version_no, gross_minor, line_discount_minor,
+            labor_discount_minor, part_discount_minor, other_discount_minor,
+            category_discount_minor, whole_order_discount_minor,
+            total_due_minor, included_gct_minor
+     from business_order_charge_versions
+     where business_order_id = $1 and version_no = $2
+     limit 1`,
+    [businessOrderId, candidate.current_charge_version_no],
+  );
+  const charge = chargeRows[0];
+  if (!charge) throw new FormalHandoffNotFoundError("当前收费版本不存在");
+  const chargeSnapshot = await buildChargeSnapshot(transaction, charge);
+  const counts = await transaction.query<{ current_no: number }>(
+    `select coalesce(max(handoff_no), 0)::integer as current_no
+     from formal_handoffs where business_order_id = $1`,
+    [businessOrderId],
+  );
+  const handoffNo = Number(counts[0]?.current_no ?? 0) + 1;
+  const inserted = await transaction.query<FormalHandoffRow>(
+    `insert into formal_handoffs
+      (business_order_id, handoff_no, repair_round_id, repair_round_no,
+       team_id, performance_minor, jamaica_month,
+       charge_version_id, charge_version_no,
+       gross_minor, line_discount_minor,
+       labor_discount_minor, part_discount_minor, other_discount_minor,
+       category_discount_minor, whole_order_discount_minor,
+       total_due_minor, included_gct_minor, charge_snapshot,
+       handed_off_at, handed_off_by)
+     values
+      ($1, $2, $3, $4, $5, $6, $7::date, $8, $9,
+       $10, $11, $12, $13, $14, $15, $16, $17, $18, $19::jsonb,
+       $20, $21)
+     returning *`,
+    [businessOrderId, handoffNo, candidate.repair_round_id,
+      candidate.repair_round_no, candidate.team_id, performanceMinor,
+      monthDate, charge.id, charge.version_no,
+      charge.gross_minor, charge.line_discount_minor,
+      charge.labor_discount_minor, charge.part_discount_minor,
+      charge.other_discount_minor, charge.category_discount_minor,
+      charge.whole_order_discount_minor, charge.total_due_minor,
+      charge.included_gct_minor, JSON.stringify(chargeSnapshot), now,
+      input.context.actorAccountId],
+  );
+  const handoff = inserted[0];
+  if (!handoff) throw new FormalHandoffValidationError("正式交单未能写入");
+  await audit(transaction, input.context, now, {
+    eventType: "business_order.formally_handed_off",
+    businessOrderId,
+    after: {
+      formalHandoffId: Number(handoff.id),
+      handoffNo,
+      repairRoundNo: candidate.repair_round_no,
+      teamId: Number(candidate.team_id),
+      performanceMinor,
+      jamaicaMonth: monthDate.slice(0, 7),
+      chargeVersionNo: charge.version_no,
+      totalDueMinor: Number(charge.total_due_minor),
+    },
+  });
+  return mapHandoff(handoff);
 }
 
 async function buildChargeSnapshot(

@@ -300,6 +300,7 @@ export class BusinessOrderService {
   async listBusinessOrders(input: {
     viewerAccountId: number;
     search?: string;
+    status?: BusinessOrderRecord["status"];
     page?: number;
     pageSize?: number;
   }) {
@@ -307,13 +308,15 @@ export class BusinessOrderService {
     const pageSize = positivePageSize(input.pageSize);
     const requestedPage = positivePage(input.page);
     const search = input.search?.normalize("NFKC").trim() || null;
+    const status = input.status ?? null;
     const like = search ? `%${search}%` : null;
     const counts = await this.database.query<{ total: number }>(
       `select count(*)::integer as total from business_orders
        where ($1::text is null or order_no ilike $2
           or vehicle_plate_snapshot ilike $2
-          or payer_display_name_snapshot ilike $2)`,
-      [search, like],
+          or payer_display_name_snapshot ilike $2)
+         and ($3::business_order_status is null or status = $3)`,
+      [search, like, status],
     );
     const total = Number(counts[0]?.total ?? 0);
     const pageCount = Math.max(1, Math.ceil(total / pageSize));
@@ -323,8 +326,9 @@ export class BusinessOrderService {
        where ($1::text is null or order_no ilike $2
           or vehicle_plate_snapshot ilike $2
           or payer_display_name_snapshot ilike $2)
-       order by created_at desc, id desc offset $3 limit $4`,
-      [search, like, (page - 1) * pageSize, pageSize],
+         and ($3::business_order_status is null or status = $3)
+       order by created_at desc, id desc offset $4 limit $5`,
+      [search, like, status, (page - 1) * pageSize, pageSize],
     );
     return {
       items: rows.map(mapBusinessOrder),

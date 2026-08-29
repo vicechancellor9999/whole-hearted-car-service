@@ -128,6 +128,25 @@ export async function fetchFormalCustomerVehicleWorkspace(): Promise<FormalCusto
   return payload;
 }
 
+export async function fetchFormalVehicleSearch(
+  search: string,
+  signal?: AbortSignal,
+): Promise<FormalVehicle[]> {
+  const query = new URLSearchParams({ search, pageSize: "8" });
+  const response = await fetch(`/api/formal/vehicles?${query.toString()}`, {
+    cache: "no-store",
+    signal,
+  });
+  const payload = await response.json().catch(() => ({})) as {
+    items?: FormalVehicle[];
+    error?: unknown;
+  };
+  if (!response.ok) {
+    throw new Error(typeof payload.error === "string" ? payload.error : "车辆搜索失败");
+  }
+  return Array.isArray(payload.items) ? payload.items : [];
+}
+
 const emptyVerificationArchive = {
   otpRecords: [],
   kycRecords: [],

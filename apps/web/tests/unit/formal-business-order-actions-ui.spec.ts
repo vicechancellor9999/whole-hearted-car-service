@@ -67,7 +67,7 @@ test("日常收费编辑只保留每行本项折扣并清零旧整单折扣", ()
 
 test("金额输入聚焦时直接选中旧值避免零前缀", () => {
   const source = detail();
-  expect(source).toContain('aria-label="本项折扣"');
+  expect(source).toContain('aria-label={english ? "Item discount" : "本项折扣"}');
   expect(source).toContain('onFocus={(event) => event.currentTarget.select()}');
 });
 
@@ -85,8 +85,10 @@ test("收费行和备注都能逐项翻译且保存反馈留在表单位置", ()
   const source = detail();
   expect(source).toMatch(/translateChargeDraftItem/);
   expect(source).toMatch(/translateChargeNoteDraft/);
-  expect(source).toMatch(/aria-label={`翻译收费项目/);
-  expect(source).toMatch(/aria-label={`翻译备注/);
+  expect(source).toMatch(/Translate charge item/);
+  expect(source).toMatch(/翻译收费项目/);
+  expect(source).toMatch(/Translate note/);
+  expect(source).toMatch(/翻译备注/);
   expect(source).toMatch(/chargeActionError/);
   expect(source).toMatch(/chargeActionNotice/);
 });
@@ -118,7 +120,11 @@ test("收款和退款通过可关闭的浮窗填写", () => {
 
 test("收费编辑与保存占用同一个标题操作位置", () => {
   const source = detail();
-  expect(source).toMatch(/chargeEditing \? "保存收费项目" : "编辑收费项目"/);
+  expect(source).toMatch(/type=\{chargeEditing \? "submit" : "button"\}/);
+  expect(source).toMatch(/Save charges/);
+  expect(source).toMatch(/保存收费项目/);
+  expect(source).toMatch(/Edit charges/);
+  expect(source).toMatch(/编辑收费项目/);
   expect(source).toMatch(/取消编辑/);
   expect(source).toMatch(/新增工时/);
   expect(source).toMatch(/新增配件/);
@@ -160,24 +166,24 @@ test("退款先落账再打印纸质签收单并可选回传签字件", () => {
   expect(source).toMatch(/appendFormalRefundSignedAcknowledgement/);
 });
 
-test("维修中同时提供独立检查结果入口和单独的下一步按钮", () => {
+test("维修中同时提供独立检查结果入口和纸质回单入口", () => {
   const source = detail();
   expect(source).toMatch(/新建检查结果/);
-  expect(source).toMatch(/推进下一步/);
+  expect(source).toMatch(/收到纸质回单/);
   expect(source).toMatch(/sourceBusinessOrderId/);
   expect(source).toMatch(/inspectionCreateOpen/);
+  expect(source).toMatch(/paperReturnOpen/);
   expect(source).toMatch(/相关检查结果/);
   expect(source).not.toMatch(/orders\/inspections\?create=1/);
 });
 
-test("维修回单表单默认不占用详情页，只在点击推进下一步后显示", () => {
+test("纸质回单表单默认不占用详情页，只在点击入口后显示并直接正式交单", () => {
   const source = detail();
-  expect(source).toMatch(/advanceRoundOpen/);
-  expect(source).not.toContain("下一步：代录纸质维修回单");
-  expect(source).toMatch(/推进到回单待审核/);
-  expect(source).not.toContain('name="actualStaffMemberId"');
-  expect(source).not.toContain('name="workSummary"');
-  expect(source).toMatch(/action: "submit_return", repairRoundVersion/);
+  expect(source).toMatch(/paperReturnOpen/);
+  expect(source).toMatch(/确认纸质回单并正式交单/);
+  expect(source).toContain('name="actualStaffMemberId"');
+  expect(source).toMatch(/action: "record_paper_return_and_formal_handoff"/);
+  expect(source).toMatch(/一次确认完成正式交单/);
 });
 
 test("误触开始的空白售后轮次可以撤销回上一轮已交单状态", () => {

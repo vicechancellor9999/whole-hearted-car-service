@@ -1,5 +1,5 @@
 import { expect, test } from "@playwright/test";
-import { TeamPerformanceSection } from "../../src/components/dashboard/team-performance";
+import { TeamPerformanceSectionView } from "../../src/components/dashboard/team-performance";
 import type { DashboardHeader, TeamPerformance } from "../../src/lib/types";
 
 function visibleText(value: unknown): string {
@@ -15,6 +15,10 @@ function hrefs(value: unknown): string[] {
   const props = (value as { props?: { href?: unknown; children?: unknown } }).props;
   return [typeof props?.href === "string" ? props.href : null, ...hrefs(props?.children)]
     .filter((href): href is string => href !== null);
+}
+
+function renderSection(data: TeamPerformance, header: DashboardHeader) {
+  return TeamPerformanceSectionView({ data, header, language: "zh" });
 }
 
 test("an incomplete target renders the exact missing fact without zero amounts or zero percent", () => {
@@ -47,7 +51,7 @@ test("an incomplete target renders the exact missing fact without zero amounts o
     }],
   } as TeamPerformance;
 
-  const text = visibleText(TeamPerformanceSection({ data, header }));
+  const text = visibleText(renderSection(data, header));
 
   expect(text).toContain("机修一组：张三缺少月标准工资");
   expect(text).toContain("已完成 JMD 3,200");
@@ -86,7 +90,7 @@ test("a calculated target renders the completion rate and exact target amount", 
     }],
   } as TeamPerformance;
 
-  const text = visibleText(TeamPerformanceSection({ data, header }));
+  const text = visibleText(renderSection(data, header));
 
   expect(text).toContain("50%");
   expect(text).toContain("JMD 88,000 / JMD 176,000");
@@ -123,7 +127,7 @@ test("a configured zero target is shown as not applicable rather than missing", 
     }],
   } as TeamPerformance;
 
-  const text = visibleText(TeamPerformanceSection({ data, header }));
+  const text = visibleText(renderSection(data, header));
 
   expect(text).toContain("完成率不适用");
   expect(text).toContain("目标 JMD 0");
@@ -155,6 +159,6 @@ test("a missing monthly performance parameter links the affected team to its set
     }],
   } as TeamPerformance;
 
-  expect(hrefs(TeamPerformanceSection({ data, header })))
+  expect(hrefs(renderSection(data, header)))
     .toContain("/settings?team=7#performance-parameters");
 });

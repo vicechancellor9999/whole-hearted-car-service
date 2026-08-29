@@ -30,7 +30,9 @@ type InspectionReportRow = {
   correction_reason: string | null;
   summary_zh: string;
   summary_en: string | null;
+  inspection_team_id: number;
   actual_inspector_staff_member_id: number | null;
+  special_case_notes_zh: string | null;
   paper_photo_file_id: number | null;
   status: "draft" | "submitted";
   created_at: Date;
@@ -51,6 +53,7 @@ type InspectionReportListRow = InspectionReportRow & {
   customer_whatsapp: string | null;
   customer_email: string | null;
   inspector_name: string | null;
+  team_name: string;
   source_business_order_no: string | null;
 };
 
@@ -64,7 +67,9 @@ export type InspectionReportRecord = {
   correctionReason: string | null;
   summaryZh: string;
   summaryEn: string | null;
+  inspectionTeamId: number;
   actualInspectorStaffMemberId: number | null;
+  specialCaseNotesZh: string | null;
   paperPhotoFileId: number | null;
   status: "draft" | "submitted";
   createdAt: Date;
@@ -89,6 +94,7 @@ export type InspectionReportListItem = {
     email: string | null;
   };
   inspectorName: string | null;
+  teamName: string;
   sourceBusinessOrder: { id: number; orderNo: string } | null;
 };
 
@@ -142,8 +148,10 @@ export class InspectionReportService {
     vehicleId: number;
     sourceBusinessOrderId?: number | null;
     sourceRepairRoundId?: number | null;
+    inspectionTeamId: number;
     actualInspectorStaffMemberId?: number | null;
     paperPhotoFileId?: number | null;
+    specialCaseNotesZh?: string | null;
     summaryZh: string;
     summaryEn?: string | null;
     findings: FindingInput[];
@@ -155,6 +163,7 @@ export class InspectionReportService {
       await requireReportWriter(
         transaction,
         input.context.actorAccountId,
+        fields.inspectionTeamId,
         fields.actualInspectorStaffMemberId,
       );
       await validateReportLinks(transaction, fields);
@@ -172,6 +181,7 @@ export class InspectionReportService {
         vehicleId: report.vehicleId,
         sourceBusinessOrderId: report.sourceBusinessOrderId,
         sourceRepairRoundId: report.sourceRepairRoundId,
+        inspectionTeamId: report.inspectionTeamId,
       });
       return report;
     });
@@ -192,6 +202,7 @@ export class InspectionReportService {
       await requireReportWriter(
         transaction,
         input.context.actorAccountId,
+        Number(report.inspection_team_id),
         nullableNumber(report.actual_inspector_staff_member_id),
       );
       if (report.version !== expectedVersion) {
@@ -201,9 +212,6 @@ export class InspectionReportService {
       }
       if (report.status !== "draft") {
         throw new InspectionReportValidationError("只有草稿可以提交");
-      }
-      if (report.actual_inspector_staff_member_id === null) {
-        throw new InspectionReportValidationError("提交前必须记录实际检查人");
       }
       const updated = await transaction.query<{ version: number }>(
         `update inspection_reports
@@ -220,7 +228,8 @@ export class InspectionReportService {
       }
       await audit(transaction, input.context, now, "inspection_report.submitted", reportId, {
         version: Number(updated[0].version),
-        actualInspectorStaffMemberId: Number(report.actual_inspector_staff_member_id),
+        inspectionTeamId: Number(report.inspection_team_id),
+        actualInspectorStaffMemberId: nullableNumber(report.actual_inspector_staff_member_id),
       });
       return selectReport(transaction, reportId);
     });
@@ -233,7 +242,9 @@ export class InspectionReportService {
     summaryZh: string;
     summaryEn?: string | null;
     findings: FindingInput[];
+    inspectionTeamId?: number | null;
     actualInspectorStaffMemberId?: number | null;
+    specialCaseNotesZh?: string | null;
     paperPhotoFileId?: number | null;
     context: BusinessOrderActionContext;
   }): Promise<InspectionReportRecord> {
@@ -246,9 +257,9 @@ export class InspectionReportService {
       "原 Inspection Report 版本",
     );
     const content = parseContent(input);
-    const actualInspectorStaffMemberId = requiredPositiveId(
+    const actualInspectorStaffMemberId = nullablePositiveId(
       input.actualInspectorStaffMemberId,
-      "实际检查人",
+      "维修工姓名",
     );
     const paperPhotoFileId = nullablePositiveId(input.paperPhotoFileId, "纸质检查单照片");
     const correctionReason = nonempty(input.correctionReason, "更正原因");
@@ -258,9 +269,13 @@ export class InspectionReportService {
       const originals = await selectReportRows(transaction, originalId, true);
       const original = originals[0];
       if (!original) throw new InspectionReportNotFoundError("原 Inspection Report 不存在");
+      const inspectionTeamId = input.inspectionTeamId == null
+        ? Number(original.inspection_team_id)
+        : positiveId(input.inspectionTeamId, "提交班组");
       await requireReportWriter(
         transaction,
         input.context.actorAccountId,
+        inspectionTeamId,
         actualInspectorStaffMemberId,
       );
       if (original.version !== expectedVersion || original.status !== "submitted") {
@@ -282,7 +297,9 @@ export class InspectionReportService {
         vehicleId: Number(original.vehicle_id),
         sourceBusinessOrderId: nullableNumber(original.source_business_order_id),
         sourceRepairRoundId: nullableNumber(original.source_repair_round_id),
+        inspectionTeamId,
         actualInspectorStaffMemberId,
+        specialCaseNotesZh: optionalText(input.specialCaseNotesZh),
         paperPhotoFileId,
         ...content,
       };
@@ -322,10 +339,8 @@ export class InspectionReportService {
     const countRows = await this.database.query<{ total: number }>(
       `select count(*)::integer as total
        from inspection_reports as report
-       left join staff_members as inspector
-         on inspector.id = report.actual_inspector_staff_member_id
        where report.vehicle_id = $1
-         and ($2::bigint is null or inspector.current_team_id = $2)`,
+         and ($2::bigint is null or report.inspection_team_id = $2)`,
       [vehicleId, teamId],
     );
     const total = Number(countRows[0]?.total ?? 0);
@@ -334,10 +349,8 @@ export class InspectionReportService {
     const rows = await this.database.query<InspectionReportRow>(
       `select ${reportColumns("report")}
        from inspection_reports as report
-       left join staff_members as inspector
-         on inspector.id = report.actual_inspector_staff_member_id
        where report.vehicle_id = $1
-         and ($2::bigint is null or inspector.current_team_id = $2)
+         and ($2::bigint is null or report.inspection_team_id = $2)
        order by report.created_at desc, report.id desc
        offset $3 limit $4`,
       [vehicleId, teamId, (page - 1) * pageSize, pageSize],
@@ -355,7 +368,7 @@ export class InspectionReportService {
     const access = await requireReportReader(this.database, input.viewerAccountId);
     const rows = await this.database.query<InspectionReportListRow>(
       `${reportListQuery()} where report.id = $1
-        and ($2::bigint is null or inspector.current_team_id = $2)`,
+        and ($2::bigint is null or report.inspection_team_id = $2)`,
       [reportId, access.role === "mechanic" ? access.currentTeamId : null],
     );
     if (!rows[0]) throw new InspectionReportNotFoundError();
@@ -381,7 +394,7 @@ export class InspectionReportService {
       and ($2::text is null or concat_ws(' ', report.report_no, report.summary_zh,
         vehicle.plate_display, vehicle.make, vehicle.make_zh, vehicle.model, vehicle.model_zh,
         person.full_name, company.legal_name, inspector.full_name) ilike '%' || $2 || '%')
-      and ($3::bigint is null or inspector.current_team_id = $3)`;
+      and ($3::bigint is null or report.inspection_team_id = $3)`;
     const countRows = await this.database.query<{ total: number }>(
       `select count(*)::integer as total
        from inspection_reports as report
@@ -478,12 +491,14 @@ function reportListQuery() {
           person.whatsapp as customer_whatsapp,
           coalesce(person.email, company.email) as customer_email,
           inspector.full_name as inspector_name,
+          team.name as team_name,
           source_order.order_no as source_business_order_no
    from inspection_reports as report
    join vehicles as vehicle on vehicle.id = report.vehicle_id
    left join personal_customers as person on person.id = vehicle.current_person_customer_id
    left join company_accounts as company on company.id = vehicle.current_company_account_id
    left join staff_members as inspector on inspector.id = report.actual_inspector_staff_member_id
+   join repair_teams as team on team.id = report.inspection_team_id
    left join business_orders as source_order on source_order.id = report.source_business_order_id`;
 }
 
@@ -505,6 +520,7 @@ async function mapListItem(
       email: row.customer_email,
     },
     inspectorName: row.inspector_name,
+    teamName: row.team_name,
     sourceBusinessOrder: report.sourceBusinessOrderId === null || row.source_business_order_no === null
       ? null
       : { id: report.sourceBusinessOrderId, orderNo: row.source_business_order_no },
@@ -553,7 +569,9 @@ async function insertDraft(
     correctionReason: string | null;
     summaryZh: string;
     summaryEn: string | null;
+    inspectionTeamId: number;
     actualInspectorStaffMemberId: number | null;
+    specialCaseNotesZh: string | null;
     paperPhotoFileId: number | null;
     findings: ParsedFinding[];
     createdBy: number;
@@ -564,14 +582,16 @@ async function insertDraft(
     `insert into inspection_reports
       (report_no, vehicle_id, source_business_order_id,
        source_repair_round_id, correction_of_report_id, correction_reason,
-       summary_zh, summary_en, actual_inspector_staff_member_id,
+       summary_zh, summary_en, inspection_team_id,
+       actual_inspector_staff_member_id, special_case_notes_zh,
        paper_photo_file_id, created_at, created_by)
-     values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
+     values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)
      returning ${reportColumns()}`,
     [input.reportNo, input.vehicleId, input.sourceBusinessOrderId,
       input.sourceRepairRoundId, input.correctionOfReportId,
       input.correctionReason, input.summaryZh, input.summaryEn,
-      input.actualInspectorStaffMemberId, input.paperPhotoFileId,
+      input.inspectionTeamId, input.actualInspectorStaffMemberId,
+      input.specialCaseNotesZh, input.paperPhotoFileId,
       input.createdAt, input.createdBy],
   );
   for (const [index, finding] of input.findings.entries()) {
@@ -633,9 +653,11 @@ async function mapReportWithFindings(
     correctionReason: row.correction_reason,
     summaryZh: row.summary_zh,
     summaryEn: row.summary_en,
+    inspectionTeamId: Number(row.inspection_team_id),
     actualInspectorStaffMemberId: nullableNumber(
       row.actual_inspector_staff_member_id,
     ),
+    specialCaseNotesZh: row.special_case_notes_zh,
     paperPhotoFileId: nullableNumber(row.paper_photo_file_id),
     status: row.status,
     createdAt: new Date(row.created_at),
@@ -660,6 +682,7 @@ async function validateReportLinks(
     vehicleId: number;
     sourceBusinessOrderId: number | null;
     sourceRepairRoundId: number | null;
+    inspectionTeamId: number;
     actualInspectorStaffMemberId: number | null;
     paperPhotoFileId: number | null;
   },
@@ -669,13 +692,24 @@ async function validateReportLinks(
     [input.vehicleId],
   );
   if (!vehicles[0]) throw new InspectionReportNotFoundError("车辆不存在或已停用");
+  const teams = await executor.query<{ id: number }>(
+    "select id from repair_teams where id = $1 and is_active = true limit 1",
+    [input.inspectionTeamId],
+  );
+  if (!teams[0]) {
+    throw new InspectionReportValidationError("提交班组不存在或已停用");
+  }
   if (input.actualInspectorStaffMemberId !== null) {
-    const staff = await executor.query<{ id: number }>(
-      "select id from staff_members where id = $1 and status = 'active' limit 1",
+    const staff = await executor.query<{ id: number; current_team_id: number }>(
+      `select id, current_team_id from staff_members
+       where id = $1 and status = 'active' limit 1`,
       [input.actualInspectorStaffMemberId],
     );
     if (!staff[0]) {
-      throw new InspectionReportValidationError("实际检查人不存在或已经离职");
+      throw new InspectionReportValidationError("维修工不存在或已经离职");
+    }
+    if (Number(staff[0].current_team_id) !== input.inspectionTeamId) {
+      throw new InspectionReportValidationError("维修工不属于所选提交班组");
     }
   }
   if (input.sourceBusinessOrderId !== null) {
@@ -719,10 +753,15 @@ async function validateReportLinks(
 async function requireReportWriter(
   executor: AuthSqlExecutor,
   accountId: number,
+  inspectionTeamId: number,
   actualInspectorStaffMemberId: number | null,
 ) {
-  const rows = await executor.query<{ role: string; staff_member_id: number | null }>(
-    `select account.role, member.id as staff_member_id
+  const rows = await executor.query<{
+    role: string;
+    staff_member_id: number | null;
+    current_team_id: number | null;
+  }>(
+    `select account.role, member.id as staff_member_id, member.current_team_id
      from staff_accounts as account
      left join staff_members as member
        on member.account_id = account.id and member.status = 'active'
@@ -733,8 +772,9 @@ async function requireReportWriter(
   if (actor && ["super_admin", "front_desk"].includes(actor.role)) return;
   if (
     actor?.role === "mechanic" &&
-    actualInspectorStaffMemberId !== null &&
-    Number(actor.staff_member_id) === actualInspectorStaffMemberId
+    Number(actor.current_team_id) === inspectionTeamId &&
+    (actualInspectorStaffMemberId === null ||
+      Number(actor.staff_member_id) === actualInspectorStaffMemberId)
   ) return;
   throw new InspectionReportAccessDeniedError();
 }
@@ -800,7 +840,8 @@ function reportColumns(prefix?: string) {
           ${p}source_business_order_id, ${p}source_repair_round_id,
           ${p}correction_of_report_id, ${p}correction_reason,
           ${p}summary_zh, ${p}summary_en,
-          ${p}actual_inspector_staff_member_id, ${p}paper_photo_file_id,
+          ${p}inspection_team_id, ${p}actual_inspector_staff_member_id,
+          ${p}special_case_notes_zh, ${p}paper_photo_file_id,
           ${p}status, ${p}created_at, ${p}created_by,
           ${p}submitted_at, ${p}submitted_by, ${p}version`;
 }
@@ -809,8 +850,10 @@ function parseDraftInput(input: {
   vehicleId: number;
   sourceBusinessOrderId?: number | null;
   sourceRepairRoundId?: number | null;
+  inspectionTeamId: number;
   actualInspectorStaffMemberId?: number | null;
   paperPhotoFileId?: number | null;
+  specialCaseNotesZh?: string | null;
   summaryZh: string;
   summaryEn?: string | null;
   findings: FindingInput[];
@@ -819,10 +862,12 @@ function parseDraftInput(input: {
     vehicleId: positiveId(input.vehicleId, "车辆"),
     sourceBusinessOrderId: nullablePositiveId(input.sourceBusinessOrderId, "来源 Business Order"),
     sourceRepairRoundId: nullablePositiveId(input.sourceRepairRoundId, "来源维修轮次"),
-    actualInspectorStaffMemberId: requiredPositiveId(
+    inspectionTeamId: positiveId(input.inspectionTeamId, "提交班组"),
+    actualInspectorStaffMemberId: nullablePositiveId(
       input.actualInspectorStaffMemberId,
-      "实际检查人",
+      "维修工姓名",
     ),
+    specialCaseNotesZh: optionalText(input.specialCaseNotesZh),
     paperPhotoFileId: nullablePositiveId(input.paperPhotoFileId, "纸质检查单照片"),
     ...parseContent(input),
   };
@@ -833,11 +878,11 @@ function parseContent(input: {
   summaryEn?: string | null;
   findings: FindingInput[];
 }) {
-  if (!Array.isArray(input.findings) || input.findings.length === 0) {
-    throw new InspectionReportValidationError("Inspection Report 至少要有一条检查结果");
+  if (!Array.isArray(input.findings)) {
+    throw new InspectionReportValidationError("Inspection Report 检查明细无效");
   }
   return {
-    summaryZh: nonempty(input.summaryZh, "检查总结"),
+    summaryZh: nonempty(input.summaryZh, "检查结果"),
     summaryEn: optionalText(input.summaryEn),
     findings: input.findings.map((finding) => ({
       findingZh: nonempty(finding.findingZh, "检查结果"),
@@ -857,11 +902,6 @@ function positiveId(value: number, label: string) {
 
 function nullablePositiveId(value: number | null | undefined, label: string) {
   return value == null ? null : positiveId(value, label);
-}
-
-function requiredPositiveId(value: number | null | undefined, label: string) {
-  if (value == null) throw new InspectionReportValidationError(`${label}不能为空`);
-  return positiveId(value, label);
 }
 
 function nonempty(value: string, label: string) {

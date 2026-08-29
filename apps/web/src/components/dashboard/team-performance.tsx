@@ -5,6 +5,7 @@ import { ArrowRight } from "lucide-react";
 import { formatJMDFull } from "@/lib/utils";
 import type { DashboardHeader, TeamPerformance } from "@/lib/types";
 import { useI18n } from "@/lib/i18n/language";
+import { translate, type UiLanguage } from "@/lib/i18n/catalog";
 import { localizeDashboardMonthLabel, localizeDashboardReason, localizeDashboardTeam } from "@/lib/i18n/dashboard-localization";
 
 interface TeamPerformanceSectionProps {
@@ -13,7 +14,17 @@ interface TeamPerformanceSectionProps {
 }
 
 export function TeamPerformanceSection({ data, header }: TeamPerformanceSectionProps) {
-  const { language, t } = useI18n();
+  const { language } = useI18n();
+  return <TeamPerformanceSectionView data={data} header={header} language={language} />;
+}
+
+export function TeamPerformanceSectionView({
+  data,
+  header,
+  language,
+}: TeamPerformanceSectionProps & { language: UiLanguage }) {
+  const t = (key: Parameters<typeof translate>[0], variables?: Parameters<typeof translate>[2]) =>
+    translate(key, language, variables);
   const shopTargetConfigured = header?.targetStatus === "configured"
     && header.targetTotalAmount !== null;
   const rawShopMissingReason = header?.targetMissingReasons[0] ?? "目标资料不完整";

@@ -492,6 +492,7 @@ export function CustomerFormDialog({ customer, customers, onClose, onSaved }: Cu
 interface VehicleFormDialogProps {
   mode: "create" | "edit";
   vehicle?: VehicleRecord;
+  initialPlate?: string;
   customers: CustomerRecord[];
   relationships: VehicleCustomerRelationship[];
   onClose: () => void;
@@ -500,13 +501,13 @@ interface VehicleFormDialogProps {
 
 type VehicleErrorKey = "make" | "model" | "year";
 
-export function VehicleFormDialog({ mode, vehicle, customers, relationships, onClose, onSaved }: VehicleFormDialogProps) {
+export function VehicleFormDialog({ mode, vehicle, initialPlate, customers, relationships, onClose, onSaved }: VehicleFormDialogProps) {
   const originalCurrentCustomerId = useMemo(
     () => relationships.find((relationship) => relationship.endedAt === null)?.customerId ?? "",
     [relationships],
   );
   const initial = useMemo(() => ({
-    plate: vehicle?.plate ?? "",
+    plate: vehicle?.plate ?? initialPlate ?? "",
     vin: vehicle?.vin ?? "",
     engineNumber: vehicle?.engineNumber ?? "",
     make: vehicle?.make ?? "",
@@ -524,7 +525,7 @@ export function VehicleFormDialog({ mode, vehicle, customers, relationships, onC
     status: vehicle?.status ?? "off_site",
     reason: "",
     currentCustomerId: originalCurrentCustomerId,
-  }), [originalCurrentCustomerId, vehicle]);
+  }), [initialPlate, originalCurrentCustomerId, vehicle]);
 
   const [plate, setPlate] = useState(initial.plate);
   const [vin, setVin] = useState(initial.vin);

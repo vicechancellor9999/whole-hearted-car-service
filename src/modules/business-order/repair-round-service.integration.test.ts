@@ -6,6 +6,7 @@ import type { AuthSqlDatabase, AuthSqlExecutor } from "@formal/modules/auth/sess
 import { BusinessOrderService } from "@formal/modules/business-order/business-order-service";
 import {
   RepairRoundService,
+  RepairRoundReadDeniedError,
   RepairRoundValidationError,
   RepairRoundWriteDeniedError,
 } from "@formal/modules/business-order/repair-round-service";
@@ -31,6 +32,8 @@ const migrationPaths = [
   "0021_optional_work_return_details.sql",
   "0020_repair_assignment_withdrawal_projection.sql",
 ].map((name) => resolve(process.cwd(), "drizzle", name));
+const attachmentMigrationPath = resolve(process.cwd(), "drizzle/0032_business_order_attachments.sql");
+const workReturnClosureMigrationPath = resolve(process.cwd(), "drizzle/0038_work_return_review_closure.sql");
 
 let database: PGlite;
 let businessOrders: BusinessOrderService;
@@ -95,11 +98,54 @@ async function currentRoundVersion(businessOrderId: number) {
   return round.version;
 }
 
+async function completeIntake(businessOrderId: number, minute: number) {
+  await repairRounds.recordIntakeMileage({
+    businessOrderId,
+    expectedRepairRoundVersion: await currentRoundVersion(businessOrderId),
+    odometerKm: 84_200 + minute,
+    context: context(mechanicAccountId, `req-mileage-${businessOrderId}`, minute),
+  });
+  const file = await database.query<{ id: number }>(
+    `insert into stored_files
+      (storage_key, original_name, media_type, size_bytes, sha256_hex,
+       uploaded_by, uploaded_at)
+     values ($1, '里程照片.jpg', 'image/jpeg', 100, $2, $3, $4)
+     returning id`,
+    [`vehicle-files/intake-${businessOrderId}.jpg`, "d".repeat(64), mechanicAccountId,
+      context(mechanicAccountId, `seed-intake-${businessOrderId}`, minute).now],
+  );
+  await database.query(
+    `insert into vehicle_attachments
+      (vehicle_id, file_id, kind, caption, linked_by, linked_at)
+     values ($1, $2, 'photo', '接车里程照片', $3, $4)`,
+    [vehicleId, file.rows[0].id, mechanicAccountId,
+      context(mechanicAccountId, `seed-intake-${businessOrderId}`, minute).now],
+  );
+  await repairRounds.attachIntakePhoto({
+    businessOrderId,
+    expectedRepairRoundVersion: await currentRoundVersion(businessOrderId),
+    fileId: Number(file.rows[0].id),
+    context: context(mechanicAccountId, `req-photo-${businessOrderId}`, minute),
+  });
+}
+
 describe("RepairRoundService", () => {
   beforeEach(async () => {
     database = new PGlite();
     await database.waitReady;
     for (const path of migrationPaths) await database.exec(await readFile(path, "utf8"));
+    await database.exec(`
+      create table business_order_messages (
+        id bigint primary key generated always as identity,
+        business_order_id bigint not null references business_orders(id) on delete restrict
+      );
+    `);
+    for (const path of [attachmentMigrationPath, workReturnClosureMigrationPath]) {
+      const migration = await readFile(path, "utf8");
+      for (const statement of migration.split("--> statement-breakpoint")) {
+        if (statement.trim()) await database.exec(statement);
+      }
+    }
     adminId = await seedAccount("超级管理员", "admin", "super_admin");
     frontDeskId = await seedAccount("前台", "front", "front_desk");
     mechanicAccountId = await seedAccount("维修工一号", "mechanic.one", "mechanic");
@@ -594,5 +640,421 @@ describe("RepairRoundService", () => {
       "work_return_approved",
     ]);
     expect(events.rows[0].occurred_at).toEqual(context(frontDeskId, "x", 1).now);
+  });
+
+  it("requires both intake mileage and an intake photo before an electronic work return", async () => {
+    const order = await businessOrders.createBusinessOrder({
+      vehicleId,
+      context: context(frontDeskId, "req-create-electronic-return", 0),
+    });
+    await repairRounds.assignRound({
+      businessOrderId: order.id,
+      expectedBusinessOrderVersion: order.version,
+      teamId,
+      customerConfirmedWithoutPayment: true,
+      context: context(frontDeskId, "req-assign-electronic-return", 1),
+    });
+    await repairRounds.acceptRound({
+      businessOrderId: order.id,
+      expectedRepairRoundVersion: await currentRoundVersion(order.id),
+      context: context(mechanicAccountId, "req-accept-electronic-return", 2),
+    });
+
+    await expect(repairRounds.submitWorkReturn({
+      businessOrderId: order.id,
+      expectedRepairRoundVersion: await currentRoundVersion(order.id),
+      workSummary: "完成维修并试车",
+      context: context(mechanicAccountId, "req-return-without-intake", 3),
+    })).rejects.toThrow("接车里程和里程照片");
+
+    await repairRounds.recordIntakeMileage({
+      businessOrderId: order.id,
+      expectedRepairRoundVersion: await currentRoundVersion(order.id),
+      odometerKm: 84_210,
+      context: context(mechanicAccountId, "req-mileage-electronic-return", 4),
+    });
+    await expect(repairRounds.submitWorkReturn({
+      businessOrderId: order.id,
+      expectedRepairRoundVersion: await currentRoundVersion(order.id),
+      workSummary: "完成维修并试车",
+      context: context(mechanicAccountId, "req-return-without-photo", 5),
+    })).rejects.toThrow("接车里程和里程照片");
+  });
+
+  it("does not project an approval from an older submission onto the latest return", async () => {
+    const order = await businessOrders.createBusinessOrder({
+      vehicleId,
+      context: context(frontDeskId, "req-create-latest-review", 0),
+    });
+    await repairRounds.assignRound({
+      businessOrderId: order.id,
+      expectedBusinessOrderVersion: order.version,
+      teamId,
+      customerConfirmedWithoutPayment: true,
+      context: context(frontDeskId, "req-assign-latest-review", 1),
+    });
+    await repairRounds.recordAcceptanceOnBehalf({
+      businessOrderId: order.id,
+      expectedRepairRoundVersion: await currentRoundVersion(order.id),
+      actualStaffMemberId: mechanicStaffId,
+      context: context(frontDeskId, "req-accept-latest-review", 2),
+    });
+    await completeIntake(order.id, 3);
+    const first = await repairRounds.submitWorkReturn({
+      businessOrderId: order.id,
+      expectedRepairRoundVersion: await currentRoundVersion(order.id),
+      actualStaffMemberId: mechanicStaffId,
+      context: context(frontDeskId, "req-first-latest-review", 4),
+    });
+    await repairRounds.approveWorkReturn({
+      businessOrderId: order.id,
+      expectedRepairRoundVersion: await currentRoundVersion(order.id),
+      workReturnId: first.id,
+      context: context(frontDeskId, "req-approve-first-latest-review", 5),
+    });
+    const round = await repairRounds.getCurrentRound({
+      businessOrderId: order.id,
+      viewerAccountId: adminId,
+    });
+    const newer = await database.query<{ id: number }>(
+      `insert into repair_round_work_returns
+        (repair_round_id, submission_no, work_summary, actual_staff_member_id,
+         submitted_by, submitted_at)
+       values ($1, 2, '补交的新回单', $2, $3, $4)
+       returning id`,
+      [round.id, mechanicStaffId, frontDeskId, context(frontDeskId, "seed-new-return", 6).now],
+    );
+    await expect(repairRounds.getCurrentRound({
+      businessOrderId: order.id,
+      viewerAccountId: adminId,
+    })).resolves.toMatchObject({
+      latestWorkReturnId: Number(newer.rows[0].id),
+      approvedWorkReturnId: null,
+    });
+  });
+
+  it("records a paper return and its approval as one front-desk transaction", async () => {
+    const order = await businessOrders.createBusinessOrder({
+      vehicleId,
+      context: context(frontDeskId, "req-create-paper-return", 0),
+    });
+    await repairRounds.assignRound({
+      businessOrderId: order.id,
+      expectedBusinessOrderVersion: order.version,
+      teamId,
+      customerConfirmedWithoutPayment: true,
+      context: context(frontDeskId, "req-assign-paper-return", 1),
+    });
+    await repairRounds.recordAcceptanceOnBehalf({
+      businessOrderId: order.id,
+      expectedRepairRoundVersion: await currentRoundVersion(order.id),
+      actualStaffMemberId: mechanicStaffId,
+      context: context(frontDeskId, "req-accept-paper-return", 2),
+    });
+    const file = await database.query<{ id: number }>(
+      `insert into stored_files
+        (storage_key, original_name, media_type, size_bytes, sha256_hex,
+         uploaded_by, uploaded_at)
+       values ('business-order-files/paper-return.jpg', '纸质回单.jpg', 'image/jpeg',
+               200, $1, $2, $3)
+       returning id`,
+      ["c".repeat(64), frontDeskId, context(frontDeskId, "seed-paper-return", 3).now],
+    );
+    const attachment = await database.query<{ id: number }>(
+      `insert into business_order_attachments
+        (business_order_id, file_id, category, caption, linked_by, linked_at)
+       values ($1, $2, 'other', '纸质维修回单', $3, $4)
+       returning id`,
+      [order.id, file.rows[0].id, frontDeskId, context(frontDeskId, "seed-paper-return", 3).now],
+    );
+
+    const service = repairRounds as RepairRoundService & {
+      recordPaperWorkReturn(input: {
+        businessOrderId: number;
+        expectedRepairRoundVersion: number;
+        actualStaffMemberId: number;
+        attachmentIds: number[];
+        workSummary?: string;
+        context: ReturnType<typeof context>;
+      }): Promise<{ id: number; submissionNo: number }>;
+    };
+    const result = await service.recordPaperWorkReturn({
+      businessOrderId: order.id,
+      expectedRepairRoundVersion: await currentRoundVersion(order.id),
+      actualStaffMemberId: mechanicStaffId,
+      attachmentIds: [Number(attachment.rows[0].id)],
+      workSummary: "前台录入纸质回单",
+      context: context(frontDeskId, "req-paper-return", 3),
+    });
+    const facts = await database.query<{ event_type: string; work_return_id: number }>(
+      `select event_type, work_return_id from repair_round_events
+       where work_return_id = $1 order by id`,
+      [result.id],
+    );
+    expect(facts.rows.map((row) => row.event_type)).toEqual([
+      "work_return_submitted",
+      "work_return_approved",
+    ]);
+    await expect(repairRounds.getCurrentRound({
+      businessOrderId: order.id,
+      viewerAccountId: adminId,
+    })).resolves.toMatchObject({
+      latestWorkReturnId: result.id,
+      approvedWorkReturnId: result.id,
+    });
+  });
+
+  it("records a paper return and formally hands off in one atomic action", async () => {
+    const order = await businessOrders.createBusinessOrder({
+      vehicleId,
+      context: context(frontDeskId, "req-create-paper-handoff", 0),
+    });
+    await repairRounds.assignRound({
+      businessOrderId: order.id,
+      expectedBusinessOrderVersion: order.version,
+      teamId,
+      customerConfirmedWithoutPayment: true,
+      context: context(frontDeskId, "req-assign-paper-handoff", 1),
+    });
+    await repairRounds.recordAcceptanceOnBehalf({
+      businessOrderId: order.id,
+      expectedRepairRoundVersion: await currentRoundVersion(order.id),
+      actualStaffMemberId: mechanicStaffId,
+      context: context(frontDeskId, "req-accept-paper-handoff", 2),
+    });
+    const file = await database.query<{ id: number }>(
+      `insert into stored_files
+        (storage_key, original_name, media_type, size_bytes, sha256_hex,
+         uploaded_by, uploaded_at)
+       values ('business-order-files/paper-handoff.jpg', '纸质回单.jpg', 'image/jpeg',
+               200, $1, $2, $3)
+       returning id`,
+      ["e".repeat(64), frontDeskId, context(frontDeskId, "seed-paper-handoff", 3).now],
+    );
+    const attachment = await database.query<{ id: number }>(
+      `insert into business_order_attachments
+        (business_order_id, file_id, category, caption, linked_by, linked_at)
+       values ($1, $2, 'other', '纸质维修回单', $3, $4)
+       returning id`,
+      [order.id, file.rows[0].id, frontDeskId, context(frontDeskId, "seed-paper-handoff", 3).now],
+    );
+    const service = repairRounds as RepairRoundService & {
+      recordPaperWorkReturnAndFormallyHandOff(input: {
+        businessOrderId: number;
+        expectedRepairRoundVersion: number;
+        actualStaffMemberId: number;
+        attachmentIds: number[];
+        performanceValue: string;
+        context: ReturnType<typeof context>;
+      }): Promise<{ id: number }>;
+    };
+
+    await expect(service.recordPaperWorkReturnAndFormallyHandOff({
+      businessOrderId: order.id,
+      expectedRepairRoundVersion: await currentRoundVersion(order.id),
+      actualStaffMemberId: mechanicStaffId,
+      attachmentIds: [Number(attachment.rows[0].id)],
+      performanceValue: "19900",
+      context: context(frontDeskId, "req-paper-handoff", 4),
+    })).resolves.toMatchObject({ id: expect.any(Number) });
+
+    const round = await repairRounds.getCurrentRound({
+      businessOrderId: order.id,
+      viewerAccountId: adminId,
+    });
+    expect(round).toMatchObject({ status: "formally_handed_off" });
+    const events = await database.query<{ event_type: string }>(
+      `select event_type from repair_round_events where repair_round_id = $1 order by id`,
+      [round.id],
+    );
+    expect(events.rows.map((row) => row.event_type).slice(-3)).toEqual([
+      "work_return_submitted",
+      "work_return_approved",
+      "formally_handed_off",
+    ]);
+  });
+
+  it("approves an electronic return and formally hands off in one atomic action", async () => {
+    const order = await businessOrders.createBusinessOrder({
+      vehicleId,
+      context: context(frontDeskId, "req-create-combined-handoff", 0),
+    });
+    await repairRounds.assignRound({
+      businessOrderId: order.id,
+      expectedBusinessOrderVersion: order.version,
+      teamId,
+      customerConfirmedWithoutPayment: true,
+      context: context(frontDeskId, "req-assign-combined-handoff", 1),
+    });
+    await repairRounds.recordAcceptanceOnBehalf({
+      businessOrderId: order.id,
+      expectedRepairRoundVersion: await currentRoundVersion(order.id),
+      actualStaffMemberId: mechanicStaffId,
+      context: context(frontDeskId, "req-accept-combined-handoff", 2),
+    });
+    await completeIntake(order.id, 3);
+    const workReturn = await repairRounds.submitWorkReturn({
+      businessOrderId: order.id,
+      expectedRepairRoundVersion: await currentRoundVersion(order.id),
+      actualStaffMemberId: mechanicStaffId,
+      workSummary: "维修完成并完成试车",
+      context: context(mechanicAccountId, "req-submit-combined-handoff", 4),
+    });
+    const service = repairRounds as RepairRoundService & {
+      approveAndFormallyHandOff(input: {
+        businessOrderId: number;
+        expectedRepairRoundVersion: number;
+        workReturnId: number;
+        performanceValue: string;
+        context: ReturnType<typeof context>;
+      }): Promise<{ id: number }>;
+    };
+
+    await expect(service.approveAndFormallyHandOff({
+      businessOrderId: order.id,
+      expectedRepairRoundVersion: await currentRoundVersion(order.id),
+      workReturnId: workReturn.id,
+      performanceValue: "19900",
+      context: context(frontDeskId, "req-combined-handoff", 5),
+    })).resolves.toMatchObject({ id: expect.any(Number) });
+
+    await expect(repairRounds.getCurrentRound({
+      businessOrderId: order.id,
+      viewerAccountId: adminId,
+    })).resolves.toMatchObject({
+      status: "formally_handed_off",
+      approvedWorkReturnId: workReturn.id,
+    });
+    const handoffs = await database.query<{ performance_minor: number }>(
+      `select performance_minor from formal_handoffs where business_order_id = $1`,
+      [order.id],
+    );
+    expect(handoffs.rows).toEqual([{ performance_minor: 1_990_000 }]);
+  });
+
+  it("rolls back return approval when the combined formal handoff is invalid", async () => {
+    const order = await businessOrders.createBusinessOrder({
+      vehicleId,
+      context: context(frontDeskId, "req-create-combined-rollback", 0),
+    });
+    await repairRounds.assignRound({
+      businessOrderId: order.id,
+      expectedBusinessOrderVersion: order.version,
+      teamId,
+      customerConfirmedWithoutPayment: true,
+      context: context(frontDeskId, "req-assign-combined-rollback", 1),
+    });
+    await repairRounds.recordAcceptanceOnBehalf({
+      businessOrderId: order.id,
+      expectedRepairRoundVersion: await currentRoundVersion(order.id),
+      actualStaffMemberId: mechanicStaffId,
+      context: context(frontDeskId, "req-accept-combined-rollback", 2),
+    });
+    await completeIntake(order.id, 3);
+    const workReturn = await repairRounds.submitWorkReturn({
+      businessOrderId: order.id,
+      expectedRepairRoundVersion: await currentRoundVersion(order.id),
+      actualStaffMemberId: mechanicStaffId,
+      context: context(mechanicAccountId, "req-submit-combined-rollback", 4),
+    });
+    const service = repairRounds as RepairRoundService & {
+      approveAndFormallyHandOff(input: {
+        businessOrderId: number;
+        expectedRepairRoundVersion: number;
+        workReturnId: number;
+        performanceValue: string;
+        context: ReturnType<typeof context>;
+      }): Promise<unknown>;
+    };
+
+    await expect(service.approveAndFormallyHandOff({
+      businessOrderId: order.id,
+      expectedRepairRoundVersion: await currentRoundVersion(order.id),
+      workReturnId: workReturn.id,
+      performanceValue: "not-money",
+      context: context(frontDeskId, "req-combined-rollback", 5),
+    })).rejects.toThrow();
+
+    await expect(repairRounds.getCurrentRound({
+      businessOrderId: order.id,
+      viewerAccountId: adminId,
+    })).resolves.toMatchObject({
+      status: "return_pending_review",
+      approvedWorkReturnId: null,
+    });
+    const handoffs = await database.query<{ total: number }>(
+      `select count(*)::integer as total from formal_handoffs where business_order_id = $1`,
+      [order.id],
+    );
+    expect(handoffs.rows[0]?.total).toBe(0);
+  });
+
+  it("gives a mechanic only assigned work facts without payer or price data", async () => {
+    const order = await businessOrders.createBusinessOrder({
+      vehicleId,
+      context: context(frontDeskId, "req-create-mechanic-portal", 0),
+    });
+    const unit = await database.query<{ id: number }>(
+      `insert into dictionary_items
+        (category, code, label_zh, created_by)
+       values ('charge_unit', 'hour', '工时', $1)
+       returning id`,
+      [adminId],
+    );
+    const charges = await businessOrders.replaceChargeVersion({
+      businessOrderId: order.id,
+      expectedBusinessOrderVersion: order.version,
+      reason: "维修工入口测试",
+      laborDiscount: "0",
+      partDiscount: "0",
+      otherDiscount: "0",
+      wholeOrderDiscount: "0",
+      items: [{
+        kind: "labor",
+        nameZh: "检查发动机",
+        nameEn: "Inspect engine",
+        descriptionZh: "读取故障码",
+        unitItemId: Number(unit.rows[0].id),
+        quantity: "1",
+        unitPrice: "10000",
+        itemDiscount: "0",
+      }],
+      notes: [{
+        kind: "work_instruction",
+        contentZh: "检查后拍照",
+        contentEn: "Take photos after inspection",
+      }],
+      context: context(frontDeskId, "req-charges-mechanic-portal", 1),
+    });
+    await repairRounds.assignRound({
+      businessOrderId: order.id,
+      expectedBusinessOrderVersion: charges.businessOrderVersion,
+      teamId,
+      customerConfirmedWithoutPayment: true,
+      context: context(frontDeskId, "req-assign-mechanic-portal", 2),
+    });
+
+    const service = repairRounds as RepairRoundService & {
+      listMechanicWorkOrders(input: { viewerAccountId: number }): Promise<{ items: unknown[] }>;
+      getMechanicWorkOrder(input: { businessOrderId: number; viewerAccountId: number }): Promise<Record<string, unknown>>;
+    };
+    const list = await service.listMechanicWorkOrders({ viewerAccountId: mechanicAccountId });
+    expect(list.items).toEqual([expect.objectContaining({ businessOrderId: order.id, status: "assigned" })]);
+    const detail = await service.getMechanicWorkOrder({
+      businessOrderId: order.id,
+      viewerAccountId: mechanicAccountId,
+    });
+    expect(detail).toMatchObject({
+      businessOrderId: order.id,
+      vehicle: { plate: "7012 AB", description: "Honda CR-V" },
+      workItems: [expect.objectContaining({ nameZh: "检查发动机", nameEn: "Inspect engine" })],
+      notes: [expect.objectContaining({ contentZh: "检查后拍照" })],
+    });
+    expect(detail).not.toHaveProperty("payer");
+    expect((detail.workItems as Array<Record<string, unknown>>)[0]).not.toHaveProperty("unitPriceMinor");
+    await expect(service.getMechanicWorkOrder({
+      businessOrderId: order.id,
+      viewerAccountId: otherMechanicAccountId,
+    })).rejects.toBeInstanceOf(RepairRoundReadDeniedError);
   });
 });

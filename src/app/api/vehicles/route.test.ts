@@ -66,3 +66,44 @@ describe("POST /api/vehicles", () => {
     expect(createVehicle).not.toHaveBeenCalled();
   });
 });
+
+describe("GET /api/vehicles", () => {
+  it("requires a formal session before searching", async () => {
+    const handler = createVehicleApiHandler({
+      readSession: async () => null,
+      resolveOwner: vi.fn(),
+      createVehicle: vi.fn(),
+      listVehicles: vi.fn(),
+    });
+
+    expect((await handler(new Request("http://local/api/vehicles?search=4321"))).status).toBe(401);
+  });
+
+  it("searches only active vehicles and limits the lightweight result", async () => {
+    const listVehicles = vi.fn(async () => ({
+      items: [{ id: 3, plateDisplay: "4321 AB", isActive: true }],
+      page: 1,
+      pageSize: 8,
+      pageCount: 1,
+      total: 1,
+    }));
+    const handler = createVehicleApiHandler({
+      readSession: async () => ({ account: { id: 9 } }),
+      resolveOwner: vi.fn(),
+      createVehicle: vi.fn(),
+      listVehicles,
+    });
+
+    const response = await handler(new Request("http://local/api/vehicles?search=4321-ab&pageSize=50"));
+
+    expect(response.status).toBe(200);
+    expect(listVehicles).toHaveBeenCalledWith({
+      viewerAccountId: 9,
+      search: "4321-ab",
+      activeOnly: true,
+      page: 1,
+      pageSize: 8,
+    });
+    await expect(response.json()).resolves.toMatchObject({ total: 1, items: [{ id: 3 }] });
+  });
+});

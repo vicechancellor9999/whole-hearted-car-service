@@ -336,6 +336,7 @@ export class CustomerVehicleService {
   async listVehicles(input: {
     viewerAccountId: number;
     search?: string;
+    activeOnly?: boolean;
     page?: number;
     pageSize?: number;
   }): Promise<PageResult<VehicleRecord>> {
@@ -349,14 +350,15 @@ export class CustomerVehicleService {
        from vehicles as vehicle
        left join personal_customers as person on person.id = vehicle.current_person_customer_id
        left join company_accounts as company on company.id = vehicle.current_company_account_id
-       where ($1::text is null
+       where ($4::boolean = false or vehicle.is_active = true)
+         and ($1::text is null
           or vehicle.vehicle_no ilike $3
           or vehicle.normalized_plate ilike $2 or vehicle.plate_display ilike $3
           or vehicle.vin ilike $2 or vehicle.make ilike $3 or vehicle.model ilike $3
           or person.full_name ilike $3 or person.normalized_phone ilike $3
           or person.trn ilike $3 or company.legal_name ilike $3
           or company.trn ilike $3)`,
-      [search, normalized ? `%${normalized}%` : null, like],
+      [search, normalized ? `%${normalized}%` : null, like, input.activeOnly === true],
     );
     const page = effectivePage(paging.page, paging.pageSize, counts[0]?.total ?? 0);
     const rows = await this.database.query<VehicleRow>(
@@ -375,15 +377,23 @@ export class CustomerVehicleService {
        from vehicles as vehicle
        left join personal_customers as person on person.id = vehicle.current_person_customer_id
        left join company_accounts as company on company.id = vehicle.current_company_account_id
-       where ($1::text is null
+       where ($4::boolean = false or vehicle.is_active = true)
+         and ($1::text is null
           or vehicle.vehicle_no ilike $3
           or vehicle.normalized_plate ilike $2 or vehicle.plate_display ilike $3
           or vehicle.vin ilike $2 or vehicle.make ilike $3 or vehicle.model ilike $3
           or person.full_name ilike $3 or person.normalized_phone ilike $3
           or person.trn ilike $3 or company.legal_name ilike $3
           or company.trn ilike $3)
-       order by vehicle.updated_at desc, vehicle.id desc offset $4 limit $5`,
-      [search, normalized ? `%${normalized}%` : null, like, (page.page - 1) * paging.pageSize, paging.pageSize],
+       order by vehicle.updated_at desc, vehicle.id desc offset $5 limit $6`,
+      [
+        search,
+        normalized ? `%${normalized}%` : null,
+        like,
+        input.activeOnly === true,
+        (page.page - 1) * paging.pageSize,
+        paging.pageSize,
+      ],
     );
     return { ...page, items: rows.map(mapVehicle) };
   }

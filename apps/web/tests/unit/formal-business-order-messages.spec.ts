@@ -40,7 +40,7 @@ test("沟通工作区使用评论流并支持上传照片", () => {
   expect(source).toMatch(/multiple/);
   expect(source).toMatch(/uploadFormalBusinessOrderAttachment/);
   expect(source).toMatch(/message\.attachments/);
-  expect(source).toMatch(/body\.trim\(\) \|\| "上传了照片"/);
+  expect(source).toMatch(/body\.trim\(\) \|\| \(english \? "Uploaded photos" : "上传了照片"\)/);
 });
 
 test("我的提及深链到对应业务单留言", () => {

@@ -20,7 +20,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
     requestAnimationFrame(() => openButtonRef.current?.focus());
   }, []);
 
-  if (pathname?.startsWith("/login") || pathname?.startsWith("/pc-not-available")) return children;
+  if (pathname?.startsWith("/login") || pathname?.startsWith("/pc-not-available") || pathname?.startsWith("/mechanic")) return children;
 
   return (
     <div

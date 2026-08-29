@@ -26,7 +26,9 @@ const migrationPaths = [
   "0010_business_order_facts_append_only.sql",
   "0011_repair_rounds.sql",
   "0012_inspection_reports.sql",
+  "0016_vehicle_profile_fields.sql",
   "0018_business_order_number_format.sql",
+  "0039_inspection_team_intake.sql",
 ].map((name) => resolve(process.cwd(), "drizzle", name));
 
 let database: PGlite;
@@ -37,6 +39,8 @@ let frontDeskId: number;
 let ownerId: number;
 let mechanicAccountId: number;
 let mechanicStaffId: number;
+let teamId: number;
+let anotherTeamId: number;
 let vehicleId: number;
 
 function executor(source: PGlite | Transaction): AuthSqlExecutor {
@@ -103,13 +107,21 @@ describe("InspectionReportService", () => {
        values ('TEAM-202608-0001', '维修一组', '维修一组', $1) returning id`,
       [adminId],
     );
+    teamId = Number(team.rows[0].id);
+    const anotherTeam = await database.query<{ id: number }>(
+      `insert into repair_teams
+        (team_no, name, normalized_name, created_by)
+       values ('TEAM-202608-0002', '维修二组', '维修二组', $1) returning id`,
+      [adminId],
+    );
+    anotherTeamId = Number(anotherTeam.rows[0].id);
     const staff = await database.query<{ id: number }>(
       `insert into staff_members
         (staff_no, full_name, account_id, position_item_id, current_team_id,
          hired_on, created_by)
        values ('STAFF-202608-0001', '维修工一号', $1, $2, $3,
                date '2026-08-01', $4) returning id`,
-      [mechanicAccountId, position.rows[0].id, team.rows[0].id, adminId],
+      [mechanicAccountId, position.rows[0].id, teamId, adminId],
     );
     mechanicStaffId = Number(staff.rows[0].id);
     const person = await database.query<{ id: number }>(
@@ -138,6 +150,7 @@ describe("InspectionReportService", () => {
   it("submits an independent report with a vehicle and no Business Order", async () => {
     const draft = await inspectionReports.createInspectionReport({
       vehicleId,
+      inspectionTeamId: teamId,
       sourceBusinessOrderId: null,
       sourceRepairRoundId: null,
       actualInspectorStaffMemberId: mechanicStaffId,
@@ -173,24 +186,60 @@ describe("InspectionReportService", () => {
     });
   });
 
-  it("requires the actual inspector before creating a report draft", async () => {
+  it("stores the submitting team and allows front desk to leave the mechanic blank", async () => {
+    const draft = await inspectionReports.createInspectionReport({
+      vehicleId,
+      inspectionTeamId: teamId,
+      actualInspectorStaffMemberId: null,
+      summaryZh: "轮胎磨损,需进一步拆检",
+      specialCaseNotesZh: "客户要求先确认配件价格",
+      findings: [],
+      context: context(frontDeskId, "req-ir-no-inspector", 0),
+    });
+    const submitted = await inspectionReports.submitInspectionReport({
+      inspectionReportId: draft.id,
+      expectedVersion: draft.version,
+      context: context(frontDeskId, "req-ir-no-inspector-submit", 1),
+    });
+
+    expect(submitted).toMatchObject({
+      inspectionTeamId: teamId,
+      actualInspectorStaffMemberId: null,
+      summaryZh: "轮胎磨损,需进一步拆检",
+      specialCaseNotesZh: "客户要求先确认配件价格",
+      findings: [],
+      status: "submitted",
+    });
+    await expect(inspectionReports.getInspectionReport({
+      inspectionReportId: submitted.id,
+      viewerAccountId: mechanicAccountId,
+    })).resolves.toMatchObject({
+      report: { id: submitted.id, inspectionTeamId: teamId },
+      teamName: "维修一组",
+      inspectorName: null,
+    });
+  });
+
+  it("rejects a selected mechanic who is not in the submitting team", async () => {
     await expect(inspectionReports.createInspectionReport({
       vehicleId,
-      summaryZh: "缺少检查人",
-      findings: [{ findingZh: "轮胎磨损" }],
-      context: context(frontDeskId, "req-ir-no-inspector", 0),
-    })).rejects.toBeInstanceOf(InspectionReportValidationError);
+      inspectionTeamId: anotherTeamId,
+      actualInspectorStaffMemberId: mechanicStaffId,
+      summaryZh: "检查结果",
+      findings: [],
+      context: context(frontDeskId, "req-ir-wrong-team", 0),
+    })).rejects.toThrow("维修工不属于所选提交班组");
   });
 
   it("rejects a report inserted directly as submitted without the submit action", async () => {
     await expect(database.query(
       `insert into inspection_reports
-        (report_no, vehicle_id, summary_zh,
+        (report_no, vehicle_id, summary_zh, inspection_team_id,
          actual_inspector_staff_member_id, status,
          created_at, created_by, submitted_at, submitted_by)
-       values ('IR-20260824-9999', $1, '绕过提交', $2, 'submitted',
-               $3, $4, $3, $4)`,
-      [vehicleId, mechanicStaffId,
+       values ('IR-20260824-9999', $1, '绕过提交', $2, $3, 'submitted',
+               $4, $5, $4, $5)`,
+      [vehicleId, teamId, mechanicStaffId,
         context(adminId, "req-ir-direct-submit", 0).now, adminId],
     )).rejects.toThrow();
   });
@@ -198,6 +247,7 @@ describe("InspectionReportService", () => {
   it("keeps a submitted report immutable and appends a correction record", async () => {
     const draft = await inspectionReports.createInspectionReport({
       vehicleId,
+      inspectionTeamId: teamId,
       actualInspectorStaffMemberId: mechanicStaffId,
       summaryZh: "初次记录",
       findings: [{ findingZh: "轮胎磨损" }],
@@ -262,6 +312,7 @@ describe("InspectionReportService", () => {
     );
     const draft = await inspectionReports.createInspectionReport({
       vehicleId,
+      inspectionTeamId: teamId,
       sourceBusinessOrderId: order.id,
       sourceRepairRoundId: Number(round.rows[0].id),
       actualInspectorStaffMemberId: mechanicStaffId,

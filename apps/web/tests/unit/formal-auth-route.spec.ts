@@ -43,3 +43,22 @@ test("formal login adapter preserves the accepted invalid-credentials redirect",
     "http://127.0.0.1:3220/login?error=invalid_credentials",
   );
 });
+
+test("formal login sends mechanics to their work-order portal", async () => {
+  const adapter = createFormalLoginAdapter(async () => new Response(
+    JSON.stringify({ ok: true, role: "mechanic" }),
+    {
+      status: 200,
+      headers: {
+        "content-type": "application/json",
+        "set-cookie": "wh_session=mechanic-session; Path=/; HttpOnly; SameSite=Lax",
+      },
+    },
+  ));
+
+  const response = await adapter(loginRequest());
+
+  expect(response.status).toBe(303);
+  expect(response.headers.get("location")).toBe("http://127.0.0.1:3220/mechanic");
+  expect(response.headers.get("set-cookie")).toContain("wh_session=");
+});

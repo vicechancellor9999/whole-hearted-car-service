@@ -15,7 +15,7 @@ import { staffAccounts } from "@formal/db/schema/accounts";
 import { businessOrders } from "@formal/db/schema/business-order";
 import { identityPrimaryKey } from "@formal/db/schema/common";
 import { storedFiles, vehicles } from "@formal/db/schema/customer-vehicle";
-import { staffMembers } from "@formal/db/schema/master-data";
+import { repairTeams, staffMembers } from "@formal/db/schema/master-data";
 import { repairRounds } from "@formal/db/schema/repair-round";
 
 export const inspectionReportStatus = pgEnum("inspection_report_status", [
@@ -50,9 +50,13 @@ export const inspectionReports = pgTable(
     correctionReason: text("correction_reason"),
     summaryZh: text("summary_zh").notNull(),
     summaryEn: text("summary_en"),
+    inspectionTeamId: bigint("inspection_team_id", { mode: "number" })
+      .notNull()
+      .references(() => repairTeams.id, { onDelete: "restrict" }),
     actualInspectorStaffMemberId: bigint("actual_inspector_staff_member_id", {
       mode: "number",
-    }).notNull().references(() => staffMembers.id, { onDelete: "restrict" }),
+    }).references(() => staffMembers.id, { onDelete: "restrict" }),
+    specialCaseNotesZh: text("special_case_notes_zh"),
     paperPhotoFileId: bigint("paper_photo_file_id", { mode: "number" })
       .references(() => storedFiles.id, { onDelete: "restrict" }),
     status: inspectionReportStatus("status").notNull().default("draft"),
@@ -75,6 +79,10 @@ export const inspectionReports = pgTable(
     ),
     index("inspection_reports_source_order_idx").on(table.sourceBusinessOrderId),
     index("inspection_reports_source_round_idx").on(table.sourceRepairRoundId),
+    index("inspection_reports_team_created_idx").on(
+      table.inspectionTeamId,
+      table.createdAt,
+    ),
     uniqueIndex("inspection_reports_correction_idx")
       .on(table.correctionOfReportId)
       .where(sql`${table.correctionOfReportId} is not null`),
@@ -85,6 +93,10 @@ export const inspectionReports = pgTable(
     check(
       "inspection_reports_summary_nonempty",
       sql`length(btrim(${table.summaryZh})) > 0`,
+    ),
+    check(
+      "inspection_reports_special_notes_nonempty",
+      sql`${table.specialCaseNotesZh} is null or length(btrim(${table.specialCaseNotesZh})) > 0`,
     ),
     check(
       "inspection_reports_correction_complete",
@@ -98,8 +110,7 @@ export const inspectionReports = pgTable(
             and ${table.submittedAt} is null and ${table.submittedBy} is null)
           or (${table.status} = 'submitted'
             and ${table.submittedAt} is not null
-            and ${table.submittedBy} is not null
-            and ${table.actualInspectorStaffMemberId} is not null)`,
+            and ${table.submittedBy} is not null)`,
     ),
     check("inspection_reports_version_positive", sql`${table.version} >= 1`),
   ],

@@ -37,6 +37,8 @@ const migrationPaths = [
   "0021_optional_work_return_details.sql",
   "0020_repair_assignment_withdrawal_projection.sql",
 ].map((name) => resolve(process.cwd(), "drizzle", name));
+const attachmentMigrationPath = resolve(process.cwd(), "drizzle/0032_business_order_attachments.sql");
+const workReturnClosureMigrationPath = resolve(process.cwd(), "drizzle/0038_work_return_review_closure.sql");
 
 let database: PGlite;
 let businessOrders: BusinessOrderService;
@@ -100,6 +102,36 @@ async function roundVersion(businessOrderId: number) {
   })).version;
 }
 
+async function completeIntake(businessOrderId: number) {
+  await repairRounds.recordIntakeMileage({
+    businessOrderId,
+    expectedRepairRoundVersion: await roundVersion(businessOrderId),
+    odometerKm: 84_200,
+    context: context(mechanicAccountId, "record-intake-mileage", "2026-08-24T14:03:10Z"),
+  });
+  const file = await database.query<{ id: number }>(
+    `insert into stored_files
+      (storage_key, original_name, media_type, size_bytes, sha256_hex,
+       uploaded_by, uploaded_at)
+     values ($1, '里程照片.jpg', 'image/jpeg', 100, $2, $3, $4)
+     returning id`,
+    [`vehicle-files/intake-${businessOrderId}.jpg`, "d".repeat(64), mechanicAccountId,
+      new Date("2026-08-24T14:03:20Z")],
+  );
+  await database.query(
+    `insert into vehicle_attachments
+      (vehicle_id, file_id, kind, caption, linked_by, linked_at)
+     values ($1, $2, 'photo', '接车里程照片', $3, $4)`,
+    [vehicleId, file.rows[0].id, mechanicAccountId, new Date("2026-08-24T14:03:20Z")],
+  );
+  await repairRounds.attachIntakePhoto({
+    businessOrderId,
+    expectedRepairRoundVersion: await roundVersion(businessOrderId),
+    fileId: Number(file.rows[0].id),
+    context: context(mechanicAccountId, "attach-intake-photo", "2026-08-24T14:03:30Z"),
+  });
+}
+
 async function createApprovedOrder() {
   const order = await businessOrders.createBusinessOrder({
     vehicleId,
@@ -141,6 +173,7 @@ async function createApprovedOrder() {
     expectedRepairRoundVersion: await roundVersion(order.id),
     context: context(mechanicAccountId, "accept", "2026-08-24T14:03:00Z"),
   });
+  await completeIntake(order.id);
   const workReturn = await repairRounds.submitWorkReturn({
     businessOrderId: order.id,
     expectedRepairRoundVersion: await roundVersion(order.id),
@@ -163,6 +196,18 @@ describe("FormalHandoffService", () => {
     await database.waitReady;
     for (const path of migrationPaths) {
       await database.exec(await readFile(path, "utf8"));
+    }
+    await database.exec(`
+      create table business_order_messages (
+        id bigint primary key generated always as identity,
+        business_order_id bigint not null references business_orders(id) on delete restrict
+      );
+    `);
+    for (const path of [attachmentMigrationPath, workReturnClosureMigrationPath]) {
+      const migration = await readFile(path, "utf8");
+      for (const statement of migration.split("--> statement-breakpoint")) {
+        if (statement.trim()) await database.exec(statement);
+      }
     }
     adminId = await seedAccount("超级管理员", "admin", "super_admin");
     frontDeskId = await seedAccount("前台", "front", "front_desk");

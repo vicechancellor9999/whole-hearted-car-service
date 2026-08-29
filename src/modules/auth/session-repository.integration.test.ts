@@ -11,6 +11,7 @@ import {
 const migrationPaths = [
   resolve(process.cwd(), "drizzle/0000_foundation.sql"),
   resolve(process.cwd(), "drizzle/0001_account_permissions.sql"),
+  resolve(process.cwd(), "drizzle/0037_staff_account_ui_language.sql"),
 ];
 let database: PGlite;
 let repository: DatabaseAuthRepository;

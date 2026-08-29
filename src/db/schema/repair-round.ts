@@ -5,6 +5,7 @@ import {
   check,
   index,
   integer,
+  jsonb,
   pgEnum,
   pgTable,
   primaryKey,
@@ -26,6 +27,7 @@ import {
   repairTeams,
   staffMembers,
 } from "@formal/db/schema/master-data";
+import { businessOrderAttachments } from "@formal/db/schema/business-order-attachment";
 
 export const repairRoundSource = pgEnum("repair_round_source", [
   "initial",
@@ -97,7 +99,12 @@ export const repairRoundWorkReturns = pgTable(
       .notNull()
       .references(() => repairRounds.id, { onDelete: "restrict" }),
     submissionNo: integer("submission_no").notNull(),
+    submissionSource: text("submission_source").notNull().default("electronic"),
     workSummary: text("work_summary"),
+    exceptionSummary: text("exception_summary"),
+    itemResults: jsonb("item_results").$type<Array<Record<string, unknown>>>()
+      .notNull()
+      .default([]),
     actualStaffMemberId: bigint("actual_staff_member_id", { mode: "number" })
       .references(() => staffMembers.id, { onDelete: "restrict" }),
     submittedBy: bigint("submitted_by", { mode: "number" })
@@ -119,6 +126,42 @@ export const repairRoundWorkReturns = pgTable(
     check(
       "repair_round_work_returns_summary_nonempty",
       sql`${table.workSummary} is null or length(btrim(${table.workSummary})) > 0`,
+    ),
+    check(
+      "repair_round_work_returns_source_valid",
+      sql`${table.submissionSource} in ('electronic', 'paper')`,
+    ),
+    check(
+      "repair_round_work_returns_exception_nonempty",
+      sql`${table.exceptionSummary} is null or length(btrim(${table.exceptionSummary})) > 0`,
+    ),
+    check(
+      "repair_round_work_returns_item_results_array",
+      sql`jsonb_typeof(${table.itemResults}) = 'array'`,
+    ),
+  ],
+);
+
+export const repairRoundWorkReturnAttachments = pgTable(
+  "repair_round_work_return_attachments",
+  {
+    workReturnId: bigint("work_return_id", { mode: "number" })
+      .notNull()
+      .references(() => repairRoundWorkReturns.id, { onDelete: "restrict" }),
+    attachmentId: bigint("attachment_id", { mode: "number" })
+      .notNull()
+      .references(() => businessOrderAttachments.id, { onDelete: "restrict" }),
+    purpose: text("purpose").notNull(),
+  },
+  (table) => [
+    primaryKey({
+      columns: [table.workReturnId, table.attachmentId],
+      name: "repair_round_work_return_attachments_pk",
+    }),
+    index("repair_round_work_return_attachments_attachment_idx").on(table.attachmentId),
+    check(
+      "repair_round_work_return_attachments_purpose_valid",
+      sql`${table.purpose} in ('paper_return', 'service_photo')`,
     ),
   ],
 );

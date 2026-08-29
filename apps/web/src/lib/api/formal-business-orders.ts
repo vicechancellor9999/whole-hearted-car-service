@@ -363,7 +363,68 @@ export type FormalRepairRound = {
   intakePhotoFileIds: number[];
   latestWorkReturnId: number | null;
   approvedWorkReturnId: number | null;
+  latestWorkReturn: FormalWorkReturn | null;
   version: number;
+};
+
+export type FormalWorkReturnItemResult = {
+  chargeItemId: string;
+  category: "labor" | "part" | "other";
+  labelZh: string;
+  labelEn?: string | null;
+  result: "completed" | "not_completed";
+  note?: string | null;
+};
+
+export type FormalWorkReturn = {
+  id: number;
+  submissionNo: number;
+  submissionSource: "electronic" | "paper";
+  workSummary: string | null;
+  exceptionSummary: string | null;
+  itemResults: FormalWorkReturnItemResult[];
+  actualStaffMemberId: number | null;
+  actualStaffName: string | null;
+  submittedBy: number;
+  submittedByName: string;
+  submittedAt: string;
+  attachments: Array<{ id: number; purpose: "paper_return" | "service_photo"; originalName: string; mediaType: string }>;
+  review: null | {
+    result: "approved" | "rejected";
+    reason: string | null;
+    reviewerAccountId: number;
+    reviewerName: string;
+    reviewedAt: string;
+  };
+};
+
+export type FormalMechanicWorkOrderSummary = {
+  businessOrderId: number;
+  orderNo: string;
+  status: FormalBusinessOrderStatus;
+  vehicle: { plate: string; description: string; vin: string | null };
+  repairRound: { id: number; roundNo: number; assignedTeamId: number; assignedTeamName: string; version: number };
+  latestRejectionReason: string | null;
+};
+
+export type FormalMechanicWorkOrder = FormalMechanicWorkOrderSummary & {
+  intakeMileageKm: number | null;
+  intakePhotoFileIds: number[];
+  workItems: Array<{
+    id: string;
+    kind: "labor" | "part" | "other";
+    nameZh: string;
+    nameEn: string | null;
+    descriptionZh: string | null;
+    descriptionEn: string | null;
+    quantity: string;
+  }>;
+  notes: Array<{
+    kind: "customer_concern" | "work_instruction" | "liability_notice";
+    contentZh: string | null;
+    contentEn: string | null;
+  }>;
+  latestWorkReturn: FormalWorkReturn | null;
 };
 
 export type FormalRepairRoundWorkspace = {
@@ -458,11 +519,13 @@ async function formalJson<ResponseBody>(input: RequestInfo | URL, init?: Request
 
 export function fetchFormalBusinessOrders(input: {
   search?: string;
+  status?: FormalBusinessOrderStatus;
   page?: number;
   pageSize?: number;
 } = {}): Promise<FormalBusinessOrderList> {
   const query = new URLSearchParams();
   if (input.search) query.set("search", input.search);
+  if (input.status) query.set("status", input.status);
   query.set("page", String(input.page ?? 1));
   query.set("pageSize", String(input.pageSize ?? 20));
   return formalJson(`/api/formal/business-orders?${query.toString()}`);
@@ -493,6 +556,14 @@ export function runFormalRepairRoundAction(id: number, input: Record<string, unk
     headers: { "content-type": "application/json" },
     body: JSON.stringify(input),
   });
+}
+
+export function fetchFormalMechanicWorkOrders(): Promise<{ items: FormalMechanicWorkOrderSummary[] }> {
+  return formalJson("/api/formal/mechanic/work-orders");
+}
+
+export function fetchFormalMechanicWorkOrder(id: number): Promise<FormalMechanicWorkOrder> {
+  return formalJson(`/api/formal/mechanic/work-orders/${id}`);
 }
 
 export function cancelFormalHandoffInSameMonth(

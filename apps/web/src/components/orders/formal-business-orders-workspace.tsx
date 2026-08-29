@@ -21,6 +21,7 @@ export function FormalBusinessOrdersWorkspace() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const activeSearch = searchParams.get("search") ?? "";
+  const activeStatus = (["waiting_assignment", "assigned", "in_repair", "return_pending_review", "formally_handed_off"] as const).find((status) => status === searchParams.get("status"));
   const page = Math.max(1, Number(searchParams.get("page")) || 1);
   const [search, setSearch] = useState(activeSearch);
   const [data, setData] = useState<FormalBusinessOrderList | null>(null);
@@ -33,18 +34,23 @@ export function FormalBusinessOrdersWorkspace() {
   const [createError, setCreateError] = useState<string | null>(null);
   const [creating, setCreating] = useState(false);
 
-  useEffect(() => { setSearch(activeSearch); }, [activeSearch]);
+  useEffect(() => {
+    const timer = window.setTimeout(() => setSearch(activeSearch), 0);
+    return () => window.clearTimeout(timer);
+  }, [activeSearch]);
   useEffect(() => {
     let active = true;
-    setData(null);
-    setError(null);
-    void fetchFormalBusinessOrders({ search: activeSearch || undefined, page, pageSize: 20 })
-      .then((result) => { if (active) setData(result); })
-      .catch((caught) => {
-        if (active) setError(caught instanceof Error ? caught.message : "Business Order 读取失败");
-      });
-    return () => { active = false; };
-  }, [activeSearch, page, reloadKey]);
+    const timer = window.setTimeout(() => {
+      setData(null);
+      setError(null);
+      void fetchFormalBusinessOrders({ search: activeSearch || undefined, status: activeStatus, page, pageSize: 20 })
+        .then((result) => { if (active) setData(result); })
+        .catch((caught) => {
+          if (active) setError(caught instanceof Error ? caught.message : "Business Order 读取失败");
+        });
+    }, 0);
+    return () => { active = false; window.clearTimeout(timer); };
+  }, [activeSearch, activeStatus, page, reloadKey]);
 
   useEffect(() => {
     if (!createOpen || workspace) return;
@@ -56,6 +62,7 @@ export function FormalBusinessOrdersWorkspace() {
   const navigate = (nextPage: number, nextSearch = activeSearch) => {
     const query = new URLSearchParams();
     if (nextSearch.trim()) query.set("search", nextSearch.trim());
+    if (activeStatus) query.set("status", activeStatus);
     if (nextPage > 1) query.set("page", String(nextPage));
     router.push(`/orders/business${query.size ? `?${query.toString()}` : ""}`);
   };
@@ -104,6 +111,7 @@ export function FormalBusinessOrdersWorkspace() {
         />
 
         <section className="mt-3 rounded-[22px] border border-line bg-white/80 p-3 shadow-card dark:border-slate-700 dark:bg-slate-900/50 sm:p-4">
+          {activeStatus ? <div className="mb-3 flex items-center justify-between rounded-xl border border-primary-200 bg-primary-50 px-3 py-2 text-xs font-semibold text-primary"><span>当前筛选：{formalBusinessOrderStatusLabel(activeStatus)}</span><button type="button" onClick={() => router.push("/orders/business")} className="rounded-lg border border-primary-300 bg-white px-3 py-1.5">清除筛选</button></div> : null}
           <div className="flex min-w-0 gap-2">
           <form onSubmit={submitSearch} className="flex min-w-0 flex-1 gap-2">
             <label className="relative min-w-0 flex-1">

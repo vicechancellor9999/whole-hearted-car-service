@@ -18,6 +18,7 @@ import {
 import { RecordDeleteButton } from "@/components/shared/record-delete-dialog";
 import { ActionDialog } from "@/components/shared/action-dialog";
 import { fetchFormalInspectionReports, type FormalInspectionListItem } from "@/lib/api/formal-inspections";
+import { uploadFormalBusinessOrderAttachment } from "@/lib/api/formal-business-order-attachments";
 import {
   appendFormalRefundProof,
   appendFormalRefundSignedAcknowledgement,
@@ -289,7 +290,11 @@ export function FormalBusinessOrderDetailView({ businessOrderId }: { businessOrd
   const [selectedTeamId, setSelectedTeamId] = useState("");
   const [paymentFormOpen, setPaymentFormOpen] = useState(false);
   const [refundFormOpen, setRefundFormOpen] = useState(false);
-  const [advanceRoundOpen, setAdvanceRoundOpen] = useState(false);
+  const [paperReturnOpen, setPaperReturnOpen] = useState(false);
+  const [returnReviewOpen, setReturnReviewOpen] = useState(false);
+  const [rejectReturnOpen, setRejectReturnOpen] = useState(false);
+  const [formalHandoffOpen, setFormalHandoffOpen] = useState(false);
+  const [financeHistoryOpen, setFinanceHistoryOpen] = useState(false);
   const [inspectionCreateOpen, setInspectionCreateOpen] = useState(false);
   const [afterSalesOpen, setAfterSalesOpen] = useState(false);
   const [cancelHandoffDraft, setCancelHandoffDraft] = useState<{
@@ -491,9 +496,100 @@ export function FormalBusinessOrderDetailView({ businessOrderId }: { businessOrd
       setRounds(result);
       setNotice(success);
       refresh();
+      return result;
     } catch (caught) {
       setError(english ? "Could not update the repair round" : (caught instanceof Error ? caught.message : "维修轮次操作失败"));
+      return null;
     } finally { setBusy(false); }
+  };
+
+  const submitPaperReturn = async (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    if (!rounds || !data) return;
+    const form = event.currentTarget;
+    const fields = new FormData(form);
+    const file = fields.get("paperReturn");
+    if (!(file instanceof File) || file.size === 0) {
+      setError(english ? "Upload a clear photo or PDF of the paper work return." : "请上传清晰的纸质回单照片或 PDF。");
+      return;
+    }
+    setBusy(true);
+    setError(null);
+    setNotice(null);
+    try {
+      const attachment = await uploadFormalBusinessOrderAttachment(businessOrderId, {
+        file,
+        category: "other",
+        caption: english ? "Paper work return" : "纸质维修回单",
+      });
+      const itemResults = data.charges.items.map((item) => ({
+        chargeItemId: String(item.id),
+        category: item.kind,
+        labelZh: item.nameZh,
+        labelEn: item.nameEn,
+        result: fields.get(`item-${item.id}`) === "on" ? "completed" : "not_completed",
+      }));
+      const result = await runFormalRepairRoundAction(businessOrderId, {
+        action: "record_paper_return_and_formal_handoff",
+        repairRoundVersion: rounds.current.version,
+        actualStaffMemberId: Number(fields.get("actualStaffMemberId")),
+        attachmentIds: [attachment.id],
+        workSummary: String(fields.get("workSummary") ?? ""),
+        exceptionSummary: String(fields.get("exceptionSummary") ?? ""),
+        itemResults,
+        performanceValue: String(fields.get("performanceValue") ?? ""),
+      });
+      setRounds(result);
+      setPaperReturnOpen(false);
+      form.reset();
+      setNotice(english ? "Paper work return confirmed and formally handed off." : "纸质回单已确认，本轮已正式交单。");
+      refresh();
+    } catch (caught) {
+      setError(english ? "Could not record the paper work return" : (caught instanceof Error ? caught.message : "纸质回单登记失败"));
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const approveLatestReturn = async (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    if (!rounds?.current.latestWorkReturnId) return;
+    const fields = new FormData(event.currentTarget);
+    const result = await submitRoundAction({
+      action: "approve_and_formal_handoff",
+      repairRoundVersion: rounds.current.version,
+      workReturnId: rounds.current.latestWorkReturnId,
+      performanceValue: String(fields.get("performanceValue") ?? ""),
+    }, english ? "Work return approved and formally handed off." : "维修回单已审核通过，本轮已正式交单。");
+    if (result) setReturnReviewOpen(false);
+  };
+
+  const rejectLatestReturn = async (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    if (!rounds?.current.latestWorkReturnId) return;
+    const fields = new FormData(event.currentTarget);
+    const result = await submitRoundAction({
+      action: "reject_return",
+      repairRoundVersion: rounds.current.version,
+      workReturnId: rounds.current.latestWorkReturnId,
+      reason: String(fields.get("reason") ?? ""),
+    }, english ? "Work return sent back to the mechanic with the reason recorded." : "维修回单已退回维修工，退回原因已记录。");
+    if (result) {
+      setRejectReturnOpen(false);
+      setReturnReviewOpen(false);
+    }
+  };
+
+  const submitFormalHandoff = async (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    if (!rounds) return;
+    const fields = new FormData(event.currentTarget);
+    const result = await submitRoundAction({
+      action: "formal_handoff",
+      repairRoundVersion: rounds.current.version,
+      performanceValue: String(fields.get("performanceValue") ?? ""),
+    }, english ? "Round formally handed off and performance recorded" : "本轮已正式交单，绩效事实已落地");
+    if (result) setFormalHandoffOpen(false);
   };
 
   const beginChargeEditing = () => {
@@ -803,17 +899,18 @@ export function FormalBusinessOrderDetailView({ businessOrderId }: { businessOrd
             <p className="mt-1 text-xs text-amber-900">{english ? "The round moves to In repair when a mechanic accepts it on mobile. If a paper mechanic copy is returned, select the actual mechanic here to record acceptance." : "维修工手机端接单后会自动进入维修中；收到纸质维修工联时，也可以在这里选择实际维修工代录接单。"}</p>
             {assignedTeamStaff.length > 0 ? <div className="mt-3 flex flex-wrap gap-2">{assignedTeamStaff.map((staff) => <button key={staff.id} disabled={busy} type="button" onClick={() => void submitRoundAction({ action: "record_paper_acceptance", repairRoundVersion: rounds.current.version, actualStaffMemberId: staff.id }, english ? `Recorded acceptance by ${staff.fullName}` : `已登记 ${staff.fullName} 接单`)} className="min-h-10 rounded-lg bg-primary px-4 text-xs font-bold text-white disabled:opacity-40">{staff.fullName} · {english ? "Accept" : "接单"}</button>)}</div> : <div className="mt-3 flex flex-wrap items-center gap-2"><span className="text-xs font-semibold text-rose-700">{english ? "This team has no active mechanic who can accept the round." : "当前班组没有可接单的在职维修工。"}</span><Link href={`/employees?create=1&team=${rounds.current.assignedTeamId}&returnTo=${encodeURIComponent(`/orders/business/${businessOrderId}`)}`} className="min-h-9 rounded-lg border border-primary px-3 py-2 text-xs font-bold text-primary">{english ? "Add a mechanic and return" : "新增维修工后返回"}</Link></div>}
           </section> : null}
-          {rounds.current.status === "in_repair" ? <div className="mt-3 grid gap-3 lg:grid-cols-2">
-            {rounds.current.intakeMileageKm === null ? <form className="rounded-xl border border-line p-3" onSubmit={(event) => { event.preventDefault(); const form = new FormData(event.currentTarget); void submitRoundAction({ action: "record_mileage", repairRoundVersion: rounds.current.version, odometerKm: Number(form.get("odometerKm")) }, english ? "Intake mileage recorded" : "接车里程已记录"); }}><h3 className="text-xs font-bold">{english ? "Intake mileage" : "接车里程"}</h3><div className="mt-2 flex gap-2"><input name="odometerKm" required type="number" min="0" step="1" placeholder={english ? "Enter mileage" : "直接输入"} className="min-h-10 min-w-0 flex-1 rounded-lg border border-line px-3" /><span className="py-2.5 text-xs">km</span><button disabled={busy} className="rounded-lg bg-primary px-4 text-xs font-bold text-white">{english ? "Save" : "保存"}</button></div></form> : <div className="rounded-xl border border-line p-3 text-xs"><span className="text-ink-soft">{english ? "Intake mileage" : "接车里程"}</span><strong className="mt-1 block text-base">{rounds.current.intakeMileageKm.toLocaleString()} km</strong></div>}
-            <div className="flex flex-wrap items-center justify-end gap-2 rounded-xl border border-line p-3">
-              <button type="button" onClick={() => setInspectionCreateOpen(true)} className="inline-flex min-h-10 items-center rounded-lg border border-primary px-4 text-xs font-bold text-primary">{english ? "Create inspection report" : "新建检查结果"}</button>
-              <button type="button" onClick={() => setAdvanceRoundOpen((open) => !open)} className="min-h-10 rounded-lg bg-primary px-4 text-xs font-bold text-white">{english ? "Advance to next step" : "推进下一步"}</button>
+          {rounds.current.status === "in_repair" ? <div className="mt-3 space-y-3">
+            <div className="grid gap-2 sm:grid-cols-2">
+              <div className="rounded-xl bg-layer-2 p-3 text-xs"><span className="text-ink-soft">{english ? "Intake mileage" : "接车里程"}</span><strong className="mt-1 block text-sm">{rounds.current.intakeMileageKm === null ? (english ? "Waiting for mechanic" : "等待维修工登记") : `${rounds.current.intakeMileageKm.toLocaleString()} km`}</strong></div>
+              <div className="rounded-xl bg-layer-2 p-3 text-xs"><span className="text-ink-soft">{english ? "Odometer photo" : "里程照片"}</span><strong className="mt-1 block text-sm">{rounds.current.intakePhotoFileIds.length > 0 ? (english ? `${rounds.current.intakePhotoFileIds.length} archived` : `已归档 ${rounds.current.intakePhotoFileIds.length} 张`) : (english ? "Waiting for mechanic" : "等待维修工拍摄")}</strong></div>
             </div>
-            {advanceRoundOpen ? <form className="rounded-xl border border-primary/30 bg-primary-50 p-3 lg:col-span-2" onSubmit={(event) => { event.preventDefault(); setAdvanceRoundOpen(false); void submitRoundAction({ action: "submit_return", repairRoundVersion: rounds.current.version }, "已推进到回单待审核"); }}>
-              <div className="flex flex-wrap items-center justify-between gap-3"><div><h3 className="text-xs font-bold">{english ? "Advance to work-return review" : "推进到回单待审核"}</h3><p className="mt-1 text-[11px] text-ink-soft">{english ? "The mechanic has completed this round and the front desk must verify it on site. This does not formally hand off or close the Business Order." : "表示维修工已完成本轮工作，等待前台现场核验；不代表正式交单或 Business Order 完结。"}</p></div><div className="flex gap-2"><button type="button" onClick={() => setAdvanceRoundOpen(false)} className="min-h-9 rounded-md border border-line bg-layer-2 px-3 text-xs font-bold">{english ? "Cancel" : "取消"}</button><button disabled={busy} className="min-h-9 rounded-lg bg-accent-solid px-4 text-xs font-bold text-accent-foreground disabled:opacity-40">{english ? "Confirm" : "确认推进"}</button></div></div>
-            </form> : null}
+            <p className="rounded-xl border border-line bg-layer-1 px-3 py-2 text-xs text-ink-soft">{english ? "The mechanic receives the vehicle by entering the odometer and taking its photo in the mobile portal. Electronic returns then appear here automatically for review." : "维修工在手机端填写接车里程并拍摄里程照片后即完成接车；电子回单提交后会自动出现在这里等待审核。"}</p>
+            <div className="flex flex-wrap gap-2"><button type="button" onClick={() => setInspectionCreateOpen(true)} className="min-h-10 rounded-lg border border-primary px-4 text-xs font-bold text-primary">{english ? "Create inspection report" : "新建检查结果"}</button>{data.capabilities.canWrite ? <button type="button" onClick={() => setPaperReturnOpen(true)} className="min-h-10 rounded-lg bg-primary px-4 text-xs font-bold text-white">{english ? "Received paper work return" : "收到纸质回单"}</button> : null}</div>
           </div> : null}
-          {rounds.current.status === "return_pending_review" ? <div className="mt-3 flex flex-wrap items-end gap-2">{rounds.current.latestWorkReturnId && !rounds.current.approvedWorkReturnId ? <><button disabled={busy} type="button" onClick={() => void submitRoundAction({ action: "approve_return", repairRoundVersion: rounds.current.version, workReturnId: rounds.current.latestWorkReturnId }, english ? "Work return approved" : "维修回单已审核通过")} className="min-h-10 rounded-lg bg-primary px-4 text-xs font-bold text-white">{english ? "Approve" : "审核通过"}</button><button disabled={busy} type="button" onClick={() => { const reason = window.prompt(english ? "Enter the return reason" : "请输入退回原因"); if (reason) void submitRoundAction({ action: "reject_return", repairRoundVersion: rounds.current.version, workReturnId: rounds.current.latestWorkReturnId, reason }, english ? "Work return sent back to the repair team" : "维修回单已退回"); }} className="min-h-10 rounded-lg border border-rose-300 px-4 text-xs font-bold text-rose-700">{english ? "Return to repair team" : "退回维修班组"}</button></> : null}{rounds.current.approvedWorkReturnId ? <form className="flex flex-wrap items-end gap-2" onSubmit={(event) => { event.preventDefault(); const form = new FormData(event.currentTarget); void submitRoundAction({ action: "formal_handoff", repairRoundVersion: rounds.current.version, performanceValue: String(form.get("performanceValue")) }, english ? "Round formally handed off and performance recorded" : "本轮已正式交单，绩效事实已落地"); }}><label className="text-xs">{english ? "Round performance value (JMD)" : "本轮绩效值（JMD）"}<input name="performanceValue" required defaultValue={String(charges.items.filter((item) => item.kind === "labor").reduce((sum, item) => sum + item.subtotalMinor, 0) / 100)} className="mt-1 min-h-10 rounded-lg border border-line px-3" /></label><button disabled={busy} className="min-h-10 rounded-lg bg-emerald-600 px-4 text-xs font-bold text-white">{english ? "Formal handoff" : "正式交单"}</button></form> : null}</div> : null}
+          {rounds.current.status === "return_pending_review" ? <div className="mt-3 rounded-xl border border-line bg-layer-1 p-3">
+            {rounds.current.latestWorkReturn ? <><div className="flex flex-wrap items-start justify-between gap-2"><div><h3 className="text-sm font-bold">{rounds.current.latestWorkReturn.submissionSource === "paper" ? (english ? "Paper work return" : "纸质回单") : (english ? "Electronic work return" : "电子维修回单")} · #{rounds.current.latestWorkReturn.submissionNo}</h3><p className="mt-1 text-xs text-ink-soft">{rounds.current.latestWorkReturn.actualStaffName ?? (english ? "Mechanic not recorded" : "未记录维修工")} · {formatDateTime(rounds.current.latestWorkReturn.submittedAt)}</p></div><span className={`rounded-full px-2.5 py-1 text-[11px] font-bold ${rounds.current.approvedWorkReturnId ? "bg-emerald-100 text-emerald-800" : "bg-amber-100 text-amber-900"}`}>{rounds.current.approvedWorkReturnId ? (english ? "Approved" : "已审核通过") : (english ? "Review required" : "需要前台审核")}</span></div>{rounds.current.latestWorkReturn.workSummary ? <p className="mt-3 text-xs leading-5">{rounds.current.latestWorkReturn.workSummary}</p> : null}</> : <p className="text-xs text-rose-700">{english ? "The latest return details could not be loaded. Refresh before reviewing." : "最新回单详情未能读取，请刷新后再审核。"}</p>}
+            <div className="mt-3 flex flex-wrap gap-2">{rounds.current.latestWorkReturnId && !rounds.current.approvedWorkReturnId ? <button disabled={busy} type="button" onClick={() => setReturnReviewOpen(true)} className="min-h-10 rounded-lg bg-primary px-4 text-xs font-bold text-white">{english ? "Review and hand off" : "审核并正式交单"}</button> : null}{rounds.current.approvedWorkReturnId ? <button disabled={busy} type="button" onClick={() => setFormalHandoffOpen(true)} className="min-h-10 rounded-lg bg-emerald-600 px-4 text-xs font-bold text-white">{english ? "Complete legacy handoff" : "完成旧回单交单"}</button> : null}</div>
+          </div> : null}
           {rounds.current.status === "formally_handed_off" ? <div className="mt-3 rounded-xl border border-emerald-200 bg-emerald-50 p-3">
             <div className="flex flex-wrap items-start justify-between gap-3">
               <div><h3 className="text-sm font-bold text-emerald-900">{english ? "This repair round has been formally handed off" : "本轮维修已经正式交单"}</h3><p className="mt-1 text-xs text-emerald-800">{english ? "Repair work is complete. Payments, vehicle release and any outstanding balance remain in this Business Order." : "维修工作已经完成；收款、取车和未结余额继续在本 Business Order 内处理。"}</p></div>
@@ -918,16 +1015,29 @@ export function FormalBusinessOrderDetailView({ businessOrderId }: { businessOrd
 
           {!data.capabilities.canRecordPayment && !data.capabilities.canRefund ? <p className="mt-3 rounded-xl bg-surface px-3 py-2 text-xs text-ink-soft">{english ? "This account is read-only and can view all payment and refund records." : "当前账号只读，可查看全部收付款事实。"}</p> : null}
 
-          <div className="mt-4"><h3 className="text-xs font-bold">{english ? "Payment and refund history" : "收付款历史"}</h3>{ledger.transactions.length === 0 ? <p className="mt-2 text-xs text-ink-soft">{english ? "No payments or refunds recorded." : "尚无收付款记录。"}</p> : <div className="mt-2 overflow-hidden rounded-xl border border-line">{ledger.transactions.map((transaction) => {
+          <div className="mt-4"><button type="button" aria-expanded={financeHistoryOpen} onClick={() => setFinanceHistoryOpen((open) => !open)} className="flex min-h-10 w-full items-center justify-between rounded-xl border border-line bg-layer-2 px-3 text-left text-xs font-bold"><span>{english ? "Payment and refund history" : "收付款历史"}</span><span className="font-semibold text-ink-soft">{ledger.transactions.length} · {financeHistoryOpen ? (english ? "Hide" : "收起") : (english ? "Show" : "展开")}</span></button>{financeHistoryOpen ? (ledger.transactions.length === 0 ? <p className="mt-2 text-xs text-ink-soft">{english ? "No payments or refunds recorded." : "尚无收付款记录。"}</p> : <div className="mt-2 overflow-hidden rounded-xl border border-line">{ledger.transactions.map((transaction) => {
             const refund = transaction.type === "refund" ? refundById.get(transaction.id) : null;
-            return <article key={`${transaction.type}-${transaction.id}`} className="grid gap-2 border-b border-line p-3 text-xs last:border-0 lg:grid-cols-[1.2fr_.7fr_.8fr_1.6fr]"><span><strong className="block">{transaction.type === "payment" ? (english ? "Payment" : "收款") : (english ? "Refund" : "退款")} · {transaction.referenceNo}</strong><small className="text-ink-soft">{formatDateTime(transaction.occurredAt)} · {english ? transaction.methodLabelEn || "Translation required" : transaction.methodLabelZh}</small></span><strong className={transaction.type === "refund" ? "text-rose-600" : "text-emerald-600"}>{transaction.type === "refund" ? "−" : "+"}{formatFormalMoney(transaction.amountMinor)}</strong><span>{transaction.note ?? refund?.reason ?? (english ? "No note" : "无备注")}</span><span>{refund ? <span className="flex flex-col items-start gap-2"><Link href={`/orders/business/${businessOrderId}/refund/${refund.id}/print`} className="font-bold text-primary">{english ? "Print refund acknowledgement" : "打印退款签收单"}</Link>{formalRefundNeedsProof(refund) ? <form onSubmit={(event) => submitProof(event, refund.id)} className="flex w-full items-center gap-2"><input aria-label={english ? `Refund ${refund.refundNo} proof` : `退款 ${refund.refundNo} 实际凭证`} name="proof" type="file" accept="image/jpeg,image/png,image/webp,application/pdf" required className="min-w-0 flex-1 text-[10px]" /><button disabled={busy} className="shrink-0 rounded-md border border-primary px-2 py-1 font-semibold text-primary">{english ? "Upload transfer proof" : "补传转账凭证"}</button></form> : refund.paymentMethodCode !== "cash" ? <span className="font-semibold text-emerald-700">{english ? "Transfer proof archived" : "转账凭证已归档"}</span> : null}{formalRefundHasSignedAcknowledgement(refund) ? <span className="font-semibold text-emerald-700">{english ? "Signed refund acknowledgement uploaded" : "已上传签字后的退款签收单"}</span> : <form onSubmit={(event) => submitSignedAcknowledgement(event, refund.id)} className="flex w-full items-center gap-2"><input aria-label={english ? `Upload signed refund acknowledgement for ${refund.refundNo}` : `退款 ${refund.refundNo} 上传签字后的退款签收单`} name="signedAcknowledgement" type="file" accept="image/jpeg,image/png,image/webp,application/pdf" required className="min-w-0 flex-1 text-[10px]" /><button disabled={busy} className="shrink-0 rounded-md border border-primary px-2 py-1 font-semibold text-primary">{english ? "Upload signed copy" : "上传签收单"}</button></form>}</span> : transaction.receiptId ? <span className="flex flex-wrap items-center gap-x-3 gap-y-1"><strong className="w-full">Receipt: {transaction.referenceNo}</strong><Link href={`/orders/business/${businessOrderId}/receipt/${transaction.receiptId}/print?copy=zh`} className="font-semibold text-primary">Chinese Receipt</Link><Link href={`/orders/business/${businessOrderId}/receipt/${transaction.receiptId}/print?copy=en`} className="font-semibold text-primary">English Receipt</Link></span> : null}</span></article>;
-          })}</div>}</div>
+            return <article key={`${transaction.type}-${transaction.id}`} className="grid gap-2 border-b border-line p-3 text-xs last:border-0 lg:grid-cols-[1.2fr_.7fr_.8fr_1.6fr]"><span><strong className="block">{transaction.type === "payment" ? (english ? "Payment" : "收款") : (english ? "Refund" : "退款")} · {transaction.referenceNo}</strong><small className="text-ink-soft">{formatDateTime(transaction.occurredAt)} · {english ? transaction.methodLabelEn || "Translation required" : transaction.methodLabelZh}</small></span><strong className={transaction.type === "refund" ? "text-rose-600" : "text-emerald-600"}>{transaction.type === "refund" ? "−" : "+"}{formatFormalMoney(transaction.amountMinor)}</strong><span>{transaction.note ?? refund?.reason ?? (english ? "No note" : "无备注")}</span><span>{refund ? <span className="flex flex-col items-start gap-2"><Link href={`/orders/business/${businessOrderId}/refund/${refund.id}/print`} className="font-bold text-primary">{english ? "Print refund acknowledgement" : "打印退款签收单"}</Link>{formalRefundNeedsProof(refund) ? <form onSubmit={(event) => submitProof(event, refund.id)} className="flex w-full items-center gap-2"><input aria-label={english ? `Refund ${refund.refundNo} proof` : `退款 ${refund.refundNo} 实际凭证`} name="proof" type="file" accept="image/jpeg,image/png,image/webp,application/pdf" required className="min-w-0 flex-1 text-[10px]" /><button disabled={busy} className="shrink-0 rounded-md border border-primary px-2 py-1 font-semibold text-primary">{english ? "Upload transfer proof" : "补传转账凭证"}</button></form> : refund.paymentMethodCode !== "cash" ? <span className="font-semibold text-emerald-700">{english ? "Transfer proof archived" : "转账凭证已归档"}</span> : null}{formalRefundHasSignedAcknowledgement(refund) ? <span className="font-semibold text-emerald-700">{english ? "Signed refund acknowledgement uploaded" : "已上传签字后的退款签收单"}</span> : <form onSubmit={(event) => submitSignedAcknowledgement(event, refund.id)} className="flex w-full items-center gap-2"><input aria-label={english ? `Upload signed refund acknowledgement for ${refund.refundNo}` : `退款 ${refund.refundNo} 上传签字后的退款签收单`} name="signedAcknowledgement" type="file" accept="image/jpeg,image/png,image/webp,application/pdf" required className="min-w-0 flex-1 text-[10px]" /><button disabled={busy} className="shrink-0 rounded-md border border-primary px-2 py-1 font-semibold text-primary">{english ? "Upload signed copy" : "上传签收单"}</button></form>}</span> : transaction.receiptId ? <span className="flex flex-wrap items-center gap-x-3 gap-y-1"><strong className="w-full">{english ? "Receipt: " : "Receipt："}{transaction.referenceNo}</strong><Link href={`/orders/business/${businessOrderId}/receipt/${transaction.receiptId}/print?copy=zh`} className="font-semibold text-primary">{english ? "Chinese Receipt" : "中文 Receipt"}</Link><Link href={`/orders/business/${businessOrderId}/receipt/${transaction.receiptId}/print?copy=en`} className="font-semibold text-primary">{english ? "English Receipt" : "英文 Receipt"}</Link></span> : null}</span></article>;
+          })}</div>) : null}</div>
         </section>
         <section id="business-order-messages-workspace" role="tabpanel" hidden={activeWorkspace !== "messages"} className="rounded-2xl border border-line bg-card p-4 shadow-card xl:col-span-2">
           {activeWorkspace === "messages" ? <FormalBusinessOrderMessages businessOrderId={businessOrderId} currentAccountId={data.currentAccountId} canCollaborate={data.capabilities.canCollaborate} highlightedMessageId={Number.isSafeInteger(highlightedMessageId) && highlightedMessageId > 0 ? highlightedMessageId : null} onMentionsRead={handleMentionsRead} /> : null}
         </section>
         </div>
       </div>
+      <ActionDialog open={paperReturnOpen && data.capabilities.canWrite} title={english ? "Confirm paper return and hand off" : "确认纸质回单并正式交单"} description={english ? "Upload the paper return, confirm the mechanic, completed items and performance value. One action completes the formal handoff." : "上传纸质回单，核对维修工、完成项目和本轮绩效；一次确认完成正式交单。"} onClose={() => setPaperReturnOpen(false)}>
+        <form onSubmit={submitPaperReturn}>
+          <div className="grid gap-3 sm:grid-cols-2"><label className="text-xs font-semibold">{english ? "Actual mechanic" : "实际维修工"}<select name="actualStaffMemberId" required className="mt-1 min-h-11 w-full rounded-lg border border-line bg-layer-2 px-3 text-sm"><option value="">{english ? "Select mechanic" : "选择维修工"}</option>{assignedTeamStaff.map((staff) => <option key={staff.id} value={staff.id}>{staff.fullName}</option>)}</select></label><label className="text-xs font-semibold">{english ? "Paper return photo / PDF" : "纸质回单照片 / PDF"}<input name="paperReturn" type="file" required accept="image/jpeg,image/png,image/webp,application/pdf" className="mt-1 block min-h-11 w-full rounded-lg border border-line bg-layer-2 p-2 text-xs" /></label></div>
+          <fieldset className="mt-4"><legend className="text-xs font-bold">{english ? "Completed items" : "实际完成项目"}</legend><div className="mt-2 max-h-48 space-y-2 overflow-y-auto rounded-xl border border-line p-2">{charges.items.map((item) => <label key={item.id} className="flex min-h-10 items-center gap-3 rounded-lg bg-layer-2 px-3 text-xs"><input type="checkbox" name={`item-${item.id}`} defaultChecked className="h-4 w-4" /><span className="min-w-0 flex-1 font-semibold">{english ? item.nameEn || item.nameZh : item.nameZh}</span><span className="text-ink-soft">× {item.quantity}</span></label>)}</div></fieldset>
+          <label className="mt-3 block text-xs font-semibold">{english ? "Work completed" : "实际完成情况"}<textarea name="workSummary" rows={3} className="mt-1 w-full rounded-lg border border-line bg-layer-2 p-3 text-sm" /></label><label className="mt-3 block text-xs font-semibold">{english ? "Exceptions / unfinished work" : "异常 / 未完成说明"}<textarea name="exceptionSummary" rows={2} className="mt-1 w-full rounded-lg border border-line bg-layer-2 p-3 text-sm" /></label><label className="mt-3 block text-xs font-semibold">{english ? "Round performance value (JMD)" : "本轮绩效值（JMD）"}<input name="performanceValue" required inputMode="decimal" defaultValue={String(charges.items.filter((item) => item.kind === "labor").reduce((sum, item) => sum + item.subtotalMinor, 0) / 100)} className="mt-1 min-h-11 w-full rounded-lg border border-line bg-layer-2 px-3 text-sm" /></label>
+          <div className="mt-5 flex justify-end gap-2"><button type="button" onClick={() => setPaperReturnOpen(false)} className="min-h-10 rounded-lg border border-line px-4 text-xs font-bold">{english ? "Cancel" : "取消"}</button><button disabled={busy} className="min-h-10 rounded-lg bg-emerald-600 px-4 text-xs font-bold text-white disabled:opacity-50">{busy ? (english ? "Saving…" : "正在保存…") : (english ? "Confirm and formally hand off" : "确认并正式交单")}</button></div>
+        </form>
+      </ActionDialog>
+      <ActionDialog open={returnReviewOpen && Boolean(rounds?.current.latestWorkReturn)} title={english ? "Review mechanic work return" : "审核维修工回单"} description={english ? "Review the actual mechanic, completed items, exceptions and supporting photos before approving or returning it." : "核对实际维修工、完成项目、异常说明和维修照片，再决定通过或退回。"} onClose={() => setReturnReviewOpen(false)}>
+        {rounds?.current.latestWorkReturn ? <form onSubmit={approveLatestReturn} className="space-y-4 text-sm"><div className="grid gap-3 rounded-xl bg-layer-2 p-3 sm:grid-cols-2"><span><small className="block text-ink-soft">{english ? "Actual mechanic" : "实际维修工"}</small><strong>{rounds.current.latestWorkReturn.actualStaffName ?? "—"}</strong></span><span><small className="block text-ink-soft">{english ? "Submitted" : "提交时间"}</small><strong>{formatDateTime(rounds.current.latestWorkReturn.submittedAt)}</strong></span></div>{rounds.current.latestWorkReturn.workSummary ? <section><h3 className="text-xs font-bold">{english ? "Work completed" : "实际完成情况"}</h3><p className="mt-1 rounded-xl border border-line p-3 leading-6">{rounds.current.latestWorkReturn.workSummary}</p></section> : null}{rounds.current.latestWorkReturn.exceptionSummary ? <section><h3 className="text-xs font-bold text-amber-800">{english ? "Exceptions / unfinished work" : "异常 / 未完成说明"}</h3><p className="mt-1 rounded-xl bg-amber-50 p-3 leading-6 text-amber-950 dark:bg-amber-950/30 dark:text-amber-100">{rounds.current.latestWorkReturn.exceptionSummary}</p></section> : null}<section><h3 className="text-xs font-bold">{english ? "Item results" : "施工项目结果"}</h3><div className="mt-2 divide-y divide-line rounded-xl border border-line">{rounds.current.latestWorkReturn.itemResults.length ? rounds.current.latestWorkReturn.itemResults.map((item) => <div key={item.chargeItemId} className="flex items-center gap-3 px-3 py-2 text-xs"><span className="min-w-0 flex-1 font-semibold">{english ? item.labelEn || item.labelZh : item.labelZh}</span><strong className={item.result === "completed" ? "text-emerald-700" : "text-rose-700"}>{item.result === "completed" ? (english ? "Completed" : "已完成") : (english ? "Not completed" : "未完成")}</strong></div>) : <p className="p-3 text-xs text-ink-soft">{english ? "No item-level result was recorded." : "未记录逐项施工结果。"}</p>}</div></section>{rounds.current.latestWorkReturn.attachments.length ? <section><h3 className="text-xs font-bold">{english ? "Attachments" : "回单附件"}</h3><div className="mt-2 flex flex-wrap gap-2">{rounds.current.latestWorkReturn.attachments.map((attachment) => <a key={attachment.id} href={`/api/formal/business-orders/${businessOrderId}/attachments/${attachment.id}`} target="_blank" rel="noreferrer" className="rounded-lg border border-primary px-3 py-2 text-xs font-bold text-primary">{attachment.originalName}</a>)}</div></section> : null}<label className="block text-xs font-semibold">{english ? "Round performance value (JMD)" : "本轮绩效值（JMD）"}<input name="performanceValue" required inputMode="decimal" defaultValue={String(charges.items.filter((item) => item.kind === "labor").reduce((sum, item) => sum + item.subtotalMinor, 0) / 100)} className="mt-1 min-h-11 w-full rounded-lg border border-line bg-layer-2 px-3 text-sm" /></label><div className="flex justify-end gap-2 border-t border-line pt-4"><button type="button" onClick={() => setRejectReturnOpen(true)} className="min-h-10 rounded-lg border border-rose-400 px-4 text-xs font-bold text-rose-700">{english ? "Return for correction" : "退回修改"}</button><button disabled={busy} className="min-h-10 rounded-lg bg-emerald-600 px-4 text-xs font-bold text-white disabled:opacity-50">{english ? "Approve and formally hand off" : "审核通过并正式交单"}</button></div></form> : null}
+      </ActionDialog>
+      <ActionDialog open={rejectReturnOpen} title={english ? "Return work return for correction" : "退回维修回单"} description={english ? "The mechanic will see this reason and can resubmit a corrected work return." : "维修工会看到这条原因，并可补充后重新提交回单。"} onClose={() => setRejectReturnOpen(false)}><form onSubmit={rejectLatestReturn}><label className="text-xs font-semibold">{english ? "Return reason" : "退回原因"}<textarea name="reason" required autoFocus rows={4} className="mt-1 w-full rounded-lg border border-line bg-layer-2 p-3 text-sm" /></label><div className="mt-5 flex justify-end gap-2"><button type="button" onClick={() => setRejectReturnOpen(false)} className="min-h-10 rounded-lg border border-line px-4 text-xs font-bold">{english ? "Cancel" : "取消"}</button><button disabled={busy} className="min-h-10 rounded-lg bg-rose-600 px-4 text-xs font-bold text-white">{english ? "Return to mechanic" : "确认退回"}</button></div></form></ActionDialog>
+      <ActionDialog open={formalHandoffOpen && Boolean(rounds?.current.approvedWorkReturnId)} title={english ? "Formal handoff" : "正式交单"} description={english ? "The work return is approved. Confirm the performance value to complete this repair round." : "维修回单已经审核通过。确认本轮绩效值后完成正式交单。"} onClose={() => setFormalHandoffOpen(false)}><form onSubmit={submitFormalHandoff}><label className="text-xs font-semibold">{english ? "Round performance value (JMD)" : "本轮绩效值（JMD）"}<input name="performanceValue" required inputMode="decimal" defaultValue={String(charges.items.filter((item) => item.kind === "labor").reduce((sum, item) => sum + item.subtotalMinor, 0) / 100)} className="mt-1 min-h-11 w-full rounded-lg border border-line bg-layer-2 px-3 text-sm" /></label><div className="mt-5 flex justify-end gap-2"><button type="button" onClick={() => setFormalHandoffOpen(false)} className="min-h-10 rounded-lg border border-line px-4 text-xs font-bold">{english ? "Cancel" : "取消"}</button><button disabled={busy} className="min-h-10 rounded-lg bg-emerald-600 px-4 text-xs font-bold text-white">{english ? "Complete formal handoff" : "确认正式交单"}</button></div></form></ActionDialog>
       <ActionDialog open={paymentFormOpen && data.capabilities.canRecordPayment} title={english ? "Record a payment" : "登记一笔收款"} description={english ? "Saving creates an immutable payment record and its corresponding Receipt." : "保存后立即形成一笔不可修改的收款事实，并生成对应 Receipt。"} onClose={() => setPaymentFormOpen(false)}>
         <form onSubmit={submitPayment}>
           <div className="grid gap-3 sm:grid-cols-2"><label className="text-xs font-semibold">{english ? "Amount (JMD)" : "金额（JMD）"}<input name="amount" inputMode="decimal" required autoFocus className="mt-1 min-h-11 w-full rounded-lg border border-line bg-layer-2 px-3 text-sm text-ink" /></label><label className="text-xs font-semibold">{english ? "Payment method" : "收款方式"}<select name="paymentMethodItemId" required className="mt-1 min-h-11 w-full rounded-lg border border-line bg-layer-2 px-3 text-sm text-ink"><option value="">{english ? "Select a method" : "选择方式"}</option>{data.paymentMethods.map((method) => <option key={method.id} value={method.id}>{english ? method.labelEn || "Translation required" : method.labelZh}{!english && method.labelEn ? ` / ${method.labelEn}` : ""}</option>)}</select></label></div>

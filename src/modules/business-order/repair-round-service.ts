@@ -4,6 +4,7 @@ import type {
 } from "@formal/modules/auth/session-repository";
 import { writeAuditEvent } from "@formal/modules/audit/audit-service";
 import type { BusinessOrderActionContext } from "@formal/modules/business-order/business-order-service";
+import { formallyHandOffRoundInTransaction } from "@formal/modules/business-order/formal-handoff-service";
 
 type RepairRoundStatus =
   | "waiting_assignment"
@@ -13,6 +14,79 @@ type RepairRoundStatus =
   | "formally_handed_off";
 
 type RepairRoundSource = "initial" | "after_sales";
+type WorkReturnSource = "electronic" | "paper";
+type WorkReturnAttachmentPurpose = "paper_return" | "service_photo";
+
+export type WorkReturnItemResult = {
+  chargeItemId: string;
+  category: "labor" | "part" | "other";
+  labelZh: string;
+  labelEn?: string | null;
+  result: "completed" | "not_completed";
+  note?: string | null;
+};
+
+export type WorkReturnDetails = {
+  id: number;
+  submissionNo: number;
+  submissionSource: WorkReturnSource;
+  workSummary: string | null;
+  exceptionSummary: string | null;
+  itemResults: WorkReturnItemResult[];
+  actualStaffMemberId: number | null;
+  actualStaffName: string | null;
+  submittedBy: number;
+  submittedByName: string;
+  submittedAt: Date;
+  attachments: Array<{
+    id: number;
+    purpose: WorkReturnAttachmentPurpose;
+    originalName: string;
+    mediaType: string;
+  }>;
+  review: null | {
+    result: "approved" | "rejected";
+    reason: string | null;
+    reviewerAccountId: number;
+    reviewerName: string;
+    reviewedAt: Date;
+  };
+};
+
+export type MechanicWorkOrderSummary = {
+  businessOrderId: number;
+  orderNo: string;
+  status: RepairRoundStatus;
+  vehicle: { plate: string; description: string; vin: string | null };
+  repairRound: {
+    id: number;
+    roundNo: number;
+    assignedTeamId: number;
+    assignedTeamName: string;
+    version: number;
+  };
+  latestRejectionReason: string | null;
+};
+
+export type MechanicWorkOrderDetail = MechanicWorkOrderSummary & {
+  intakeMileageKm: number | null;
+  intakePhotoFileIds: number[];
+  workItems: Array<{
+    id: string;
+    kind: "labor" | "part" | "other";
+    nameZh: string;
+    nameEn: string | null;
+    descriptionZh: string | null;
+    descriptionEn: string | null;
+    quantity: string;
+  }>;
+  notes: Array<{
+    kind: "customer_concern" | "work_instruction" | "liability_notice";
+    contentZh: string | null;
+    contentEn: string | null;
+  }>;
+  latestWorkReturn: WorkReturnDetails | null;
+};
 
 type RepairRoundRow = {
   id: number;
@@ -43,6 +117,7 @@ export type CurrentRepairRound = {
   intakePhotoFileIds: number[];
   latestWorkReturnId: number | null;
   approvedWorkReturnId: number | null;
+  latestWorkReturn?: WorkReturnDetails | null;
   version: number;
 };
 
@@ -154,17 +229,100 @@ export class RepairRoundService {
        where repair_round_id = $1 order by linked_at, file_id`,
       [round.id],
     );
-    const workReturns = await this.database.query<{ id: number }>(
-      `select id from repair_round_work_returns
-       where repair_round_id = $1 order by submission_no desc limit 1`,
+    const workReturns = await this.database.query<{
+      id: number;
+      submission_no: number;
+      submission_source: WorkReturnSource;
+      work_summary: string | null;
+      exception_summary: string | null;
+      item_results: WorkReturnItemResult[] | string;
+      actual_staff_member_id: number | null;
+      actual_staff_name: string | null;
+      submitted_by: number;
+      submitted_by_name: string;
+      submitted_at: Date;
+    }>(
+      `select work_return.id, work_return.submission_no,
+              work_return.submission_source, work_return.work_summary,
+              work_return.exception_summary, work_return.item_results,
+              work_return.actual_staff_member_id,
+              staff.full_name as actual_staff_name,
+              work_return.submitted_by,
+              submitter.display_name as submitted_by_name,
+              work_return.submitted_at
+       from repair_round_work_returns as work_return
+       join staff_accounts as submitter on submitter.id = work_return.submitted_by
+       left join staff_members as staff on staff.id = work_return.actual_staff_member_id
+       where work_return.repair_round_id = $1
+       order by work_return.submission_no desc limit 1`,
       [round.id],
     );
-    const approvals = await this.database.query<{ work_return_id: number }>(
-      `select work_return_id from repair_round_events
-       where repair_round_id = $1 and event_type = 'work_return_approved'
-       order by occurred_at desc, id desc limit 1`,
-      [round.id],
-    );
+    const latestWorkReturn = workReturns[0];
+    const reviews = latestWorkReturn
+      ? await this.database.query<{
+          event_type: "work_return_approved" | "work_return_rejected";
+          note: string | null;
+          actor_account_id: number;
+          actor_display_name: string;
+          occurred_at: Date;
+        }>(
+          `select event.event_type, event.note, event.actor_account_id,
+                  reviewer.display_name as actor_display_name, event.occurred_at
+           from repair_round_events as event
+           join staff_accounts as reviewer on reviewer.id = event.actor_account_id
+           where event.repair_round_id = $1 and event.work_return_id = $2
+             and event.event_type in ('work_return_rejected', 'work_return_approved')
+           order by event.occurred_at desc, event.id desc limit 1`,
+          [round.id, latestWorkReturn.id],
+        )
+      : [];
+    const workReturnAttachments = latestWorkReturn
+      ? await this.database.query<{
+          id: number;
+          purpose: WorkReturnAttachmentPurpose;
+          original_name: string;
+          media_type: string;
+        }>(
+          `select attachment.id, link.purpose, file.original_name, file.media_type
+           from repair_round_work_return_attachments as link
+           join business_order_attachments as attachment on attachment.id = link.attachment_id
+           join stored_files as file on file.id = attachment.file_id
+           where link.work_return_id = $1
+           order by attachment.linked_at, attachment.id`,
+          [latestWorkReturn.id],
+        )
+      : [];
+    const latestReview = reviews[0];
+    const latestWorkReturnDetails: WorkReturnDetails | null = latestWorkReturn
+      ? {
+          id: Number(latestWorkReturn.id),
+          submissionNo: latestWorkReturn.submission_no,
+          submissionSource: latestWorkReturn.submission_source,
+          workSummary: latestWorkReturn.work_summary,
+          exceptionSummary: latestWorkReturn.exception_summary,
+          itemResults: normalizeItemResults(latestWorkReturn.item_results),
+          actualStaffMemberId: nullableNumber(latestWorkReturn.actual_staff_member_id),
+          actualStaffName: latestWorkReturn.actual_staff_name,
+          submittedBy: Number(latestWorkReturn.submitted_by),
+          submittedByName: latestWorkReturn.submitted_by_name,
+          submittedAt: new Date(latestWorkReturn.submitted_at),
+          attachments: workReturnAttachments.map((attachment) => ({
+            id: Number(attachment.id),
+            purpose: attachment.purpose,
+            originalName: attachment.original_name,
+            mediaType: attachment.media_type,
+          })),
+          review: latestReview
+            ? {
+                result: latestReview.event_type === "work_return_approved" ? "approved" : "rejected",
+                reason: latestReview.note,
+                reviewerAccountId: Number(latestReview.actor_account_id),
+                reviewerName: latestReview.actor_display_name,
+                reviewedAt: new Date(latestReview.occurred_at),
+              }
+            : null,
+        }
+      : null;
     return {
       id: Number(round.id),
       businessOrderId: Number(round.business_order_id),
@@ -175,11 +333,173 @@ export class RepairRoundService {
       assignedTeamId: nullableNumber(round.assigned_team_id),
       intakeMileageKm: mileage[0] ? Number(mileage[0].odometer_km) : null,
       intakePhotoFileIds: photos.map((photo) => Number(photo.file_id)),
-      latestWorkReturnId: workReturns[0] ? Number(workReturns[0].id) : null,
-      approvedWorkReturnId: approvals[0]
-        ? Number(approvals[0].work_return_id)
+      latestWorkReturnId: latestWorkReturn ? Number(latestWorkReturn.id) : null,
+      approvedWorkReturnId: latestReview?.event_type === "work_return_approved"
+        ? Number(latestWorkReturn?.id)
         : null,
+      latestWorkReturn: latestWorkReturnDetails,
       version: round.version,
+    };
+  }
+
+  async listMechanicWorkOrders(input: {
+    viewerAccountId: number;
+  }): Promise<{ items: MechanicWorkOrderSummary[] }> {
+    const actor = await requireMechanicIdentity(this.database, input.viewerAccountId);
+    const rows = await this.database.query<{
+      business_order_id: number;
+      order_no: string;
+      status: RepairRoundStatus;
+      vehicle_plate_snapshot: string;
+      vehicle_description_snapshot: string;
+      vehicle_vin_snapshot: string | null;
+      repair_round_id: number;
+      round_no: number;
+      assigned_team_id: number;
+      assigned_team_name: string;
+      repair_round_version: number;
+      latest_rejection_reason: string | null;
+    }>(
+      `select business_order.id as business_order_id, business_order.order_no,
+              repair_round.status, business_order.vehicle_plate_snapshot,
+              business_order.vehicle_description_snapshot,
+              business_order.vehicle_vin_snapshot,
+              repair_round.id as repair_round_id, repair_round.round_no,
+              repair_round.assigned_team_id,
+              team.name as assigned_team_name,
+              repair_round.version as repair_round_version,
+              (
+                select event.note
+                from repair_round_events as event
+                join repair_round_work_returns as work_return
+                  on work_return.id = event.work_return_id
+                where event.repair_round_id = repair_round.id
+                  and event.event_type = 'work_return_rejected'
+                  and work_return.submission_no = (
+                    select max(candidate.submission_no)
+                    from repair_round_work_returns as candidate
+                    where candidate.repair_round_id = repair_round.id
+                  )
+                order by event.occurred_at desc, event.id desc limit 1
+              ) as latest_rejection_reason
+       from repair_rounds as repair_round
+       join business_orders as business_order
+         on business_order.id = repair_round.business_order_id
+        and business_order.current_repair_round_no = repair_round.round_no
+       join repair_teams as team on team.id = repair_round.assigned_team_id
+       where repair_round.assigned_team_id = $1
+         and repair_round.status in ('assigned', 'in_repair', 'return_pending_review')
+         and business_order.voided_at is null
+       order by business_order.updated_at desc, business_order.id desc`,
+      [actor.teamId],
+    );
+    return { items: rows.map(mapMechanicWorkOrderSummary) };
+  }
+
+  async getMechanicWorkOrder(input: {
+    businessOrderId: number;
+    viewerAccountId: number;
+  }): Promise<MechanicWorkOrderDetail> {
+    const businessOrderId = positiveId(input.businessOrderId, "Business Order");
+    const actor = await requireMechanicIdentity(this.database, input.viewerAccountId);
+    const rows = await this.database.query<{
+      business_order_id: number;
+      order_no: string;
+      status: RepairRoundStatus;
+      vehicle_plate_snapshot: string;
+      vehicle_description_snapshot: string;
+      vehicle_vin_snapshot: string | null;
+      repair_round_id: number;
+      round_no: number;
+      assigned_team_id: number;
+      assigned_team_name: string;
+      repair_round_version: number;
+      latest_rejection_reason: string | null;
+      current_charge_version_id: number;
+    }>(
+      `select business_order.id as business_order_id, business_order.order_no,
+              repair_round.status, business_order.vehicle_plate_snapshot,
+              business_order.vehicle_description_snapshot,
+              business_order.vehicle_vin_snapshot,
+              repair_round.id as repair_round_id, repair_round.round_no,
+              repair_round.assigned_team_id,
+              team.name as assigned_team_name,
+              repair_round.version as repair_round_version,
+              charge.id as current_charge_version_id,
+              (
+                select event.note from repair_round_events as event
+                join repair_round_work_returns as work_return on work_return.id = event.work_return_id
+                where event.repair_round_id = repair_round.id
+                  and event.event_type = 'work_return_rejected'
+                  and work_return.submission_no = (
+                    select max(candidate.submission_no)
+                    from repair_round_work_returns as candidate
+                    where candidate.repair_round_id = repair_round.id
+                  )
+                order by event.occurred_at desc, event.id desc limit 1
+              ) as latest_rejection_reason
+       from business_orders as business_order
+       join repair_rounds as repair_round
+         on repair_round.business_order_id = business_order.id
+        and repair_round.round_no = business_order.current_repair_round_no
+       join repair_teams as team on team.id = repair_round.assigned_team_id
+       join business_order_charge_versions as charge
+         on charge.business_order_id = business_order.id
+        and charge.version_no = business_order.current_charge_version_no
+       where business_order.id = $1 and business_order.voided_at is null
+         and repair_round.assigned_team_id = $2
+       limit 1`,
+      [businessOrderId, actor.teamId],
+    );
+    const row = rows[0];
+    if (!row) throw new RepairRoundReadDeniedError();
+    const [currentRound, items, notes] = await Promise.all([
+      this.getCurrentRound({ businessOrderId, viewerAccountId: input.viewerAccountId }),
+      this.database.query<{
+        id: number;
+        kind: "labor" | "part" | "other";
+        name_zh: string;
+        name_en: string | null;
+        description_zh: string | null;
+        description_en: string | null;
+        quantity: string;
+      }>(
+        `select id, kind, name_zh, name_en, description_zh, description_en,
+                quantity::text as quantity
+         from business_order_charge_items
+         where charge_version_id = $1 order by sort_order, id`,
+        [row.current_charge_version_id],
+      ),
+      this.database.query<{
+        kind: "customer_concern" | "work_instruction" | "liability_notice";
+        content_zh: string | null;
+        content_en: string | null;
+      }>(
+        `select kind, content_zh, content_en from business_order_notes
+         where charge_version_id = $1 and kind <> 'internal'
+         order by sort_order, id`,
+        [row.current_charge_version_id],
+      ),
+    ]);
+    return {
+      ...mapMechanicWorkOrderSummary(row),
+      intakeMileageKm: currentRound.intakeMileageKm,
+      intakePhotoFileIds: currentRound.intakePhotoFileIds,
+      workItems: items.map((item) => ({
+        id: String(item.id),
+        kind: item.kind,
+        nameZh: item.name_zh,
+        nameEn: item.name_en,
+        descriptionZh: item.description_zh,
+        descriptionEn: item.description_en,
+        quantity: item.quantity,
+      })),
+      notes: notes.map((note) => ({
+        kind: note.kind,
+        contentZh: note.content_zh,
+        contentEn: note.content_en,
+      })),
+      latestWorkReturn: currentRound.latestWorkReturn ?? null,
     };
   }
 
@@ -729,12 +1049,27 @@ export class RepairRoundService {
       requireInRepair(round);
       await requireIntakeActor(transaction, input.context.actorAccountId, round.assigned_team_id);
       const attachments = await transaction.query<{ file_id: number }>(
-        `select file_id from vehicle_attachments
-         where vehicle_id = $1 and file_id = $2 and kind = 'photo' limit 1`,
-        [round.vehicle_id, fileId],
+        `select candidate.file_id
+         from (
+           select vehicle_attachment.file_id
+           from vehicle_attachments as vehicle_attachment
+           where vehicle_attachment.vehicle_id = $1
+             and vehicle_attachment.file_id = $2
+             and vehicle_attachment.kind = 'photo'
+           union all
+           select business_attachment.file_id
+           from business_order_attachments as business_attachment
+           join stored_files as file on file.id = business_attachment.file_id
+           where business_attachment.business_order_id = $3
+             and business_attachment.file_id = $2
+             and business_attachment.category = 'service_photo'
+             and file.media_type like 'image/%'
+         ) as candidate
+         limit 1`,
+        [round.vehicle_id, fileId, businessOrderId],
       );
       if (!attachments[0]) {
-        throw new RepairRoundValidationError("接车照片必须先归档到当前车辆档案");
+        throw new RepairRoundValidationError("接车照片必须属于当前车辆或 Business Order");
       }
       await transaction.query(
         `insert into repair_round_intake_photos
@@ -760,12 +1095,18 @@ export class RepairRoundService {
     businessOrderId: number;
     expectedRepairRoundVersion: number;
     workSummary?: string;
+    exceptionSummary?: string;
+    itemResults?: WorkReturnItemResult[];
+    attachmentIds?: number[];
     actualStaffMemberId?: number;
     context: BusinessOrderActionContext;
   }): Promise<{ id: number; submissionNo: number }> {
     const businessOrderId = positiveId(input.businessOrderId, "Business Order");
     const expectedVersion = positiveId(input.expectedRepairRoundVersion, "维修轮次版本");
-    const workSummary = input.workSummary?.trim() || null;
+    const workSummary = optionalText(input.workSummary);
+    const exceptionSummary = optionalText(input.exceptionSummary);
+    const itemResults = validItemResults(input.itemResults);
+    const attachmentIds = uniquePositiveIds(input.attachmentIds ?? []);
     const now = input.context.now ?? new Date();
     return this.database.transaction(async (transaction) => {
       const round = await lockCurrentRound(transaction, businessOrderId);
@@ -780,35 +1121,88 @@ export class RepairRoundService {
         input.actualStaffMemberId,
         round.assigned_team_id,
       );
-      const counts = await transaction.query<{ current_number: number }>(
-        `select coalesce(max(submission_no), 0)::integer as current_number
-         from repair_round_work_returns where repair_round_id = $1`,
-        [round.id],
-      );
-      const submissionNo = Number(counts[0]?.current_number ?? 0) + 1;
-      const workReturns = await transaction.query<{ id: number }>(
-        `insert into repair_round_work_returns
-          (repair_round_id, submission_no, work_summary,
-           actual_staff_member_id, submitted_by, submitted_at)
-         values ($1, $2, $3, $4, $5, $6) returning id`,
-        [round.id, submissionNo, workSummary, actualStaffMemberId,
-          input.context.actorAccountId, now],
-      );
-      const workReturnId = Number(workReturns[0].id);
+      await requireCompleteElectronicIntake(transaction, round.id);
+      await requireWorkReturnAttachments(transaction, {
+        businessOrderId,
+        attachmentIds,
+        purpose: "service_photo",
+        required: false,
+      });
+      const inserted = await insertWorkReturn(transaction, {
+        round,
+        source: "electronic",
+        workSummary,
+        exceptionSummary,
+        itemResults,
+        actualStaffMemberId,
+        attachmentIds,
+        attachmentPurpose: "service_photo",
+        submittedBy: input.context.actorAccountId,
+        submittedAt: now,
+      });
       await insertEvent(transaction, {
         repairRoundId: round.id,
         eventType: "work_return_submitted",
-        workReturnId,
+        workReturnId: inserted.id,
         actorAccountId: input.context.actorAccountId,
         occurredAt: now,
       });
       await audit(transaction, input.context, now, "business_order.work_return_submitted", businessOrderId, {
         roundNo: round.round_no,
-        workReturnId,
-        submissionNo,
+        workReturnId: inserted.id,
+        submissionNo: inserted.submissionNo,
+        submissionSource: "electronic",
         actualStaffMemberId,
+        attachmentIds,
       });
-      return { id: workReturnId, submissionNo };
+      return inserted;
+    });
+  }
+
+  async recordPaperWorkReturn(input: {
+    businessOrderId: number;
+    expectedRepairRoundVersion: number;
+    actualStaffMemberId: number;
+    attachmentIds: number[];
+    workSummary?: string;
+    exceptionSummary?: string;
+    itemResults?: WorkReturnItemResult[];
+    context: BusinessOrderActionContext;
+  }): Promise<{ id: number; submissionNo: number }> {
+    const command = normalizePaperWorkReturn(input);
+    return this.database.transaction((transaction) => recordPaperWorkReturnInTransaction(transaction, command));
+  }
+
+  async recordPaperWorkReturnAndFormallyHandOff(input: {
+    businessOrderId: number;
+    expectedRepairRoundVersion: number;
+    actualStaffMemberId: number;
+    attachmentIds: number[];
+    workSummary?: string;
+    exceptionSummary?: string;
+    itemResults?: WorkReturnItemResult[];
+    performanceValue: string;
+    context: BusinessOrderActionContext;
+  }) {
+    const command = normalizePaperWorkReturn(input);
+    return this.database.transaction(async (transaction) => {
+      await recordPaperWorkReturnInTransaction(transaction, command);
+      const versions = await transaction.query<{ version: number }>(
+        `select version from repair_rounds
+         where business_order_id = $1
+         order by round_no desc limit 1`,
+        [command.businessOrderId],
+      );
+      const projectedVersion = Number(versions[0]?.version);
+      if (!Number.isSafeInteger(projectedVersion) || projectedVersion < 1) {
+        throw new RepairRoundValidationError("维修轮次状态未能更新");
+      }
+      return formallyHandOffRoundInTransaction(transaction, {
+        businessOrderId: command.businessOrderId,
+        expectedRepairRoundVersion: projectedVersion,
+        performanceValue: input.performanceValue,
+        context: { ...input.context, now: command.now },
+      });
     });
   }
 
@@ -875,6 +1269,154 @@ export class RepairRoundService {
       });
     });
   }
+
+  async approveAndFormallyHandOff(input: {
+    businessOrderId: number;
+    expectedRepairRoundVersion: number;
+    workReturnId: number;
+    performanceValue: string;
+    context: BusinessOrderActionContext;
+  }) {
+    const businessOrderId = positiveId(input.businessOrderId, "Business Order");
+    const expectedVersion = positiveId(input.expectedRepairRoundVersion, "维修轮次版本");
+    const workReturnId = positiveId(input.workReturnId, "回单");
+    const now = input.context.now ?? new Date();
+    return this.database.transaction(async (transaction) => {
+      await requirePcWriter(transaction, input.context.actorAccountId);
+      const round = await lockCurrentRound(transaction, businessOrderId);
+      requireRoundVersion(round, expectedVersion);
+      requirePendingReview(round);
+      await requireReviewableReturn(transaction, round.id, workReturnId);
+      await insertEvent(transaction, {
+        repairRoundId: round.id,
+        eventType: "work_return_approved",
+        workReturnId,
+        actorAccountId: input.context.actorAccountId,
+        occurredAt: now,
+      });
+      await audit(transaction, input.context, now, "business_order.work_return_approved", businessOrderId, {
+        roundNo: round.round_no,
+        workReturnId,
+      });
+      const versions = await transaction.query<{ version: number }>(
+        `select version from repair_rounds where id = $1`,
+        [round.id],
+      );
+      const projectedVersion = Number(versions[0]?.version);
+      if (!Number.isSafeInteger(projectedVersion) || projectedVersion < 1) {
+        throw new RepairRoundValidationError("维修轮次状态未能更新");
+      }
+      return formallyHandOffRoundInTransaction(transaction, {
+        businessOrderId,
+        expectedRepairRoundVersion: projectedVersion,
+        performanceValue: input.performanceValue,
+        context: { ...input.context, now },
+      });
+    });
+  }
+}
+
+type PaperWorkReturnCommand = {
+  businessOrderId: number;
+  expectedVersion: number;
+  actualStaffMemberId: number;
+  attachmentIds: number[];
+  workSummary: string | null;
+  exceptionSummary: string | null;
+  itemResults: WorkReturnItemResult[];
+  context: BusinessOrderActionContext;
+  now: Date;
+};
+
+function normalizePaperWorkReturn(input: {
+  businessOrderId: number;
+  expectedRepairRoundVersion: number;
+  actualStaffMemberId: number;
+  attachmentIds: number[];
+  workSummary?: string;
+  exceptionSummary?: string;
+  itemResults?: WorkReturnItemResult[];
+  context: BusinessOrderActionContext;
+}): PaperWorkReturnCommand {
+  const attachmentIds = uniquePositiveIds(input.attachmentIds);
+  if (attachmentIds.length === 0) {
+    throw new RepairRoundValidationError("纸质回单必须上传清晰照片或 PDF");
+  }
+  return {
+    businessOrderId: positiveId(input.businessOrderId, "Business Order"),
+    expectedVersion: positiveId(input.expectedRepairRoundVersion, "维修轮次版本"),
+    actualStaffMemberId: positiveId(input.actualStaffMemberId, "实际维修工"),
+    attachmentIds,
+    workSummary: optionalText(input.workSummary),
+    exceptionSummary: optionalText(input.exceptionSummary),
+    itemResults: validItemResults(input.itemResults),
+    context: input.context,
+    now: input.context.now ?? new Date(),
+  };
+}
+
+async function recordPaperWorkReturnInTransaction(
+  transaction: AuthSqlExecutor,
+  command: PaperWorkReturnCommand,
+) {
+  await requirePcWriter(transaction, command.context.actorAccountId);
+  const round = await lockCurrentRound(transaction, command.businessOrderId);
+  requireRoundVersion(round, command.expectedVersion);
+  requireInRepair(round);
+  if (round.assigned_team_id === null) {
+    throw new RepairRoundValidationError("本轮尚未分配维修班组");
+  }
+  await requireActiveTeamStaff(transaction, command.actualStaffMemberId, round.assigned_team_id);
+  await requireWorkReturnAttachments(transaction, {
+    businessOrderId: command.businessOrderId,
+    attachmentIds: command.attachmentIds,
+    purpose: "paper_return",
+    required: true,
+  });
+  const inserted = await insertWorkReturn(transaction, {
+    round,
+    source: "paper",
+    workSummary: command.workSummary,
+    exceptionSummary: command.exceptionSummary,
+    itemResults: command.itemResults,
+    actualStaffMemberId: command.actualStaffMemberId,
+    attachmentIds: command.attachmentIds,
+    attachmentPurpose: "paper_return",
+    submittedBy: command.context.actorAccountId,
+    submittedAt: command.now,
+  });
+  await insertEvent(transaction, {
+    repairRoundId: round.id,
+    eventType: "work_return_submitted",
+    workReturnId: inserted.id,
+    note: "前台录入纸质回单",
+    actorAccountId: command.context.actorAccountId,
+    occurredAt: command.now,
+  });
+  await insertEvent(transaction, {
+    repairRoundId: round.id,
+    eventType: "work_return_approved",
+    workReturnId: inserted.id,
+    note: "纸质回单已由前台现场核对",
+    actorAccountId: command.context.actorAccountId,
+    occurredAt: command.now,
+  });
+  await audit(
+    transaction,
+    command.context,
+    command.now,
+    "business_order.paper_work_return_recorded_and_approved",
+    command.businessOrderId,
+    {
+      roundNo: round.round_no,
+      workReturnId: inserted.id,
+      submissionNo: inserted.submissionNo,
+      submissionSource: "paper",
+      actualStaffMemberId: command.actualStaffMemberId,
+      attachmentIds: command.attachmentIds,
+    },
+  );
+  return inserted;
 }
 
 async function selectCurrentRound(executor: AuthSqlExecutor, businessOrderId: number) {
@@ -926,6 +1468,24 @@ async function requirePcWriter(executor: AuthSqlExecutor, accountId: number) {
     [accountId],
   );
   if (!rows[0]) throw new RepairRoundWriteDeniedError();
+}
+
+async function requireMechanicIdentity(executor: AuthSqlExecutor, accountId: number) {
+  const rows = await executor.query<{ staff_member_id: number; current_team_id: number | null }>(
+    `select member.id as staff_member_id, member.current_team_id
+     from staff_accounts as account
+     join staff_members as member
+       on member.account_id = account.id and member.status = 'active'
+     where account.id = $1 and account.is_active = true
+       and account.role = 'mechanic' limit 1`,
+    [accountId],
+  );
+  const actor = rows[0];
+  if (!actor?.current_team_id) throw new RepairRoundReadDeniedError();
+  return {
+    staffMemberId: Number(actor.staff_member_id),
+    teamId: Number(actor.current_team_id),
+  };
 }
 
 async function requireRoundReader(
@@ -1072,6 +1632,98 @@ async function requireReviewableReturn(
   if (!rows[0]) throw new RepairRoundValidationError("当前回单已经处理或不是最新回单");
 }
 
+async function requireCompleteElectronicIntake(
+  executor: AuthSqlExecutor,
+  repairRoundId: number,
+) {
+  const rows = await executor.query<{ has_mileage: boolean; has_photo: boolean }>(
+    `select
+       exists(select 1 from vehicle_mileage_records where repair_round_id = $1) as has_mileage,
+       exists(select 1 from repair_round_intake_photos where repair_round_id = $1) as has_photo`,
+    [repairRoundId],
+  );
+  if (!rows[0]?.has_mileage || !rows[0]?.has_photo) {
+    throw new RepairRoundValidationError("电子回单提交前必须完成接车里程和里程照片");
+  }
+}
+
+async function requireWorkReturnAttachments(
+  executor: AuthSqlExecutor,
+  input: {
+    businessOrderId: number;
+    attachmentIds: number[];
+    purpose: WorkReturnAttachmentPurpose;
+    required: boolean;
+  },
+) {
+  if (input.attachmentIds.length === 0) {
+    if (input.required) throw new RepairRoundValidationError("纸质回单必须上传清晰照片或 PDF");
+    return;
+  }
+  const rows = await executor.query<{ id: number; media_type: string }>(
+    `select attachment.id, file.media_type
+     from business_order_attachments as attachment
+     join stored_files as file on file.id = attachment.file_id
+     where attachment.business_order_id = $1
+       and attachment.id = any($2::bigint[])
+     for share`,
+    [input.businessOrderId, input.attachmentIds],
+  );
+  if (rows.length !== input.attachmentIds.length) {
+    throw new RepairRoundValidationError("部分回单附件不属于当前 Business Order");
+  }
+  const invalid = rows.some((row) => {
+    if (input.purpose === "service_photo") return !row.media_type.startsWith("image/");
+    return !row.media_type.startsWith("image/") && row.media_type !== "application/pdf";
+  });
+  if (invalid) throw new RepairRoundValidationError("回单附件只支持图片或 PDF");
+}
+
+async function insertWorkReturn(
+  executor: AuthSqlExecutor,
+  input: {
+    round: RepairRoundRow;
+    source: WorkReturnSource;
+    workSummary: string | null;
+    exceptionSummary: string | null;
+    itemResults: WorkReturnItemResult[];
+    actualStaffMemberId: number | null;
+    attachmentIds: number[];
+    attachmentPurpose: WorkReturnAttachmentPurpose;
+    submittedBy: number;
+    submittedAt: Date;
+  },
+) {
+  const counts = await executor.query<{ current_number: number }>(
+    `select coalesce(max(submission_no), 0)::integer as current_number
+     from repair_round_work_returns where repair_round_id = $1`,
+    [input.round.id],
+  );
+  const submissionNo = Number(counts[0]?.current_number ?? 0) + 1;
+  const workReturns = await executor.query<{ id: number }>(
+    `insert into repair_round_work_returns
+      (repair_round_id, submission_no, submission_source, work_summary,
+       exception_summary, item_results, actual_staff_member_id,
+       submitted_by, submitted_at)
+     values ($1, $2, $3, $4, $5, $6::jsonb, $7, $8, $9)
+     returning id`,
+    [input.round.id, submissionNo, input.source, input.workSummary,
+      input.exceptionSummary, JSON.stringify(input.itemResults), input.actualStaffMemberId,
+      input.submittedBy, input.submittedAt],
+  );
+  const workReturnId = Number(workReturns[0].id);
+  if (input.attachmentIds.length > 0) {
+    await executor.query(
+      `insert into repair_round_work_return_attachments
+        (work_return_id, attachment_id, purpose)
+       select $1, attachment_id, $3
+       from unnest($2::bigint[]) as attachment_id`,
+      [workReturnId, input.attachmentIds, input.attachmentPurpose],
+    );
+  }
+  return { id: workReturnId, submissionNo };
+}
+
 async function insertEvent(
   executor: AuthSqlExecutor,
   input: {
@@ -1172,6 +1824,55 @@ function nonempty(value: string, label: string) {
   return normalized;
 }
 
+function optionalText(value: string | undefined) {
+  const normalized = value?.normalize("NFKC").trim();
+  return normalized || null;
+}
+
+function uniquePositiveIds(values: number[]) {
+  if (!Array.isArray(values)) throw new RepairRoundValidationError("附件列表无效");
+  const normalized = [...new Set(values.map((value) => positiveId(value, "附件")))];
+  if (normalized.length !== values.length) throw new RepairRoundValidationError("附件不能重复");
+  return normalized;
+}
+
+function validItemResults(value: WorkReturnItemResult[] | undefined): WorkReturnItemResult[] {
+  if (value === undefined) return [];
+  if (!Array.isArray(value) || value.length > 200) {
+    throw new RepairRoundValidationError("施工项目结果无效");
+  }
+  return value.map((item) => {
+    if (!item || typeof item !== "object") {
+      throw new RepairRoundValidationError("施工项目结果无效");
+    }
+    const chargeItemId = nonempty(String(item.chargeItemId ?? ""), "收费项目");
+    if (!(["labor", "part", "other"] as const).includes(item.category)) {
+      throw new RepairRoundValidationError("收费项目分类无效");
+    }
+    if (!(["completed", "not_completed"] as const).includes(item.result)) {
+      throw new RepairRoundValidationError("施工结果无效");
+    }
+    return {
+      chargeItemId,
+      category: item.category,
+      labelZh: nonempty(String(item.labelZh ?? ""), "收费项目名称"),
+      labelEn: optionalText(item.labelEn ?? undefined),
+      result: item.result,
+      note: optionalText(item.note ?? undefined),
+    };
+  });
+}
+
+function normalizeItemResults(value: WorkReturnItemResult[] | string): WorkReturnItemResult[] {
+  if (Array.isArray(value)) return value;
+  try {
+    const parsed = JSON.parse(value) as unknown;
+    return Array.isArray(parsed) ? parsed as WorkReturnItemResult[] : [];
+  } catch {
+    return [];
+  }
+}
+
 function nullableNumber(value: number | null) {
   return value === null ? null : Number(value);
 }
@@ -1195,4 +1896,38 @@ function normalizeAuditState(
   } catch {
     return null;
   }
+}
+
+function mapMechanicWorkOrderSummary(row: {
+  business_order_id: number;
+  order_no: string;
+  status: RepairRoundStatus;
+  vehicle_plate_snapshot: string;
+  vehicle_description_snapshot: string;
+  vehicle_vin_snapshot: string | null;
+  repair_round_id: number;
+  round_no: number;
+  assigned_team_id: number;
+  assigned_team_name: string;
+  repair_round_version: number;
+  latest_rejection_reason: string | null;
+}): MechanicWorkOrderSummary {
+  return {
+    businessOrderId: Number(row.business_order_id),
+    orderNo: row.order_no,
+    status: row.status,
+    vehicle: {
+      plate: row.vehicle_plate_snapshot,
+      description: row.vehicle_description_snapshot,
+      vin: row.vehicle_vin_snapshot,
+    },
+    repairRound: {
+      id: Number(row.repair_round_id),
+      roundNo: row.round_no,
+      assignedTeamId: Number(row.assigned_team_id),
+      assignedTeamName: row.assigned_team_name,
+      version: row.repair_round_version,
+    },
+    latestRejectionReason: row.latest_rejection_reason,
+  };
 }

@@ -25,12 +25,13 @@ describe("GET /api/business-orders", () => {
       createBusinessOrder: vi.fn(),
     });
     const response = await handler(new Request(
-      "http://localhost/api/business-orders?search=4321%20AB&page=2&pageSize=20",
+      "http://localhost/api/business-orders?search=4321%20AB&status=return_pending_review&page=2&pageSize=20",
     ));
     expect(response.status).toBe(200);
     expect(listBusinessOrders).toHaveBeenCalledWith({
       viewerAccountId: 9,
       search: "4321 AB",
+      status: "return_pending_review",
       page: 2,
       pageSize: 20,
     });

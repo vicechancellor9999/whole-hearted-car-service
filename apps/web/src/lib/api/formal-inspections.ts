@@ -6,8 +6,10 @@ export type FormalInspectionReport = {
   sourceRepairRoundId: number | null;
   correctionOfReportId: number | null;
   correctionReason: string | null;
+  inspectionTeamId: number;
   summaryZh: string;
   summaryEn: string | null;
+  specialCaseNotesZh: string | null;
   actualInspectorStaffMemberId: number | null;
   paperPhotoFileId: number | null;
   status: "draft" | "submitted";
@@ -29,6 +31,7 @@ export type FormalInspectionListItem = {
   vehicle: { id: number; plate: string; description: string };
   customer: { name: string | null; phone: string | null; whatsapp: string | null; email: string | null };
   inspectorName: string | null;
+  teamName: string;
   sourceBusinessOrder: { id: number; orderNo: string } | null;
 };
 
@@ -83,9 +86,11 @@ export function fetchFormalInspectionReport(id: number): Promise<FormalInspectio
 export async function createFormalInspectionReport(input: {
   vehicleId: number;
   sourceBusinessOrderId?: number;
-  actualInspectorStaffMemberId: number;
+  inspectionTeamId: number;
+  actualInspectorStaffMemberId?: number | null;
   summaryZh: string;
-  findings: Array<{ findingZh: string; recommendationZh?: string }>;
+  specialCaseNotesZh?: string | null;
+  findings?: Array<{ findingZh: string; recommendationZh?: string }>;
 }): Promise<FormalInspectionReport> {
   const response = await fetch("/api/formal/inspection-reports", {
     method: "POST",

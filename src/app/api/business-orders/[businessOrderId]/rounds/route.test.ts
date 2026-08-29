@@ -112,6 +112,103 @@ describe("/api/business-orders/:id/rounds", () => {
     }));
   });
 
+  it("records and approves one paper return through the explicit paper action", async () => {
+    const recordPaperWorkReturn = vi.fn(async () => ({ id: 21, submissionNo: 1 }));
+    const dependencies = {
+      readSession: async () => ({ account: { id: 9 } }),
+      getCurrentRound: vi.fn(async () => ({ id: 3, roundNo: 1, status: "return_pending_review" })),
+      listRepairRounds: vi.fn(async () => []),
+      assignRound: vi.fn(), withdrawAssignment: vi.fn(), cancelAfterSalesRound: vi.fn(),
+      recordAcceptanceOnBehalf: vi.fn(), startAfterSalesRound: vi.fn(),
+      recordIntakeMileage: vi.fn(), submitWorkReturn: vi.fn(), approveWorkReturn: vi.fn(),
+      returnWorkReturn: vi.fn(), formallyHandOffRound: vi.fn(),
+      cancelFormalHandoffInSameMonth: vi.fn(), recordPaperWorkReturn,
+    };
+    const handler = createBusinessOrderRoundsApiHandler(dependencies);
+    const response = await handler(new Request("http://local/api/business-orders/7/rounds", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        action: "record_paper_return",
+        repairRoundVersion: 6,
+        actualStaffMemberId: 12,
+        attachmentIds: [31],
+        workSummary: "纸质回单已核对",
+      }),
+    }), { businessOrderId: 7 });
+
+    expect(response.status).toBe(200);
+    expect(recordPaperWorkReturn).toHaveBeenCalledWith(expect.objectContaining({
+      businessOrderId: 7,
+      expectedRepairRoundVersion: 6,
+      actualStaffMemberId: 12,
+      attachmentIds: [31],
+      workSummary: "纸质回单已核对",
+    }));
+  });
+
+  it("approves a return and formally hands off through one API action", async () => {
+    const approveAndFormallyHandOff = vi.fn(async () => ({ id: 41 }));
+    const handler = createBusinessOrderRoundsApiHandler({
+      readSession: async () => ({ account: { id: 9 } }),
+      getCurrentRound: vi.fn(async () => ({ id: 3, status: "formally_handed_off" })),
+      listRepairRounds: vi.fn(async () => []), assignRound: vi.fn(), withdrawAssignment: vi.fn(),
+      cancelAfterSalesRound: vi.fn(), recordAcceptanceOnBehalf: vi.fn(), startAfterSalesRound: vi.fn(),
+      recordIntakeMileage: vi.fn(), submitWorkReturn: vi.fn(), approveWorkReturn: vi.fn(),
+      returnWorkReturn: vi.fn(), formallyHandOffRound: vi.fn(), cancelFormalHandoffInSameMonth: vi.fn(),
+      approveAndFormallyHandOff,
+    });
+    const response = await handler(new Request("http://local/api/business-orders/7/rounds", {
+      method: "POST", headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        action: "approve_and_formal_handoff",
+        repairRoundVersion: 6,
+        workReturnId: 21,
+        performanceValue: "19900",
+      }),
+    }), { businessOrderId: 7 });
+
+    expect(response.status).toBe(200);
+    expect(approveAndFormallyHandOff).toHaveBeenCalledWith(expect.objectContaining({
+      businessOrderId: 7,
+      expectedRepairRoundVersion: 6,
+      workReturnId: 21,
+      performanceValue: "19900",
+    }));
+  });
+
+  it("records a paper return and formally hands off through one API action", async () => {
+    const recordPaperWorkReturnAndFormallyHandOff = vi.fn(async () => ({ id: 42 }));
+    const handler = createBusinessOrderRoundsApiHandler({
+      readSession: async () => ({ account: { id: 9 } }),
+      getCurrentRound: vi.fn(async () => ({ id: 3, status: "formally_handed_off" })),
+      listRepairRounds: vi.fn(async () => []), assignRound: vi.fn(), withdrawAssignment: vi.fn(),
+      cancelAfterSalesRound: vi.fn(), recordAcceptanceOnBehalf: vi.fn(), startAfterSalesRound: vi.fn(),
+      recordIntakeMileage: vi.fn(), submitWorkReturn: vi.fn(), approveWorkReturn: vi.fn(),
+      returnWorkReturn: vi.fn(), formallyHandOffRound: vi.fn(), cancelFormalHandoffInSameMonth: vi.fn(),
+      recordPaperWorkReturnAndFormallyHandOff,
+    });
+    const response = await handler(new Request("http://local/api/business-orders/7/rounds", {
+      method: "POST", headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        action: "record_paper_return_and_formal_handoff",
+        repairRoundVersion: 6,
+        actualStaffMemberId: 12,
+        attachmentIds: [31],
+        performanceValue: "19900",
+      }),
+    }), { businessOrderId: 7 });
+
+    expect(response.status).toBe(200);
+    expect(recordPaperWorkReturnAndFormallyHandOff).toHaveBeenCalledWith(expect.objectContaining({
+      businessOrderId: 7,
+      expectedRepairRoundVersion: 6,
+      actualStaffMemberId: 12,
+      attachmentIds: [31],
+      performanceValue: "19900",
+    }));
+  });
+
   it("cancels an empty after-sales round created by mistake", async () => {
     const cancelAfterSalesRound = vi.fn(async () => ({ cancelled: true }));
     const handler = createBusinessOrderRoundsApiHandler({

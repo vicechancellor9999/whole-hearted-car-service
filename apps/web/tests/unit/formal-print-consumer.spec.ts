@@ -23,7 +23,8 @@ test("formal Business Order exposes each Receipt and immutable print document", 
   expect(source(DOCUMENTS_WORKSPACE)).toMatch(/生成客户联/);
   expect(source(DOCUMENTS_WORKSPACE)).toMatch(/生成办公室签字留底联/);
   expect(source(DOCUMENTS_WORKSPACE)).toMatch(/生成维修工联/);
-  expect(source(DETAIL)).toMatch(/Receipt：\{transaction\.referenceNo\}/);
+  expect(source(DETAIL)).toMatch(/english \? "Receipt: " : "Receipt："/);
+  expect(source(DETAIL)).toMatch(/\{transaction\.referenceNo\}/);
   expect(source(DOCUMENTS_WORKSPACE)).toMatch(/系统打印/);
   expect(source(DOCUMENTS_WORKSPACE)).toMatch(/下载 PDF/);
   expect(source(DOCUMENTS_WORKSPACE)).toMatch(/PdfCanvasPreview/);

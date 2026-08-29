@@ -16,7 +16,9 @@ export function createFormalLoginAdapter(handler: FormalLoginHandler) {
       return NextResponse.redirect(new URL(`/login?error=${error}`, request.url), 303);
     }
 
-    const response = NextResponse.redirect(new URL("/", request.url), 303);
+    const payload = await formalResponse.json().catch(() => ({ ok: true })) as { role?: unknown };
+    const destination = payload.role === "mechanic" ? "/mechanic" : "/";
+    const response = NextResponse.redirect(new URL(destination, request.url), 303);
     const sessionCookie = formalResponse.headers.get("set-cookie");
     if (sessionCookie) response.headers.set("set-cookie", sessionCookie);
     return response;

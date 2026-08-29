@@ -342,6 +342,42 @@ describe("CustomerVehicleService", () => {
     ]);
   });
 
+  it("limits vehicle intake searches to active matching vehicles", async () => {
+    const person = await service.createPersonalCustomer({
+      fullName: "车辆搜索客户",
+      phone: "+18765550188",
+      context: context(frontDeskId, "req-search-owner"),
+    });
+    const activeVehicle = await service.createVehicle({
+      plate: "4321 AB",
+      make: "Nissan",
+      model: "X-Trail",
+      ownerType: "person",
+      ownerId: person.id,
+      context: context(frontDeskId, "req-search-active"),
+    });
+    const inactiveVehicle = await service.createVehicle({
+      plate: "4321 AC",
+      make: "Nissan",
+      model: "X-Trail",
+      ownerType: "person",
+      ownerId: person.id,
+      context: context(frontDeskId, "req-search-inactive"),
+    });
+    await database.query("update vehicles set is_active = false where id = $1", [inactiveVehicle.id]);
+
+    await expect(service.listVehicles({
+      viewerAccountId: frontDeskId,
+      search: "4321-a",
+      activeOnly: true,
+      page: 1,
+      pageSize: 10,
+    })).resolves.toMatchObject({
+      total: 1,
+      items: [expect.objectContaining({ id: activeVehicle.id, normalizedPlate: "4321AB" })],
+    });
+  });
+
   it("rolls back the profile update when an atomic owner change cannot complete", async () => {
     const person = await service.createPersonalCustomer({
       fullName: "原车主",

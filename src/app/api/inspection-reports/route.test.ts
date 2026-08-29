@@ -24,3 +24,53 @@ describe("GET /api/inspection-reports", () => {
     expect(list).toHaveBeenCalledWith({ viewerAccountId: 9, page: 2, sourceBusinessOrderId: 12 });
   });
 });
+
+describe("POST /api/inspection-reports", () => {
+  it("creates a team-owned report with an optional mechanic and special notes", async () => {
+    const create = vi.fn(async () => ({ id: 41, reportNo: "IR-20260829-0001" }));
+    const handler = createInspectionReportsApiHandler({
+      readSession: async () => ({ account: { id: 9 } }),
+      list: vi.fn(),
+      create,
+    });
+    const response = await handler(new Request("http://localhost/api/inspection-reports", {
+      method: "POST",
+      headers: { "content-type": "application/json", "x-request-id": "req-ir-api" },
+      body: JSON.stringify({
+        vehicleId: 3,
+        inspectionTeamId: 7,
+        actualInspectorStaffMemberId: null,
+        summaryZh: "检查结果",
+        specialCaseNotesZh: "特殊情况备注",
+      }),
+    }));
+
+    expect(response.status).toBe(201);
+    expect(create).toHaveBeenCalledWith(expect.objectContaining({
+      vehicleId: 3,
+      inspectionTeamId: 7,
+      actualInspectorStaffMemberId: null,
+      summaryZh: "检查结果",
+      specialCaseNotesZh: "特殊情况备注",
+      findings: [],
+      context: expect.objectContaining({ actorAccountId: 9, requestId: "req-ir-api" }),
+    }));
+  });
+
+  it("rejects an inspection report without a submitting team", async () => {
+    const create = vi.fn();
+    const handler = createInspectionReportsApiHandler({
+      readSession: async () => ({ account: { id: 9 } }),
+      list: vi.fn(),
+      create,
+    });
+    const response = await handler(new Request("http://localhost/api/inspection-reports", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ vehicleId: 3, summaryZh: "检查结果" }),
+    }));
+
+    expect(response.status).toBe(400);
+    expect(create).not.toHaveBeenCalled();
+  });
+});

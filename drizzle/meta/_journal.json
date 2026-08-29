@@ -267,6 +267,20 @@
       "when": 1787985360000,
       "tag": "0037_staff_account_ui_language",
       "breakpoints": true
+    },
+    {
+      "idx": 38,
+      "version": "7",
+      "when": 1787990400000,
+      "tag": "0038_work_return_review_closure",
+      "breakpoints": true
+    },
+    {
+      "idx": 39,
+      "version": "7",
+      "when": 1788076800000,
+      "tag": "0039_inspection_team_intake",
+      "breakpoints": true
     }
   ]
 }

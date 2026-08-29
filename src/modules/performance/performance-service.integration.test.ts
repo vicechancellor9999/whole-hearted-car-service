@@ -31,9 +31,30 @@ const migrationPaths = [
   "0012_inspection_reports.sql",
   "0013_formal_handoffs.sql",
   "0014_payments_receipts_refunds.sql",
+  "0015_business_order_documents.sql",
+  "0016_vehicle_profile_fields.sql",
+  "0017_optional_vehicle_plate.sql",
   "0018_business_order_number_format.sql",
+  "0019_repair_assignment_withdrawal.sql",
+  "0020_repair_assignment_withdrawal_projection.sql",
   "0021_optional_work_return_details.sql",
+  "0022_glamorous_wild_child.sql",
+  "0023_vehicle_pickup_presence.sql",
   "0024_team_commission_rate_versions.sql",
+  "0025_fantastic_dakota_north.sql",
+  "0026_customer_driver_license_append_only.sql",
+  "0027_record_deletion_runtime.sql",
+  "0028_record_deletion_authorization.sql",
+  "0029_record_deletion_primary_guard.sql",
+  "0030_business_order_customer_copy.sql",
+  "0031_business_order_messages.sql",
+  "0032_business_order_attachments.sql",
+  "0033_record_deletion_collaboration_files.sql",
+  "0034_repair_team_sort_order.sql",
+  "0035_business_order_document_revisions.sql",
+  "0036_business_order_document_english_files.sql",
+  "0037_staff_account_ui_language.sql",
+  "0038_work_return_review_closure.sql",
 ].map((name) => resolve(process.cwd(), "drizzle", name));
 
 let database: PGlite;
@@ -101,6 +122,49 @@ async function currentRoundVersion(businessOrderId: number) {
   })).version;
 }
 
+async function completeElectronicIntake(input: {
+  businessOrderId: number;
+  mechanicAccountId: number;
+  requestPrefix: string;
+  at: string;
+}) {
+  await repairRounds.recordIntakeMileage({
+    businessOrderId: input.businessOrderId,
+    expectedRepairRoundVersion: await currentRoundVersion(input.businessOrderId),
+    odometerKm: 84_200,
+    context: context(
+      input.mechanicAccountId,
+      `${input.requestPrefix}-mileage`,
+      input.at,
+    ),
+  });
+  const file = await database.query<{ id: number }>(
+    `insert into stored_files
+      (storage_key, original_name, media_type, size_bytes, sha256_hex,
+       uploaded_by, uploaded_at)
+     values ($1, '里程照片.jpg', 'image/jpeg', 100, $2, $3, $4)
+     returning id`,
+    [`vehicle-files/${input.requestPrefix}-intake.jpg`, "d".repeat(64),
+      input.mechanicAccountId, new Date(input.at)],
+  );
+  await database.query(
+    `insert into vehicle_attachments
+      (vehicle_id, file_id, kind, caption, linked_by, linked_at)
+     values ($1, $2, 'photo', '接车里程照片', $3, $4)`,
+    [vehicleId, file.rows[0].id, input.mechanicAccountId, new Date(input.at)],
+  );
+  await repairRounds.attachIntakePhoto({
+    businessOrderId: input.businessOrderId,
+    expectedRepairRoundVersion: await currentRoundVersion(input.businessOrderId),
+    fileId: Number(file.rows[0].id),
+    context: context(
+      input.mechanicAccountId,
+      `${input.requestPrefix}-photo`,
+      input.at,
+    ),
+  });
+}
+
 async function createApprovedRound(input: {
   teamId: number;
   mechanicAccountId: number;
@@ -142,6 +206,12 @@ async function createApprovedRound(input: {
     businessOrderId: order.id,
     expectedRepairRoundVersion: await currentRoundVersion(order.id),
     context: context(input.mechanicAccountId, `${input.requestPrefix}-accept`, input.createdAt),
+  });
+  await completeElectronicIntake({
+    businessOrderId: order.id,
+    mechanicAccountId: input.mechanicAccountId,
+    requestPrefix: input.requestPrefix,
+    at: input.createdAt,
   });
   const workReturn = await repairRounds.submitWorkReturn({
     businessOrderId: order.id,
@@ -192,6 +262,12 @@ async function approveCurrentAfterSalesRound(input: {
     businessOrderId: input.businessOrderId,
     expectedRepairRoundVersion: await currentRoundVersion(input.businessOrderId),
     context: context(input.mechanicAccountId, `${input.requestPrefix}-accept`, input.at),
+  });
+  await completeElectronicIntake({
+    businessOrderId: input.businessOrderId,
+    mechanicAccountId: input.mechanicAccountId,
+    requestPrefix: input.requestPrefix,
+    at: input.at,
   });
   const workReturn = await repairRounds.submitWorkReturn({
     businessOrderId: input.businessOrderId,

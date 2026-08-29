@@ -5,8 +5,8 @@ import Link from "next/link";
 import {
   AlertTriangle,
   ArrowRight,
-  BellRing,
   Car,
+  ClipboardCheck,
   ClipboardList,
   CreditCard,
   FileText,
@@ -23,6 +23,20 @@ import { computeWorkbenchReminders, type WorkbenchReminders } from "@/lib/busine
 import { QuickOrderCreateDialog } from "@/components/orders/quick-order-create-dialog";
 import { cn, formatJMDFull } from "@/lib/utils";
 import { useI18n } from "@/lib/i18n/language";
+import { fetchFormalBusinessOrders, type FormalBusinessOrder } from "@/lib/api/formal-business-orders";
+
+const EMPTY_REMINDERS: WorkbenchReminders = {
+  bo: { 待派单: 0, 已派单: 0, 维修中: 0, 维修中超时: 0, 停滞: 0, 回单待审核: 0 },
+  ir: { notNotified: 0, awaitingReply: 0 },
+  invoice: { 未付款: 0, 未付清: 0, 已付清: 0 },
+  outstandingTotalJmd: 0,
+  outstandingCustomerCount: 0,
+  vehiclesReadyForPickup: 0,
+  vehiclesNotifiedNotPickedUp: 0,
+  vehiclesOvertime: 0,
+  parkingBillsDueToday: 0,
+  vehiclesWithoutBo: 0,
+};
 
 // ---------------------------------------------------------------------------
 // 欢迎语池：每次进入工作台随机换一条，页面停留期间不切换
@@ -121,6 +135,8 @@ export function WorkbenchWorkspace() {
   const [greetingIndex] = useState(() => Math.floor(Math.random() * GREETINGS.length));
   const [now, setNow] = useState(new Date());
   const [showCreateBo, setShowCreateBo] = useState(false);
+  const [formalReviewOrders, setFormalReviewOrders] = useState<FormalBusinessOrder[]>([]);
+  const [formalOrders, setFormalOrders] = useState<FormalBusinessOrder[]>([]);
 
   // 时钟
   useEffect(() => {
@@ -132,15 +148,20 @@ export function WorkbenchWorkspace() {
     setLoading(true);
     setError(null);
     try {
-      const [store, snapshot, session] = await Promise.all([
-        api.debug.linkedOperationsState(),
-        Promise.resolve(readParkingFollowUpSnapshot()),
-        api.me(),
+      const [formalOrderPage, formalSession, legacyStore] = await Promise.all([
+        fetchFormalBusinessOrders({ page: 1, pageSize: 100 }),
+        fetch("/api/formal/auth/session", { credentials: "same-origin", cache: "no-store" }).then(async (response) => {
+          if (!response.ok) throw new Error(language === "en" ? "Formal session is unavailable" : "正式会话读取失败");
+          return response.json() as Promise<{ account: { displayName: string } }>;
+        }),
+        api.debug.linkedOperationsState().catch(() => null),
       ]);
-      setState(store);
-      setParkingFollowup(snapshot);
-      setEmployeeName(session.identity.name);
-      setEmployeeNameEn(session.identity.nameEn);
+      setState(legacyStore);
+      setParkingFollowup(legacyStore ? readParkingFollowUpSnapshot() : null);
+      setEmployeeName(formalSession.account.displayName);
+      setEmployeeNameEn(formalSession.account.displayName);
+      setFormalOrders(formalOrderPage.items);
+      setFormalReviewOrders(formalOrderPage.items.filter((order) => order.status === "return_pending_review"));
     } catch (caught) {
       setError(language === "en" ? "Could not load business data" : caught instanceof Error ? caught.message : "无法读取业务数据");
     } finally {
@@ -148,10 +169,13 @@ export function WorkbenchWorkspace() {
     }
   }, [language]);
 
-  useEffect(() => { void load(); }, [load]);
+  useEffect(() => {
+    const timer = window.setTimeout(() => { void load(); }, 0);
+    return () => window.clearTimeout(timer);
+  }, [load]);
 
-  const reminders: WorkbenchReminders | null = useMemo(() => {
-    if (!state) return null;
+  const reminders: WorkbenchReminders = useMemo(() => {
+    if (!state) return EMPTY_REMINDERS;
     return computeWorkbenchReminders(
       state.quickOrders,
       state.inspectionReports,
@@ -162,6 +186,12 @@ export function WorkbenchWorkspace() {
     );
   }, [parkingFollowup, state]);
 
+  const formalStatusCounts = useMemo(() => ({
+    waiting: formalOrders.filter((order) => order.status === "waiting_assignment").length,
+    assigned: formalOrders.filter((order) => order.status === "assigned").length,
+    inRepair: formalOrders.filter((order) => order.status === "in_repair").length,
+  }), [formalOrders]);
+
   const locale = language === "en" ? "en-JM" : "zh-CN";
   const dateStr = now.toLocaleDateString(locale, { year: "numeric", month: "long", day: "numeric", weekday: "long", timeZone: "America/Jamaica" });
   const timeStr = now.toLocaleTimeString(locale, { hour: "2-digit", minute: "2-digit", second: "2-digit", timeZone: "America/Jamaica" });
@@ -170,7 +200,7 @@ export function WorkbenchWorkspace() {
     return <div className="flex h-64 items-center justify-center text-sm text-ink-soft">{tr("正在加载工作台…", "Loading workspace…")}</div>;
   }
 
-  if (error || !reminders) {
+  if (error) {
     return (
       <div className="flex h-64 flex-col items-center justify-center gap-2">
         <p className="text-sm font-semibold text-danger">{error ?? tr("数据异常", "Data is unavailable")}</p>
@@ -237,18 +267,23 @@ export function WorkbenchWorkspace() {
       <section data-testid="workbench-reminders">
         <h2 className="mb-2 text-sm font-bold text-ink dark:text-slate-100">{tr("未完结提醒", "Open reminders")}</h2>
 
+        <div className="mb-4 overflow-hidden rounded-2xl border border-amber-300 bg-amber-50/70 dark:border-amber-700 dark:bg-amber-950/20">
+          <div className="flex items-center justify-between border-b border-amber-200 px-4 py-3 dark:border-amber-800"><div><h3 className="text-sm font-bold text-amber-950 dark:text-amber-100">{tr("维修回单审核", "Work-return review")}</h3><p className="mt-0.5 text-xs text-amber-800 dark:text-amber-300">{tr("维修工提交后在这里逐单核对；纸质回单可从业务单内直接登记。", "Review each mechanic submission here. Paper returns can be recorded inside the Business Order.")}</p></div><span className="rounded-full bg-amber-200 px-3 py-1 text-sm font-black text-amber-950 dark:bg-amber-800 dark:text-amber-50">{formalReviewOrders.length}</span></div>
+          {formalReviewOrders.length ? <div className="divide-y divide-amber-200 dark:divide-amber-800">{formalReviewOrders.slice(0, 6).map((order) => <Link key={order.id} href={`/orders/business/${order.id}`} className="flex items-center gap-3 px-4 py-3 hover:bg-amber-100/70 dark:hover:bg-amber-900/20"><ClipboardCheck size={18} className="shrink-0 text-amber-700 dark:text-amber-300" /><div className="min-w-0 flex-1"><p className="truncate text-sm font-bold">{order.vehicle.plate} · {order.vehicle.description}</p><p className="mt-0.5 truncate text-xs text-ink-soft">{order.orderNo}</p></div><span className="shrink-0 text-xs font-bold text-primary">{tr("进入审核", "Review")} →</span></Link>)}</div> : <p className="px-4 py-4 text-sm text-amber-800 dark:text-amber-300">{tr("当前没有待审核回单。", "No work returns are awaiting review.")}</p>}
+        </div>
+
         {/* BO */}
         <div className="mb-3">
           <h3 className="mb-1.5 text-xs font-semibold text-ink-soft dark:text-slate-400">
             <ClipboardList size={12} className="mr-1 inline" />{tr("业务单", "Business Orders")}
           </h3>
           <div className="grid grid-cols-2 gap-2 sm:grid-cols-6">
-            <ReminderCard title={tr("新建待派单", "New · awaiting assignment")} count={reminders.bo.待派单} href="/orders/business?status=pending_assign" tone={reminders.bo.待派单 > 0 ? "warning" : "neutral"} />
-            <ReminderCard title={tr("已派单待接车", "Assigned · awaiting check-in")} count={reminders.bo.已派单} href="/orders/business?status=assigned" tone={reminders.bo.已派单 > 0 ? "warning" : "neutral"} />
-            <ReminderCard title={tr("维修中待回单", "In repair · awaiting handoff")} count={reminders.bo.维修中} href="/orders/business?status=in_repair" tone={reminders.bo.维修中 > 0 ? "warning" : "neutral"} />
+            <ReminderCard title={tr("新建待派单", "New · awaiting assignment")} count={formalStatusCounts.waiting} href="/orders/business?status=waiting_assignment" tone={formalStatusCounts.waiting > 0 ? "warning" : "neutral"} />
+            <ReminderCard title={tr("已派单待接车", "Assigned · awaiting check-in")} count={formalStatusCounts.assigned} href="/orders/business?status=assigned" tone={formalStatusCounts.assigned > 0 ? "warning" : "neutral"} />
+            <ReminderCard title={tr("维修中待回单", "In repair · awaiting handoff")} count={formalStatusCounts.inRepair} href="/orders/business?status=in_repair" tone={formalStatusCounts.inRepair > 0 ? "warning" : "neutral"} />
             <ReminderCard title={tr("维修中超时", "Repair overdue")} count={reminders.bo.维修中超时} href="/orders/business?status=in_repair" tone={reminders.bo.维修中超时 > 0 ? "danger" : "neutral"} />
             <ReminderCard title={tr("停滞待处理", "Stalled · action required")} count={reminders.bo.停滞} href="/orders/business?status=stalled" tone={reminders.bo.停滞 > 0 ? "danger" : "neutral"} />
-            <ReminderCard title={tr("回单待交单", "Handoff awaiting completion")} count={reminders.bo.回单待审核} href="/orders/business?status=returned" tone={reminders.bo.回单待审核 > 0 ? "danger" : "neutral"} />
+            <ReminderCard title={tr("回单待交单", "Handoff awaiting completion")} count={formalReviewOrders.length} href="/orders/business?status=return_pending_review" tone={formalReviewOrders.length > 0 ? "danger" : "neutral"} />
           </div>
         </div>
 

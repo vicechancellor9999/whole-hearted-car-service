@@ -45,11 +45,13 @@ export async function inspectionReportAction(formData: FormData): Promise<never>
       const recommendationEn = String(formData.get("recommendationEn") ?? "").trim();
       await runtime.inspectionReports.createInspectionReport({
         vehicleId,
+        inspectionTeamId: positiveId.parse(formData.get("inspectionTeamId")),
         sourceBusinessOrderId: optionalId(formData.get("sourceBusinessOrderId")),
         sourceRepairRoundId: optionalId(formData.get("sourceRepairRoundId")),
         actualInspectorStaffMemberId: optionalId(formData.get("actualInspectorStaffMemberId")),
         summaryZh: String(formData.get("summaryZh") ?? ""),
         summaryEn: String(formData.get("summaryEn") ?? ""),
+        specialCaseNotesZh: String(formData.get("specialCaseNotesZh") ?? ""),
         findings: findingZh ? [{
           findingZh,
           findingEn,
