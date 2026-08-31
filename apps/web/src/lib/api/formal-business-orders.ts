@@ -308,8 +308,37 @@ export type FormalBusinessOrderList = {
   total: number;
 };
 
+export type FormalProblemDescriptionSource = "manual" | "ai" | "migration";
+
+export type FormalProblemDescriptionOriginal = {
+  contentZh: string | null;
+  contentEn: string | null;
+  sourceType: FormalProblemDescriptionSource;
+  createdByAccountId: number | null;
+  createdAt: string;
+};
+
+export type FormalProblemDescriptionVersion = {
+  versionNo: number;
+  contentZh: string | null;
+  contentEn: string | null;
+  sourceType: FormalProblemDescriptionSource;
+  editedByAccountId: number;
+  editedAt: string;
+};
+
+export type FormalBusinessOrderProblemDescriptionContext = {
+  original: FormalProblemDescriptionOriginal;
+  current: FormalProblemDescriptionVersion | null;
+  currentRound: (FormalProblemDescriptionVersion & {
+    repairRoundId: number;
+    roundNo: number;
+  }) | null;
+};
+
 export type FormalBusinessOrderDetail = {
   order: FormalBusinessOrder;
+  problemDescriptions: FormalBusinessOrderProblemDescriptionContext;
   charges: FormalChargeSnapshot;
   ledger: FormalBusinessOrderLedger;
   refunds: FormalRefund[];
@@ -534,11 +563,18 @@ export function fetchFormalBusinessOrders(input: {
 export function createFormalBusinessOrder(input: {
   vehicleId: number;
   companyContactId?: number | null;
+  problemDescriptionZh?: string | null;
+  problemDescriptionEn?: string | null;
 }): Promise<FormalBusinessOrder> {
+  const payload = {
+    ...input,
+    problemDescriptionZh: input.problemDescriptionZh?.trim() || null,
+    problemDescriptionEn: input.problemDescriptionEn?.trim() || null,
+  };
   return formalJson("/api/formal/business-orders", {
     method: "POST",
     headers: { "content-type": "application/json" },
-    body: JSON.stringify(input),
+    body: JSON.stringify(payload),
   });
 }
 

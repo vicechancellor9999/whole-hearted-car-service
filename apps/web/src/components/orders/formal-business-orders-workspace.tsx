@@ -16,8 +16,10 @@ import {
   type FormalCustomerVehicleWorkspace,
 } from "@/lib/customers/formal-customer-vehicle-adapter";
 import { formatDateTime } from "@/lib/utils";
+import { useI18n } from "@/lib/i18n/language";
 
 export function FormalBusinessOrdersWorkspace() {
+  const { t } = useI18n();
   const router = useRouter();
   const searchParams = useSearchParams();
   const activeSearch = searchParams.get("search") ?? "";
@@ -31,6 +33,7 @@ export function FormalBusinessOrdersWorkspace() {
   const [workspace, setWorkspace] = useState<FormalCustomerVehicleWorkspace | null>(null);
   const [plate, setPlate] = useState("");
   const [companyContactId, setCompanyContactId] = useState("");
+  const [problemDescriptionZh, setProblemDescriptionZh] = useState("");
   const [createError, setCreateError] = useState<string | null>(null);
   const [creating, setCreating] = useState(false);
 
@@ -89,10 +92,11 @@ export function FormalBusinessOrdersWorkspace() {
     setCreating(true);
     setCreateError(null);
     try {
-      const created = await createFormalBusinessOrder({
-        vehicleId: matchedVehicle.id,
-        companyContactId: companyContactId ? Number(companyContactId) : null,
-      });
+          const created = await createFormalBusinessOrder({
+            vehicleId: matchedVehicle.id,
+            companyContactId: companyContactId ? Number(companyContactId) : null,
+            problemDescriptionZh,
+          });
       router.push(`/orders/business/${created.id}`);
     } catch (caught) {
       setCreateError(caught instanceof Error ? caught.message : "Business Order 创建失败");
@@ -152,15 +156,31 @@ export function FormalBusinessOrdersWorkspace() {
                   <button type="button" disabled={!plate.trim()} onClick={() => router.push(`/vehicles?create=1&plate=${encodeURIComponent(plate.trim())}`)} className="min-h-10 rounded-lg border border-primary bg-white px-4 text-xs font-bold text-primary disabled:opacity-40">新建车辆档案</button>
                 )}
               </div>
-              {matchedVehicle?.currentOwner.type === "company" ? (
+                  {matchedVehicle?.currentOwner.type === "company" ? (
                 <label className="mt-2 block max-w-xl text-[11px] font-semibold text-ink-soft">本次公司联系人
                   <select value={companyContactId} onChange={(event) => setCompanyContactId(event.target.value)} className="mt-1 min-h-10 w-full rounded-lg border border-line bg-white px-3 text-sm outline-none focus:border-primary">
                     <option value="">请选择联系人</option>
                     {companyContacts.map((contact) => <option key={contact.id} value={contact.id}>{contact.personalCustomerName}{contact.jobTitle ? ` · ${contact.jobTitle}` : ""}{contact.normalizedPhone ? ` · ${contact.normalizedPhone}` : ""}</option>)}
                   </select>
                 </label>
-              ) : null}
-              {createError ? <p role="alert" className="mt-2 text-xs font-semibold text-rose-700">{createError}</p> : null}
+                  ) : null}
+                  {matchedVehicle ? (
+                    <label className="mt-3 block max-w-4xl text-[11px] font-semibold text-ink-soft">
+                      <span className="flex items-center gap-2">
+                        <span>{t("businessOrder.create.problemDescription")}</span>
+                        <span className="font-normal">{t("businessOrder.create.problemDescriptionOptional")}</span>
+                      </span>
+                      <textarea
+                        data-testid="business-order-problem-description"
+                        value={problemDescriptionZh}
+                        onChange={(event) => setProblemDescriptionZh(event.target.value)}
+                        rows={3}
+                        placeholder={t("businessOrder.create.problemDescriptionPlaceholder")}
+                        className="mt-1 w-full resize-y rounded-xl border border-line bg-white px-3 py-2 text-sm leading-6 text-ink outline-none focus:border-primary dark:border-slate-700 dark:bg-slate-800 dark:text-slate-100"
+                      />
+                    </label>
+                  ) : null}
+                  {createError ? <p role="alert" className="mt-2 text-xs font-semibold text-rose-700">{createError}</p> : null}
             </div>
           ) : null}
 

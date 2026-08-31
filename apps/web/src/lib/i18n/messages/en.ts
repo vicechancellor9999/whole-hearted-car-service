@@ -111,4 +111,7 @@ export const enMessages: Record<ZhMessageKey, string> = {
   "status.translationRequired": "Translation required",
   "content.original": "Original text",
   "content.translationUnavailable": "Translation not available",
+  "businessOrder.create.problemDescription": "Problem description",
+  "businessOrder.create.problemDescriptionOptional": "Optional",
+  "businessOrder.create.problemDescriptionPlaceholder": "Describe the customer concern, reason for the order, or scope of this visit",
 };

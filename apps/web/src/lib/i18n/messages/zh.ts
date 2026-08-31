@@ -109,6 +109,9 @@ export const zhMessages = {
   "status.translationRequired": "待补英文翻译",
   "content.original": "原文",
   "content.translationUnavailable": "暂无译文",
+  "businessOrder.create.problemDescription": "问题描述",
+  "businessOrder.create.problemDescriptionOptional": "选填",
+  "businessOrder.create.problemDescriptionPlaceholder": "记录客户反映的问题、建单原因或本次处理范围",
 } as const;
 
 export type ZhMessageKey = keyof typeof zhMessages;
