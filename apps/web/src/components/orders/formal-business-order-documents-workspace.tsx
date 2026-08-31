@@ -1,7 +1,7 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState, type ClipboardEvent, type DragEvent } from "react";
-import { Download, FileText, LoaderCircle, Paperclip, Printer, Upload } from "lucide-react";
+import { useEffect, useMemo, useState } from "react";
+import { Download, FileText, LoaderCircle, Printer } from "lucide-react";
 import {
   fetchFormalDocumentDetail,
   formalDocumentKindLabel,
@@ -9,31 +9,10 @@ import {
   type FormalBusinessOrderDocument,
   type FormalBusinessOrderDocumentDetail,
 } from "@/lib/api/formal-business-orders";
-import {
-  fetchFormalBusinessOrderAttachments,
-  uploadFormalBusinessOrderAttachment,
-  type FormalBusinessOrderAttachment,
-  type FormalBusinessOrderAttachmentCategory,
-} from "@/lib/api/formal-business-order-attachments";
 import { formatDateTime } from "@/lib/utils";
 import { PdfCanvasPreview } from "@/components/orders/pdf-canvas-preview";
 import { printPdfBytes } from "@/lib/orders/ir-pdf-print";
 import { useI18n } from "@/lib/i18n/language";
-
-const ATTACHMENT_CATEGORY_LABELS: Record<FormalBusinessOrderAttachmentCategory, string> = {
-  customer_signature: "客户签字",
-  service_photo: "服务照片",
-  financial_evidence: "财务凭证",
-  other: "其他附件",
-};
-const ATTACHMENT_CATEGORY_LABELS_EN: Record<FormalBusinessOrderAttachmentCategory, string> = {
-  customer_signature: "Customer signature",
-  service_photo: "Service photo",
-  financial_evidence: "Financial evidence",
-  other: "Other attachment",
-};
-
-const ACCEPTED_FILES = "image/jpeg,image/png,image/webp,application/pdf";
 
 export function FormalBusinessOrderDocumentsWorkspace({
   businessOrderId,
@@ -50,14 +29,8 @@ export function FormalBusinessOrderDocumentsWorkspace({
 }) {
   const { language } = useI18n();
   const english = language === "en";
-  const attachmentLabels = english ? ATTACHMENT_CATEGORY_LABELS_EN : ATTACHMENT_CATEGORY_LABELS;
   const newestDocumentId = useMemo(() => [...documents].sort((left, right) => Date.parse(right.generatedAt) - Date.parse(left.generatedAt))[0]?.id ?? null, [documents]);
   const [selectedDocumentId, setSelectedDocumentId] = useState<number | null>(newestDocumentId);
-  const [attachments, setAttachments] = useState<FormalBusinessOrderAttachment[]>([]);
-  const [category, setCategory] = useState<FormalBusinessOrderAttachmentCategory>("customer_signature");
-  const [caption, setCaption] = useState("");
-  const [attachmentBusy, setAttachmentBusy] = useState(false);
-  const [attachmentError, setAttachmentError] = useState<string | null>(null);
   const [detail, setDetail] = useState<FormalBusinessOrderDocumentDetail | null>(null);
   const [selectedRevisionId, setSelectedRevisionId] = useState<number | null>(null);
   const [pdfBytes, setPdfBytes] = useState<Uint8Array | null>(null);
@@ -68,59 +41,9 @@ export function FormalBusinessOrderDocumentsWorkspace({
     language: "zh" | "en";
   }>({ documentId: null, language: "zh" });
 
-  const loadAttachments = useCallback(async () => {
-    setAttachmentError(null);
-    try {
-      const page = await fetchFormalBusinessOrderAttachments(businessOrderId);
-      setAttachments(page.items);
-    } catch (caught) {
-      setAttachmentError(english ? "Could not load Business Order attachments" : (caught instanceof Error ? caught.message : "业务附件读取失败"));
-    }
-  }, [businessOrderId, english]);
-
-  useEffect(() => {
-    let active = true;
-    void fetchFormalBusinessOrderAttachments(businessOrderId)
-      .then((page) => { if (active) setAttachments(page.items); })
-      .catch((caught) => { if (active) setAttachmentError(english ? "Could not load Business Order attachments" : (caught instanceof Error ? caught.message : "业务附件读取失败")); });
-    return () => { active = false; };
-  }, [businessOrderId, english]);
-
-  const uploadFiles = async (files: File[]) => {
-    if (!canWrite || files.length === 0) return;
-    setAttachmentBusy(true);
-    setAttachmentError(null);
-    try {
-      const uploaded: FormalBusinessOrderAttachment[] = [];
-      for (const file of files) {
-        uploaded.push(await uploadFormalBusinessOrderAttachment(businessOrderId, {
-          file,
-          category,
-          caption: caption.trim() || null,
-        }));
-      }
-      setAttachments((current) => [...uploaded, ...current]);
-      setCaption("");
-    } catch (caught) {
-      setAttachmentError(english ? "Could not upload the Business Order attachment" : (caught instanceof Error ? caught.message : "业务附件上传失败"));
-    } finally {
-      setAttachmentBusy(false);
-    }
-  };
-
   const generateAndSelect = async (kind: FormalBusinessOrderDocument["kind"]) => {
     const document = await onGenerate(kind);
     if (document) setSelectedDocumentId(document.id);
-  };
-
-  const onDrop = (event: DragEvent<HTMLDivElement>) => {
-    event.preventDefault();
-    void uploadFiles(Array.from(event.dataTransfer.files));
-  };
-
-  const onPaste = (event: ClipboardEvent<HTMLDivElement>) => {
-    const files = Array.from(event.clipboardData.files);
-    if (files.length > 0) void uploadFiles(files);
   };
 
   const effectiveSelectedDocumentId = documents.some((document) => document.id === selectedDocumentId)
@@ -187,7 +110,7 @@ export function FormalBusinessOrderDocumentsWorkspace({
   };
 
   return (
-    <div className="space-y-4">
+    <div>
       <section>
         <div className="flex flex-wrap items-start justify-between gap-3">
           <div><h2 className="text-sm font-bold">{english ? "Documents, preview and print" : "三联、预览与打印"}</h2><p className="mt-1 text-xs text-ink-soft">{english ? "Each generated document freezes the business facts at that moment. Select a document to preview it or open the system print dialog." : "每次生成都会冻结当时的业务事实；选择文件后可直接预览并调用系统打印。"}</p></div>
@@ -208,23 +131,6 @@ export function FormalBusinessOrderDocumentsWorkspace({
         </div>
       </section>
 
-      <section className="border-t border-line pt-4">
-        <div className="flex items-start justify-between gap-3"><div><h2 className="text-sm font-bold">{english ? "Business attachments" : "业务附件"}</h2><p className="mt-1 text-xs text-ink-soft">{english ? "Keep customer signatures, repair photos, financial evidence and related files with this Business Order." : "客户签字扫描件、维修照片、财务凭证和其他相关资料统一归档在本业务单。"}</p></div><span className="rounded-full bg-surface px-3 py-1 text-xs font-semibold text-ink-soft">{english ? `${attachments.length} files` : `${attachments.length} 份`}</span></div>
-        {canWrite ? <div className="mt-3 grid gap-3 rounded-xl border border-line bg-surface/60 p-3 lg:grid-cols-[180px_minmax(0,1fr)]">
-          <div className="space-y-2"><label className="block text-xs font-semibold">{english ? "Attachment category" : "附件类别"}<select value={category} onChange={(event) => setCategory(event.target.value as FormalBusinessOrderAttachmentCategory)} className="mt-1 min-h-10 w-full rounded-lg border border-line bg-layer-2 px-3 text-ink">{Object.entries(attachmentLabels).map(([value, label]) => <option key={value} value={value}>{label}</option>)}</select></label><label className="block text-xs font-semibold">{english ? "Description (optional)" : "说明（可选）"}<input value={caption} onChange={(event) => setCaption(event.target.value)} className="mt-1 min-h-10 w-full rounded-lg border border-line bg-layer-2 px-3 text-ink" /></label></div>
-          <div tabIndex={0} onDragOver={(event) => event.preventDefault()} onDrop={onDrop} onPaste={onPaste} className="grid min-h-28 place-items-center rounded-xl border border-dashed border-accent bg-layer-2 p-4 text-center outline-none focus:ring-2 focus:ring-accent/20">
-            <label className="cursor-pointer"><span className="mx-auto grid h-10 w-10 place-items-center rounded-full bg-primary-50 text-primary">{attachmentBusy ? <LoaderCircle size={19} className="animate-spin" /> : <Upload size={19} />}</span><strong className="mt-2 block text-xs">{english ? "Drop, paste or select attachments" : "拖入、粘贴或选择附件"}</strong><small className="mt-1 block text-ink-soft">{english ? "JPG, PNG, WebP or PDF · Up to 25 MB each" : "JPG、PNG、WebP、PDF · 单个不超过 25 MB"}</small><input type="file" multiple accept={ACCEPTED_FILES} disabled={attachmentBusy} className="sr-only" onChange={(event) => { void uploadFiles(Array.from(event.target.files ?? [])); event.target.value = ""; }} /></label>
-          </div>
-        </div> : null}
-        {attachmentError ? <p role="alert" className="mt-3 rounded-lg bg-rose-50 px-3 py-2 text-xs font-semibold text-rose-700">{attachmentError}<button type="button" onClick={() => void loadAttachments()} className="ml-2 underline">{english ? "Reload" : "重新读取"}</button></p> : null}
-        {attachments.length === 0 ? <div className="mt-3 grid min-h-24 place-items-center rounded-xl border border-dashed border-line text-xs text-ink-soft"><Paperclip size={18} /><span>{english ? "No Business Order attachments yet." : "还没有业务附件。"}</span></div> : <div className="mt-3 grid gap-2 sm:grid-cols-2 xl:grid-cols-4">{attachments.map((attachment) => <a key={attachment.id} href={attachment.url} target="_blank" rel="noreferrer" className="group overflow-hidden rounded-xl border border-line bg-layer-2 hover:border-accent">
-          {attachment.mediaType.startsWith("image/") ? <div className="overflow-hidden bg-surface">
-            {/* eslint-disable-next-line @next/next/no-img-element */}
-            <img src={attachment.url} alt={attachment.caption ?? attachment.originalName} className="aspect-[4/3] w-full object-cover transition group-hover:scale-[1.02]" />
-          </div> : <div className="grid aspect-[4/3] place-items-center bg-surface text-primary"><FileText size={30} /></div>}
-          <div className="p-3"><p className="flex items-center gap-1.5 text-xs font-bold"><span className="rounded bg-primary-50 px-1.5 py-0.5 text-[10px] text-primary">{attachmentLabels[attachment.category]}</span>{attachment.caption || attachment.originalName}</p><small className="mt-1 block truncate text-ink-soft">{attachment.uploaderDisplayName} · {formatDateTime(attachment.linkedAt)}</small></div>
-        </a>)}</div>}
-      </section>
     </div>
   );
 }

@@ -7,6 +7,7 @@ import { AlertCircle, RefreshCw } from "lucide-react";
 import { FormalInspectionCreateDialog } from "@/components/orders/formal-inspection-create-dialog";
 import { FormalBusinessOrderMessages } from "@/components/orders/formal-business-order-messages";
 import { FormalBusinessOrderDocumentsWorkspace } from "@/components/orders/formal-business-order-documents-workspace";
+import { FormalBusinessOrderAttachmentsWorkspace } from "@/components/orders/formal-business-order-attachments-workspace";
 import { FormalBusinessOrderProblemDescription } from "@/components/orders/formal-business-order-problem-description";
 import {
   FormalBusinessOrderHistoryTimeline,
@@ -1003,6 +1004,10 @@ export function FormalBusinessOrderDetailView({ businessOrderId }: { businessOrd
 
         <section id="business-order-documents-workspace" role="tabpanel" hidden={activeWorkspace !== "documents"} className="rounded-2xl border border-line bg-card p-4 shadow-card xl:col-span-2">
           <FormalBusinessOrderDocumentsWorkspace businessOrderId={businessOrderId} documents={data.documents} canWrite={data.capabilities.canWrite} busy={busy} onGenerate={generatePrintDocument} />
+        </section>
+
+        <section id="business-order-attachments-workspace" role="tabpanel" hidden={activeWorkspace !== "attachments"} className="rounded-2xl border border-line bg-card p-4 shadow-card xl:col-span-2">
+          {activeWorkspace === "attachments" ? <FormalBusinessOrderAttachmentsWorkspace businessOrderId={businessOrderId} canWrite={data.capabilities.canWrite && !order.voided} /> : null}
         </section>
 
         <section id="business-order-operations-workspace" role="tabpanel" hidden={activeWorkspace !== "operations"} className="rounded-2xl border border-line bg-card p-4 shadow-card xl:col-start-1 xl:row-span-2 xl:row-start-1">

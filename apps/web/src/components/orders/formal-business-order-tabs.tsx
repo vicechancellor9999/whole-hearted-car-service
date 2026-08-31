@@ -6,6 +6,7 @@ import { useI18n } from "@/lib/i18n/language";
 export type FormalBusinessOrderWorkspace =
   | "operations"
   | "documents"
+  | "attachments"
   | "history"
   | "messages";
 
@@ -16,6 +17,7 @@ const TABS: ReadonlyArray<{
 }> = [
   { id: "operations", labelZh: "收费 · 收款 · 维修班组", labelEn: "Charges · Payments · Repair team" },
   { id: "documents", labelZh: "三联生成 · 预览 · 打印", labelEn: "Documents · Preview · Print" },
+  { id: "attachments", labelZh: "业务附件", labelEn: "Attachments" },
   { id: "history", labelZh: "历史记录", labelEn: "History" },
   { id: "messages", labelZh: "沟通交流", labelEn: "Comments" },
 ];
@@ -56,7 +58,7 @@ export function FormalBusinessOrderTabs({
     <nav
       aria-label={language === "en" ? "Business Order workspace" : "Business Order 工作区"}
       role="tablist"
-      className="sticky top-0 z-20 grid gap-1 rounded-2xl border border-line bg-card p-1.5 shadow-card sm:grid-cols-2 xl:grid-cols-4"
+      className="sticky top-0 z-20 grid gap-1 rounded-2xl border border-line bg-card p-1.5 shadow-card sm:grid-cols-2 xl:grid-cols-5"
     >
       {TABS.map((tab) => {
         const selected = active === tab.id;
