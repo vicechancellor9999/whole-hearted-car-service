@@ -63,6 +63,11 @@ export const repairRounds = pgTable(
       () => repairTeams.id,
       { onDelete: "restrict" },
     ),
+    currentProblemDescriptionVersionNo: integer(
+      "current_problem_description_version_no",
+    )
+      .notNull()
+      .default(0),
     createdAt: timestamp("created_at", { withTimezone: true })
       .notNull()
       .defaultNow(),
@@ -88,6 +93,10 @@ export const repairRounds = pgTable(
               and length(btrim(${table.afterSalesIssue})) > 0)`,
     ),
     check("repair_rounds_version_positive", sql`${table.version} >= 1`),
+    check(
+      "repair_rounds_current_problem_description_version_nonnegative",
+      sql`${table.currentProblemDescriptionVersionNo} >= 0`,
+    ),
   ],
 );
 

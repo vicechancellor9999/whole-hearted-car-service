@@ -73,6 +73,11 @@ export const businessOrders = pgTable(
     currentRepairRoundNo: integer("current_repair_round_no")
       .notNull()
       .default(1),
+    currentProblemDescriptionVersionNo: integer(
+      "current_problem_description_version_no",
+    )
+      .notNull()
+      .default(0),
     createdAt: timestamp("created_at", { withTimezone: true })
       .notNull()
       .defaultNow(),
@@ -125,6 +130,10 @@ export const businessOrders = pgTable(
     check(
       "business_orders_current_repair_round_positive",
       sql`${table.currentRepairRoundNo} >= 1`,
+    ),
+    check(
+      "business_orders_current_problem_description_version_nonnegative",
+      sql`${table.currentProblemDescriptionVersionNo} >= 0`,
     ),
     check("business_orders_version_positive", sql`${table.version} >= 1`),
     check(

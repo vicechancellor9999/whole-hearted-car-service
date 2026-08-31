@@ -12,5 +12,6 @@ export * from "@formal/db/schema/payment";
 export * from "@formal/db/schema/business-order-document";
 export * from "@formal/db/schema/business-order-message";
 export * from "@formal/db/schema/business-order-attachment";
+export * from "@formal/db/schema/business-order-problem-description";
 export * from "@formal/db/schema/vehicle-presence";
 export * from "@formal/db/schema/record-deletion";
