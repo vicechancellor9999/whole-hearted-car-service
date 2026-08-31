@@ -294,11 +294,45 @@ describe("RecordDeletionService execute", () => {
       [fixture.vehicleId, fixture.customerId, frontDeskId],
     );
     const orderId = Number(order.rows[0]?.id);
-    await database.query(
+    const round = await database.query<{ id: number }>(
       `insert into repair_rounds
         (business_order_id, round_no, source, status, created_by)
-       values ($1, 1, 'initial', 'waiting_assignment', $2)`,
+       values ($1, 1, 'initial', 'waiting_assignment', $2)
+       returning id`,
       [orderId, frontDeskId],
+    );
+    const roundId = Number(round.rows[0]?.id);
+    await database.query(
+      `insert into business_order_problem_originals
+        (business_order_id, content_zh, source_type, confirmed_by)
+       values ($1, '发动机警告灯亮', 'creation', $2)`,
+      [orderId, frontDeskId],
+    );
+    await database.query(
+      `insert into business_order_problem_versions
+        (business_order_id, version_no, content_zh, source_type,
+         change_reason, created_by)
+       values ($1, 1, '发动机警告灯偶发亮起', 'manual', '前台补充', $2)`,
+      [orderId, frontDeskId],
+    );
+    await database.query(
+      `update business_orders
+       set current_problem_description_version_no = 1
+       where id = $1`,
+      [orderId],
+    );
+    await database.query(
+      `insert into repair_round_problem_versions
+        (repair_round_id, version_no, content_zh, source_type,
+         change_reason, created_by)
+       values ($1, 1, '本轮检查发动机警告灯', 'manual', '维修班组补充', $2)`,
+      [roundId, frontDeskId],
+    );
+    await database.query(
+      `update repair_rounds
+       set current_problem_description_version_no = 1
+       where id = $1`,
+      [roundId],
     );
     const message = await database.query<{ id: number }>(
       `insert into business_order_messages
@@ -326,6 +360,9 @@ describe("RecordDeletionService execute", () => {
     expect(preview.dependentCounts).toMatchObject({
       business_order_messages: 1,
       business_order_attachments: 1,
+      business_order_problem_originals: 1,
+      business_order_problem_versions: 1,
+      repair_round_problem_versions: 1,
     });
 
     const result = await service.execute({
@@ -340,15 +377,36 @@ describe("RecordDeletionService execute", () => {
     });
 
     expect(result.fileCleanupPending).toBe(1);
-    const remaining = await database.query<{ orders: number; messages: number; attachments: number; files: number; tasks: number }>(
+    const remaining = await database.query<{
+      orders: number;
+      messages: number;
+      attachments: number;
+      originals: number;
+      orderVersions: number;
+      roundVersions: number;
+      files: number;
+      tasks: number;
+    }>(
       `select
         (select count(*)::int from business_orders where id = $1) as orders,
         (select count(*)::int from business_order_messages where business_order_id = $1) as messages,
         (select count(*)::int from business_order_attachments where business_order_id = $1) as attachments,
+        (select count(*)::int from business_order_problem_originals where business_order_id = $1) as originals,
+        (select count(*)::int from business_order_problem_versions where business_order_id = $1) as "orderVersions",
+        (select count(*)::int from repair_round_problem_versions where repair_round_id = $3) as "roundVersions",
         (select count(*)::int from stored_files where id = $2) as files,
         (select count(*)::int from record_deletion_file_tasks where storage_key = 'business-order-files/2026/08/delete-me.jpg') as tasks`,
-      [orderId, Number(file.rows[0]?.id)],
+      [orderId, Number(file.rows[0]?.id), roundId],
     );
-    expect(remaining.rows[0]).toEqual({ orders: 0, messages: 0, attachments: 0, files: 0, tasks: 1 });
+    expect(remaining.rows[0]).toEqual({
+      orders: 0,
+      messages: 0,
+      attachments: 0,
+      originals: 0,
+      orderVersions: 0,
+      roundVersions: 0,
+      files: 0,
+      tasks: 1,
+    });
   });
 });

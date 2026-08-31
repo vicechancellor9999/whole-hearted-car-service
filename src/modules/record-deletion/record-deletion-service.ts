@@ -600,7 +600,10 @@ async function loadBusinessOrderFact(
        (select count(*)::int from business_order_charge_items as item join business_order_charge_versions as charge on charge.id = item.charge_version_id where charge.business_order_id = $1) as charge_item_count,
        (select count(*)::int from business_order_notes as note join business_order_charge_versions as charge on charge.id = note.charge_version_id where charge.business_order_id = $1) as note_count,
        (select count(*)::int from business_order_messages where business_order_id = $1) as message_count,
-       (select count(*)::int from business_order_attachments where business_order_id = $1) as attachment_count`,
+       (select count(*)::int from business_order_attachments where business_order_id = $1) as attachment_count,
+       (select count(*)::int from business_order_problem_originals where business_order_id = $1) as problem_original_count,
+       (select count(*)::int from business_order_problem_versions where business_order_id = $1) as problem_version_count,
+       (select count(*)::int from repair_round_problem_versions as problem join repair_rounds as round on round.id = problem.repair_round_id where round.business_order_id = $1) as round_problem_version_count`,
     [record.id],
   );
   const count = counts[0] ?? {};
@@ -616,6 +619,9 @@ async function loadBusinessOrderFact(
       business_order_notes: numberAt(count, "note_count"),
       business_order_messages: numberAt(count, "message_count"),
       business_order_attachments: numberAt(count, "attachment_count"),
+      business_order_problem_originals: numberAt(count, "problem_original_count"),
+      business_order_problem_versions: numberAt(count, "problem_version_count"),
+      repair_round_problem_versions: numberAt(count, "round_problem_version_count"),
     },
     releasedIdentityKinds: [],
     status: row[0]?.status ?? "waiting_assignment",
@@ -885,6 +891,45 @@ async function deleteSelectedGraph(
     );
     await transaction.query(
       `delete from business_order_charge_versions
+       where business_order_id = any($1::bigint[])`,
+      [orderIds],
+    );
+    for (const [tableName, source] of [
+      [
+        "repair_round_problem_versions",
+        `select problem.id::text
+         from repair_round_problem_versions as problem
+         join repair_rounds as round on round.id = problem.repair_round_id
+         where round.business_order_id = any($2::bigint[])`,
+      ],
+      [
+        "business_order_problem_versions",
+        `select id::text from business_order_problem_versions
+         where business_order_id = any($2::bigint[])`,
+      ],
+      [
+        "business_order_problem_originals",
+        `select business_order_id::text from business_order_problem_originals
+         where business_order_id = any($2::bigint[])`,
+      ],
+    ] as const) {
+      await authorizeRowsFromQuery(transaction, requestId, tableName, source, [orderIds]);
+    }
+    await transaction.query(
+      `delete from repair_round_problem_versions
+       where repair_round_id in (
+         select id from repair_rounds
+         where business_order_id = any($1::bigint[])
+       )`,
+      [orderIds],
+    );
+    await transaction.query(
+      `delete from business_order_problem_versions
+       where business_order_id = any($1::bigint[])`,
+      [orderIds],
+    );
+    await transaction.query(
+      `delete from business_order_problem_originals
        where business_order_id = any($1::bigint[])`,
       [orderIds],
     );
