@@ -21,7 +21,27 @@ import { identityPrimaryKey } from "@formal/db/schema/common";
 import type { ReceiptRenderSnapshot } from "@formal/db/schema/payment";
 import { repairRounds } from "@formal/db/schema/repair-round";
 
-type OfficeArchiveRenderSnapshot = {
+type ProblemDescriptionOriginalDocumentSnapshot = {
+  contentZh: string | null;
+  contentEn: string | null;
+  confirmedAt: string;
+};
+
+type ProblemDescriptionRoundDocumentSnapshot = {
+  repairRoundId: number;
+  roundNo: number;
+  versionId: number;
+  versionNo: number;
+  contentZh: string | null;
+  contentEn: string | null;
+};
+
+export type BusinessOrderDocumentProblemDescriptionSnapshot = {
+  original: ProblemDescriptionOriginalDocumentSnapshot;
+  repairRound: ProblemDescriptionRoundDocumentSnapshot | null;
+};
+
+type OfficeArchiveRenderSnapshotV1 = {
   version: 1;
   kind: "office_archive";
   presentation?: "office_english_primary_v1";
@@ -40,7 +60,7 @@ type OfficeArchiveRenderSnapshot = {
   };
 };
 
-type CustomerCopyRenderSnapshot = {
+type CustomerCopyRenderSnapshotV1 = {
   version: 1;
   kind: "customer_copy";
   businessOrder: ReceiptRenderSnapshot["businessOrder"];
@@ -58,7 +78,7 @@ type CustomerCopyRenderSnapshot = {
   };
 };
 
-type MechanicWorkRenderSnapshot = {
+type MechanicWorkRenderSnapshotV1 = {
   version: 1;
   kind: "mechanic_work";
   businessOrder: {
@@ -88,10 +108,40 @@ type MechanicWorkRenderSnapshot = {
   }>;
 };
 
+type OfficeArchiveRenderSnapshotV2 = Omit<OfficeArchiveRenderSnapshotV1, "version"> & {
+  version: 2;
+  problemDescription: BusinessOrderDocumentProblemDescriptionSnapshot;
+};
+
+type CustomerCopyRenderSnapshotV2 = Omit<CustomerCopyRenderSnapshotV1, "version"> & {
+  version: 2;
+  problemDescription: BusinessOrderDocumentProblemDescriptionSnapshot;
+};
+
+type MechanicProblemDescriptionSnapshot = {
+  primary: {
+    scope: "repair_round" | "business_order_original";
+    repairRoundId: number | null;
+    roundNo: number | null;
+    versionId: number | null;
+    versionNo: number | null;
+    contentZh: string | null;
+  };
+  originalContext: ProblemDescriptionOriginalDocumentSnapshot | null;
+};
+
+type MechanicWorkRenderSnapshotV2 = Omit<MechanicWorkRenderSnapshotV1, "version"> & {
+  version: 2;
+  problemDescription: MechanicProblemDescriptionSnapshot;
+};
+
 export type BusinessOrderDocumentRenderSnapshot =
-  | CustomerCopyRenderSnapshot
-  | OfficeArchiveRenderSnapshot
-  | MechanicWorkRenderSnapshot;
+  | CustomerCopyRenderSnapshotV1
+  | OfficeArchiveRenderSnapshotV1
+  | MechanicWorkRenderSnapshotV1
+  | CustomerCopyRenderSnapshotV2
+  | OfficeArchiveRenderSnapshotV2
+  | MechanicWorkRenderSnapshotV2;
 
 export const businessOrderDocumentKind = pgEnum(
   "business_order_document_kind",
@@ -156,7 +206,7 @@ export const businessOrderDocumentSnapshots = pgTable(
     check(
       "business_order_document_snapshots_snapshot_object",
       sql`jsonb_typeof(${table.renderSnapshot}) = 'object'
-          and ${table.renderSnapshot}->>'version' = '1'
+          and ${table.renderSnapshot}->>'version' in ('1', '2')
           and ${table.renderSnapshot}->>'kind' = ${table.kind}::text`,
     ),
   ],

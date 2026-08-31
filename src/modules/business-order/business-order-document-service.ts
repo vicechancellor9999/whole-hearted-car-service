@@ -107,6 +107,18 @@ type LedgerRow = {
   sort_id: number;
 };
 
+type ProblemDescriptionDocumentRow = {
+  original_content_zh: string | null;
+  original_content_en: string | null;
+  original_confirmed_at: Date;
+  repair_round_id: number;
+  repair_round_no: number;
+  round_version_id: number | null;
+  round_version_no: number | null;
+  round_content_zh: string | null;
+  round_content_en: string | null;
+};
+
 export type BusinessOrderDocumentRecord = {
   id: number;
   documentNo: string;
@@ -427,16 +439,17 @@ export class BusinessOrderDocumentService {
         await transaction.query(
           "lock table business_order_document_snapshots in share row exclusive mode",
         );
-        const [items, notes, ledgerRows] = await Promise.all([
+        const [items, notes, ledgerRows, problemDescription] = await Promise.all([
           loadChargeItems(transaction, source.charge_version_id),
           loadNotes(transaction, source.charge_version_id),
           loadLedger(transaction, source.id),
+          loadProblemDescription(transaction, source.id, source.repair_round_id),
         ]);
         const snapshot = kind === "customer_copy"
-          ? buildCustomerSnapshot(source, items, notes, ledgerRows)
+          ? buildCustomerSnapshot(source, items, notes, ledgerRows, problemDescription)
           : kind === "office_archive"
-            ? buildOfficeSnapshot(source, items, notes, ledgerRows)
-            : buildMechanicSnapshot(source, items, notes);
+            ? buildOfficeSnapshot(source, items, notes, ledgerRows, problemDescription)
+            : buildMechanicSnapshot(source, items, notes, problemDescription);
         const date = toBusinessDateKey(now).replaceAll("-", "");
         const prefixCode = kind === "customer_copy"
           ? "CUS"
@@ -507,11 +520,12 @@ function buildCustomerSnapshot(
   items: ChargeItemRow[],
   notes: NoteRow[],
   ledgerRows: LedgerRow[],
+  problemDescription: ProblemDescriptionDocumentRow,
 ): BusinessOrderDocumentRenderSnapshot {
   const transactions = buildTransactions(ledgerRows);
   const totals = buildFinancialTotals(source, ledgerRows);
   return {
-    version: 1,
+    version: 2,
     kind: "customer_copy",
     businessOrder: buildBusinessOrderSnapshot(source),
     charges: buildCharges(
@@ -521,6 +535,7 @@ function buildCustomerSnapshot(
     ),
     transactions,
     totals,
+    problemDescription: buildCustomerProblemDescription(problemDescription),
     approval: {
       statementZh: "客户签字表示已阅读并认可本联所列施工、收费、金额、备注及提前告知内容。",
       statementEn: "The customer's signature confirms review and acceptance of the work, charges, amounts, notes and advance notices shown on this copy.",
@@ -533,17 +548,19 @@ function buildOfficeSnapshot(
   items: ChargeItemRow[],
   notes: NoteRow[],
   ledgerRows: LedgerRow[],
+  problemDescription: ProblemDescriptionDocumentRow,
 ): BusinessOrderDocumentRenderSnapshot {
   const transactions = buildTransactions(ledgerRows);
   const totals = buildFinancialTotals(source, ledgerRows);
   return {
-    version: 1,
+    version: 2,
     kind: "office_archive",
     presentation: "office_english_primary_v1",
     businessOrder: buildBusinessOrderSnapshot(source),
     charges: buildCharges(source, items, notes),
     transactions,
     totals,
+    problemDescription: buildCustomerProblemDescription(problemDescription),
     approval: {
       statementZh: "客户签字表示已阅读并认可本联所列收费项目、金额、备注及提前告知内容。",
       statementEn: "The customer's signature confirms review and acceptance of the charges, amounts, notes and advance notices shown on this copy.",
@@ -597,9 +614,25 @@ function buildMechanicSnapshot(
   source: SourceRow,
   items: ChargeItemRow[],
   notes: NoteRow[],
+  problemDescription: ProblemDescriptionDocumentRow,
 ): BusinessOrderDocumentRenderSnapshot {
+  const original = {
+    contentZh: problemDescription.original_content_zh,
+    contentEn: problemDescription.original_content_en,
+    confirmedAt: new Date(problemDescription.original_confirmed_at).toISOString(),
+  };
+  const round = problemDescription.round_version_id === null ? null : {
+    scope: "repair_round" as const,
+    repairRoundId: Number(problemDescription.repair_round_id),
+    roundNo: problemDescription.repair_round_no,
+    versionId: Number(problemDescription.round_version_id),
+    versionNo: Number(problemDescription.round_version_no),
+    contentZh: problemDescription.round_content_zh,
+  };
+  const sameAsOriginal = normalizedProblemText(round?.contentZh)
+    === normalizedProblemText(original.contentZh);
   return {
-    version: 1,
+    version: 2,
     kind: "mechanic_work",
     businessOrder: { id: Number(source.id), orderNo: source.order_no },
     vehicle: {
@@ -611,6 +644,17 @@ function buildMechanicSnapshot(
       id: Number(source.repair_round_id),
       roundNo: source.repair_round_no,
       teamName: source.team_name,
+    },
+    problemDescription: {
+      primary: round ?? {
+        scope: "business_order_original",
+        repairRoundId: null,
+        roundNo: null,
+        versionId: null,
+        versionNo: null,
+        contentZh: original.contentZh,
+      },
+      originalContext: sameAsOriginal ? null : original,
     },
     workItems: items.map((item) => ({
       kind: item.kind,
@@ -626,6 +670,28 @@ function buildMechanicSnapshot(
         contentZh: note.content_zh,
       }];
     }),
+  };
+}
+
+function normalizedProblemText(value: string | null | undefined) {
+  return value?.trim() ?? "";
+}
+
+function buildCustomerProblemDescription(row: ProblemDescriptionDocumentRow) {
+  return {
+    original: {
+      contentZh: row.original_content_zh,
+      contentEn: row.original_content_en,
+      confirmedAt: new Date(row.original_confirmed_at).toISOString(),
+    },
+    repairRound: row.round_version_id === null ? null : {
+      repairRoundId: Number(row.repair_round_id),
+      roundNo: row.repair_round_no,
+      versionId: Number(row.round_version_id),
+      versionNo: Number(row.round_version_no),
+      contentZh: row.round_content_zh,
+      contentEn: row.round_content_en,
+    },
   };
 }
 
@@ -760,6 +826,36 @@ async function loadLedger(executor: AuthSqlExecutor, businessOrderId: number) {
      order by occurred_at, type, sort_id`,
     [businessOrderId],
   );
+}
+
+async function loadProblemDescription(
+  executor: AuthSqlExecutor,
+  businessOrderId: number,
+  repairRoundId: number,
+): Promise<ProblemDescriptionDocumentRow> {
+  const rows = await executor.query<ProblemDescriptionDocumentRow>(
+    `select original.content_zh as original_content_zh,
+            original.content_en as original_content_en,
+            original.confirmed_at as original_confirmed_at,
+            round.id as repair_round_id, round.round_no as repair_round_no,
+            version.id as round_version_id,
+            version.version_no as round_version_no,
+            version.content_zh as round_content_zh,
+            version.content_en as round_content_en
+     from business_order_problem_originals as original
+     join repair_rounds as round on round.id = $2
+       and round.business_order_id = original.business_order_id
+     left join repair_round_problem_versions as version
+       on version.repair_round_id = round.id
+      and version.version_no = round.current_problem_description_version_no
+     where original.business_order_id = $1
+     limit 1`,
+    [businessOrderId, repairRoundId],
+  );
+  if (!rows[0]) {
+    throw new BusinessOrderDocumentNotFoundError("Business Order 问题描述上下文不存在");
+  }
+  return rows[0];
 }
 
 async function nextDocumentNumber(executor: AuthSqlExecutor, prefix: string) {

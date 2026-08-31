@@ -6,6 +6,7 @@ import {
   englishBusinessDocumentName,
   renderBusinessOrderDocumentPdf,
 } from "@formal/modules/business-order/business-order-document-pdf";
+import { buildBusinessOrderDocumentContent } from "@formal/modules/business-order/business-order-document-content";
 
 const snapshot: BusinessOrderDocumentRenderSnapshot = {
   version: 1,
@@ -47,8 +48,23 @@ const customerSnapshot: BusinessOrderDocumentRenderSnapshot = {
 };
 
 describe("renderBusinessOrderDocumentPdf", () => {
+  it("keeps version-one snapshots readable and exposes version-two frozen problem fields once", () => {
+    expect(buildBusinessOrderDocumentContent(customerSnapshot).fields.some((field) => field.key.startsWith("problemDescription."))).toBe(false);
+    const versionTwo = {
+      ...customerSnapshot,
+      version: 2 as const,
+      problemDescription: {
+        original: { contentZh: "发动机异响", contentEn: "Engine noise", confirmedAt: "2026-08-24T13:00:00.000Z" },
+        repairRound: { repairRoundId: 1, roundNo: 1, versionId: 2, versionNo: 1, contentZh: "本轮先诊断", contentEn: "Diagnose first" },
+      },
+    } satisfies BusinessOrderDocumentRenderSnapshot;
+    const fields = buildBusinessOrderDocumentContent(versionTwo).fields;
+    expect(fields.filter((field) => field.key === "problemDescription.originalZh")).toHaveLength(1);
+    expect(fields.find((field) => field.key === "problemDescription.roundZh")?.value).toBe("本轮先诊断");
+  });
+
   it("creates the formal v8 true-A4 document deterministically", async () => {
-    expect(BUSINESS_ORDER_DOCUMENT_RENDERER_VERSION).toBe("bo-a4-v8");
+    expect(BUSINESS_ORDER_DOCUMENT_RENDERER_VERSION).toBe("bo-a4-v9");
     const input = {
       documentNo: "MEC-20260828-0001",
       revisionNo: 2,
@@ -65,7 +81,7 @@ describe("renderBusinessOrderDocumentPdf", () => {
     expect(width).toBeCloseTo(595.28, 1);
     expect(height).toBeCloseTo(841.89, 1);
     expect(document.getTitle()).toContain("MEC-20260828-0001-R2");
-    expect(document.getCreator()).toBe("bo-a4-v8");
+    expect(document.getCreator()).toBe("bo-a4-v9");
   });
 
   it("renders a separate pure-English customer artifact", async () => {
@@ -80,7 +96,7 @@ describe("renderBusinessOrderDocumentPdf", () => {
     const language = pdf.catalog.get(PDFName.of("Lang"));
     expect(language).toBeInstanceOf(PDFString);
     expect((language as PDFString).decodeText()).toBe("en-JM");
-    expect(pdf.getCreator()).toBe("bo-a4-v8");
+    expect(pdf.getCreator()).toBe("bo-a4-v9");
   });
 
   it("uses only the English segment of a bilingual payer name", () => {

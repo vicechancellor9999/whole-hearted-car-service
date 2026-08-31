@@ -154,6 +154,20 @@ BEGIN
 END;
 $$;
 --> statement-breakpoint
+DO $$
+BEGIN
+  IF to_regclass('business_order_document_snapshots') IS NOT NULL THEN
+    ALTER TABLE business_order_document_snapshots
+      DROP CONSTRAINT business_order_document_snapshots_snapshot_object;
+    ALTER TABLE business_order_document_snapshots
+      ADD CONSTRAINT business_order_document_snapshots_snapshot_object
+      CHECK (jsonb_typeof(render_snapshot) = 'object'
+        and render_snapshot->>'version' in ('1', '2')
+        and render_snapshot->>'kind' = kind::text);
+  END IF;
+END;
+$$;
+--> statement-breakpoint
 CREATE TRIGGER business_order_problem_originals_append_only
 BEFORE UPDATE OR DELETE ON business_order_problem_originals
 FOR EACH ROW

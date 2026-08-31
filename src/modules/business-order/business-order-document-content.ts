@@ -4,7 +4,7 @@ export type BusinessOrderDocumentField = {
   key: string;
   editorLabel: string;
   value: string;
-  section: "header" | "facts" | "charges" | "transactions" | "notes" | "approval" | "footer";
+  section: "header" | "facts" | "problem" | "charges" | "transactions" | "notes" | "approval" | "footer";
   multiline?: boolean;
 };
 
@@ -50,6 +50,24 @@ export function buildBusinessOrderDocumentContent(
       field("facts.repairRound", "维修轮次", `第 ${snapshot.repairRound.roundNo} 轮维修`, "facts"),
       field("facts.team", "维修班组", snapshot.repairRound.teamName ?? "未派单", "facts"),
     );
+    if (snapshot.version === 2) {
+      fields.push(field(
+        "problemDescription.primaryZh",
+        "本轮问题描述",
+        snapshot.problemDescription.primary.contentZh ?? "",
+        "problem",
+        true,
+      ));
+      if (snapshot.problemDescription.originalContext) {
+        fields.push(field(
+          "problemDescription.originalZh",
+          "整单原始问题",
+          snapshot.problemDescription.originalContext.contentZh ?? "",
+          "problem",
+          true,
+        ));
+      }
+    }
     snapshot.workItems.forEach((item, index) => {
       fields.push(
         field(`workItems.${index}.nameZh`, `施工项目 ${index + 1}`, item.nameZh, "charges"),
@@ -73,6 +91,21 @@ export function buildBusinessOrderDocumentContent(
     field("facts.vehicle.value", "车辆", `${order.plate} · ${order.vehicleDescription}`, "facts"),
     field("facts.vin.value", "VIN", order.vin ?? "未记录", "facts"),
   );
+  if (snapshot.version === 2) {
+    fields.push(
+      field("problemDescription.originalZh", "原始问题描述", snapshot.problemDescription.original.contentZh ?? "", "problem", true),
+      field("problemDescription.originalEn", "Original problem description", snapshot.problemDescription.original.contentEn ?? "", "problem", true),
+    );
+    const round = snapshot.problemDescription.repairRound;
+    const originalPair = `${snapshot.problemDescription.original.contentZh?.trim() ?? ""}\u0000${snapshot.problemDescription.original.contentEn?.trim() ?? ""}`;
+    const roundPair = `${round?.contentZh?.trim() ?? ""}\u0000${round?.contentEn?.trim() ?? ""}`;
+    if (round && roundPair !== originalPair) {
+      fields.push(
+        field("problemDescription.roundZh", "本轮问题描述", round.contentZh ?? "", "problem", true),
+        field("problemDescription.roundEn", "Repair-round problem description", round.contentEn ?? "", "problem", true),
+      );
+    }
+  }
   snapshot.charges.items.forEach((item, index) => {
     fields.push(
       field(`charges.items.${index}.nameZh`, `收费项目 ${index + 1}`, item.nameZh, "charges"),

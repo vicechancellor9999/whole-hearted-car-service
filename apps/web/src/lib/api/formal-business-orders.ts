@@ -245,7 +245,7 @@ export type FormalBusinessOrderDocumentDetail = {
 };
 
 export type FormalCustomerCopySnapshot = {
-  version: 1;
+  version: 1 | 2;
   kind: "customer_copy";
   businessOrder: FormalReceiptSnapshot["businessOrder"];
   charges: FormalPrintableCharges;
@@ -257,10 +257,14 @@ export type FormalCustomerCopySnapshot = {
     balanceMinor: number;
   };
   approval: { statementZh: string; statementEn: string };
+  problemDescription?: {
+    original: { contentZh: string | null; contentEn: string | null; confirmedAt: string };
+    repairRound: { repairRoundId: number; roundNo: number; versionId: number; versionNo: number; contentZh: string | null; contentEn: string | null } | null;
+  };
 };
 
 export type FormalOfficeArchiveSnapshot = {
-  version: 1;
+  version: 1 | 2;
   kind: "office_archive";
   presentation?: "office_english_primary_v1";
   businessOrder: FormalReceiptSnapshot["businessOrder"];
@@ -273,6 +277,7 @@ export type FormalOfficeArchiveSnapshot = {
     balanceMinor: number;
   };
   approval: { statementZh: string; statementEn: string };
+  problemDescription?: FormalCustomerCopySnapshot["problemDescription"];
 };
 
 export function formalOfficeArchiveUsesEnglishPrimary(
@@ -282,7 +287,7 @@ export function formalOfficeArchiveUsesEnglishPrimary(
 }
 
 export type FormalMechanicWorkSnapshot = {
-  version: 1;
+  version: 1 | 2;
   kind: "mechanic_work";
   businessOrder: { id: number; orderNo: string };
   vehicle: { plate: string; description: string; vin: string | null };
@@ -298,6 +303,10 @@ export type FormalMechanicWorkSnapshot = {
     kind: "customer_concern" | "work_instruction" | "liability_notice";
     contentZh: string;
   }>;
+  problemDescription?: {
+    primary: { scope: "repair_round" | "business_order_original"; repairRoundId: number | null; roundNo: number | null; versionId: number | null; versionNo: number | null; contentZh: string | null };
+    originalContext: { contentZh: string | null; contentEn: string | null; confirmedAt: string } | null;
+  };
 };
 
 export type FormalBusinessOrderList = {

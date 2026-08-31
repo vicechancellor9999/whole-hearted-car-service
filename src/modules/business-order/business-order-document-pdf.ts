@@ -9,7 +9,7 @@ import {
   validateDocumentOverrides,
 } from "@formal/modules/business-order/business-order-document-content";
 
-export const BUSINESS_ORDER_DOCUMENT_RENDERER_VERSION = "bo-a4-v8";
+export const BUSINESS_ORDER_DOCUMENT_RENDERER_VERSION = "bo-a4-v9";
 export const A4_WIDTH_POINTS = 595.28;
 export const A4_HEIGHT_POINTS = 841.89;
 
@@ -100,6 +100,11 @@ function validateEnglishSnapshot(snapshot: BusinessOrderDocumentRenderSnapshot) 
   snapshot.transactions.forEach((transaction, index) => {
     if (!transaction.methodLabelEn?.trim()) missing.push(`收付款 ${index + 1} 方式`);
   });
+  if (snapshot.version === 2) {
+    if (snapshot.problemDescription.original.contentZh?.trim() && !snapshot.problemDescription.original.contentEn?.trim()) missing.push("原始问题描述");
+    const round = snapshot.problemDescription.repairRound;
+    if (round?.contentZh?.trim() && !round.contentEn?.trim()) missing.push("本轮问题描述");
+  }
   if (!snapshot.approval.statementEn.trim()) missing.push("客户确认文字");
   if (missing.length) throw new BusinessOrderDocumentEnglishTranslationError(missing);
 }
@@ -259,6 +264,23 @@ export async function renderBusinessOrderDocumentPdf(input: RenderBusinessOrderD
     y -= 11;
   };
 
+  const problemBlocks = (items: Array<{ label: string; text: string }>) => {
+    const visible = items.filter((item) => item.text.trim());
+    if (!visible.length) return;
+    sectionTitle(tr("问题描述", "PROBLEM DESCRIPTION"), english ? undefined : "PROBLEM DESCRIPTION");
+    visible.forEach((item) => {
+      const lines = wrapText(item.text, font, 8.1, CONTENT_WIDTH - 112);
+      const height = Math.max(32, lines.length * 11 + 12);
+      ensure(height, () => sectionTitle(tr("问题描述（续）", "PROBLEM DESCRIPTION (CONTINUED)"), english ? undefined : "PROBLEM DESCRIPTION"));
+      page.drawRectangle({ x: MARGIN, y: y - height, width: 104, height, color: SOFT, borderColor: LINE, borderWidth: 0.45 });
+      page.drawRectangle({ x: MARGIN + 104, y: y - height, width: CONTENT_WIDTH - 104, height, borderColor: LINE, borderWidth: 0.45 });
+      drawText(item.label, MARGIN + 7, y - 17, 6.8, BLUE_DARK);
+      lines.forEach((line, index) => drawText(line, MARGIN + 111, y - 17 - index * 11, 8.1, INK));
+      y -= height;
+    });
+    y -= 11;
+  };
+
   const signatureBlock = (statementZh: string, statementEn: string) => {
     const zh = wrapText(statementZh, font, 6.5, CONTENT_WIDTH - 14);
     const en = wrapText(statementEn, font, 5.9, CONTENT_WIDTH - 14);
@@ -296,6 +318,12 @@ export async function renderBusinessOrderDocumentPdf(input: RenderBusinessOrderD
       { label: "维修班组 / TEAM", value: value("facts.team", snapshot.repairRound.teamName ?? "未派单") },
       { label: "单据日期 / DATE", value: documentDate(input.documentNo) },
     ]);
+    if (snapshot.version === 2) {
+      problemBlocks([
+        { label: "本轮问题", text: value("problemDescription.primaryZh", snapshot.problemDescription.primary.contentZh ?? "") },
+        ...(snapshot.problemDescription.originalContext ? [{ label: "整单原始问题", text: value("problemDescription.originalZh", snapshot.problemDescription.originalContext.contentZh ?? "") }] : []),
+      ]);
+    }
     table(
       { primary: "施工项目", secondary: "WORK ITEMS" },
       ["完成", "类别", "项目名称", "工作说明", "数量"],
@@ -334,6 +362,21 @@ export async function renderBusinessOrderDocumentPdf(input: RenderBusinessOrderD
       { label: "VIN", value: localizedValue("facts.vin.value", order.vin ?? "未记录", order.vin ?? "NOT RECORDED") },
       { label: "TRN", value: localizedValue("facts.trn.value", order.payerTrn ?? "未记录", order.payerTrn ?? "NOT RECORDED") },
     ]);
+    if (snapshot.version === 2) {
+      const originalText = english
+        ? value("problemDescription.originalEn", snapshot.problemDescription.original.contentEn ?? "")
+        : [value("problemDescription.originalZh", snapshot.problemDescription.original.contentZh ?? ""), snapshot.problemDescription.original.contentEn ?? ""].filter(Boolean).join("\n");
+      const round = snapshot.problemDescription.repairRound;
+      const roundText = round ? (english
+        ? value("problemDescription.roundEn", round.contentEn ?? "")
+        : [value("problemDescription.roundZh", round.contentZh ?? ""), round.contentEn ?? ""].filter(Boolean).join("\n")) : "";
+      const originalPair = `${snapshot.problemDescription.original.contentZh?.trim() ?? ""}\u0000${snapshot.problemDescription.original.contentEn?.trim() ?? ""}`;
+      const roundPair = `${round?.contentZh?.trim() ?? ""}\u0000${round?.contentEn?.trim() ?? ""}`;
+      problemBlocks([
+        { label: tr("原始问题", "ORIGINAL PROBLEM"), text: originalText },
+        ...(round && roundPair !== originalPair ? [{ label: tr("本轮问题", "THIS REPAIR ROUND"), text: roundText }] : []),
+      ]);
+    }
     table(
       { primary: tr("收费项目", "SERVICE CHARGES"), secondary: english ? undefined : "SERVICE CHARGES" },
       english

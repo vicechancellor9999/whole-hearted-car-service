@@ -39,6 +39,7 @@ const migrationPaths = [
   "0031_business_order_messages.sql",
   "0035_business_order_document_revisions.sql",
   "0036_business_order_document_english_files.sql",
+  "0040_business_order_problem_descriptions.sql",
 ].map((name) => resolve(process.cwd(), "drizzle", name));
 
 let database: PGlite;
@@ -97,6 +98,8 @@ async function seedAccount(name: string, username: string, role: string) {
 async function createChargedOrder() {
   const order = await businessOrders.createBusinessOrder({
     vehicleId,
+    problemDescriptionZh: "发动机故障灯偶发点亮",
+    problemDescriptionEn: "The engine warning light comes on intermittently.",
     context: context(frontDeskId, "create-order", "2026-08-24T13:00:00Z"),
   });
   const charges = await businessOrders.replaceChargeVersion({
@@ -291,11 +294,30 @@ describe("BusinessOrderDocumentService", () => {
     });
     expect(reprinted.documentNo).toBe("OFF-20260824-0001");
     expect(reprinted.snapshot).toMatchObject({
+      version: 2,
       kind: "office_archive",
       presentation: "office_english_primary_v1",
       charges: { versionNo: 2 },
       totals: { totalPaidMinor: 300_000 },
+      problemDescription: {
+        original: {
+          contentZh: "发动机故障灯偶发点亮",
+          contentEn: "The engine warning light comes on intermittently.",
+        },
+        repairRound: { roundNo: 1, versionNo: 1 },
+      },
     });
+    await businessOrders.appendProblemDescriptionVersion({
+      businessOrderId: order.id,
+      scope: "business_order",
+      expectedVersion: 1,
+      contentZh: "后来修改的问题描述",
+      contentEn: "A later changed problem description.",
+      reason: "文件生成后修改",
+      context: context(frontDeskId, "change-problem", "2026-08-24T15:10:00Z"),
+    });
+    const frozenAgain = await documents.getDocument({ documentId: generated.id, viewerAccountId: ownerId });
+    expect(JSON.stringify(frozenAgain.snapshot)).not.toContain("后来修改的问题描述");
     expect(JSON.stringify(reprinted.snapshot)).not.toContain("后来的施工项目");
   });
 
@@ -316,6 +338,7 @@ describe("BusinessOrderDocumentService", () => {
 
     expect(generated.documentNo).toBe("CUS-20260824-0001");
     expect(generated.snapshot).toMatchObject({
+      version: 2,
       kind: "customer_copy",
       businessOrder: {
         orderNo: order.orderNo,
@@ -327,6 +350,10 @@ describe("BusinessOrderDocumentService", () => {
         items: [{ nameZh: "发动机诊断" }, { nameZh: "机油滤芯" }],
       },
       totals: { totalPaidMinor: 300_000 },
+      problemDescription: {
+        original: { contentZh: "发动机故障灯偶发点亮" },
+        repairRound: { contentZh: "发动机故障灯偶发点亮" },
+      },
     });
     const detail = await documents.getDocumentDetail({ documentId: generated.id, viewerAccountId: ownerId });
     expect(detail.revisions[0].englishFileId).toEqual(expect.any(Number));
@@ -344,10 +371,15 @@ describe("BusinessOrderDocumentService", () => {
     });
     expect(generated.documentNo).toBe("MEC-20260824-0001");
     expect(generated.snapshot).toMatchObject({
+      version: 2,
       kind: "mechanic_work",
       vehicle: { plate: "7012 AB", vin: "1HGBH41JXMN109186" },
       repairRound: { roundNo: 1 },
       workItems: [{ nameZh: "发动机诊断" }, { nameZh: "机油滤芯" }],
+      problemDescription: {
+        primary: { scope: "repair_round", versionNo: 1 },
+        originalContext: null,
+      },
     });
     const detail = await documents.getDocumentDetail({ documentId: generated.id, viewerAccountId: ownerId });
     expect(detail.revisions[0].englishFileId).toBeNull();
