@@ -32,6 +32,7 @@ const migrationPaths = [
   "0013_formal_handoffs.sql",
   "0014_payments_receipts_refunds.sql",
   "0018_business_order_number_format.sql",
+  "0040_business_order_problem_descriptions.sql",
 ].map((name) => resolve(process.cwd(), "drizzle", name));
 
 let database: PGlite;

@@ -31,6 +31,7 @@ const migrationPaths = [
   "0019_repair_assignment_withdrawal.sql",
   "0021_optional_work_return_details.sql",
   "0020_repair_assignment_withdrawal_projection.sql",
+  "0040_business_order_problem_descriptions.sql",
 ].map((name) => resolve(process.cwd(), "drizzle", name));
 const attachmentMigrationPath = resolve(process.cwd(), "drizzle/0032_business_order_attachments.sql");
 const workReturnClosureMigrationPath = resolve(process.cwd(), "drizzle/0038_work_return_review_closure.sql");
