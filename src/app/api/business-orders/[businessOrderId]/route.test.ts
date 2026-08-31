@@ -9,6 +9,7 @@ describe("GET /api/business-orders/:id", () => {
       }),
       getOrder: vi.fn(),
       getCharges: vi.fn(),
+      getProblemDescriptions: vi.fn(),
       getLedger: vi.fn(),
       listDocuments: vi.fn(),
       listPaymentMethods: vi.fn(),
@@ -22,6 +23,11 @@ describe("GET /api/business-orders/:id", () => {
   it("returns identity, current charges and immutable finance facts together", async () => {
     const getOrder = vi.fn(async () => ({ id: 12, orderNo: "KGN-WH-2026082400001" }));
     const getCharges = vi.fn(async () => ({ businessOrderId: 12, versionNo: 3 }));
+    const getProblemDescriptions = vi.fn(async () => ({
+      original: { contentZh: "发动机异响" },
+      current: { versionNo: 2, contentZh: "发动机异响并伴随抖动" },
+      currentRound: { repairRoundId: 4, roundNo: 1, versionNo: 1, contentZh: "发动机异响" },
+    }));
     const getLedger = vi.fn(async () => ({
       businessOrderId: 12,
       transactions: [{ type: "refund", id: 7 }],
@@ -52,6 +58,7 @@ describe("GET /api/business-orders/:id", () => {
       }),
       getOrder,
       getCharges,
+      getProblemDescriptions,
       getLedger,
       listDocuments,
       listPaymentMethods,
@@ -64,12 +71,23 @@ describe("GET /api/business-orders/:id", () => {
     const expectedInput = { businessOrderId: 12, viewerAccountId: 9 };
     expect(getOrder).toHaveBeenCalledWith(expectedInput);
     expect(getCharges).toHaveBeenCalledWith(expectedInput);
+    expect(getProblemDescriptions).toHaveBeenCalledWith(expectedInput);
     expect(getLedger).toHaveBeenCalledWith(expectedInput);
     expect(listDocuments).toHaveBeenCalledWith(expectedInput);
     expect(getRefund).toHaveBeenCalledWith({ refundId: 7, viewerAccountId: 9 });
     expect(await response.json()).toEqual({
       order: { id: 12, orderNo: "KGN-WH-2026082400001" },
       charges: { businessOrderId: 12, versionNo: 3 },
+      problemDescriptions: {
+        original: { contentZh: "发动机异响" },
+        current: { versionNo: 2, contentZh: "发动机异响并伴随抖动" },
+        currentRound: {
+          repairRoundId: 4,
+          roundNo: 1,
+          versionNo: 1,
+          contentZh: "发动机异响",
+        },
+      },
       ledger: { businessOrderId: 12, transactions: [{ type: "refund", id: 7 }] },
       refunds: [{ id: 7, refundNo: "RFD-20260824-0001", evidence: [] }],
       documents: [{

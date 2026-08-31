@@ -27,6 +27,7 @@ const migrationPaths = [
   "0010_business_order_facts_append_only.sql",
   "0011_repair_rounds.sql",
   "0018_business_order_number_format.sql",
+  "0040_business_order_problem_descriptions.sql",
 ].map((name) => resolve(process.cwd(), "drizzle", name));
 
 let database: PGlite;
@@ -205,6 +206,129 @@ describe("BusinessOrderService", () => {
     expect(audits.rows.map((row) => row.event_type)).toEqual([
       "business_order.created",
     ]);
+  });
+
+  it("stores an explicit original and keeps Business Order and repair-round descriptions independent", async () => {
+    const empty = await service.createBusinessOrder({
+      vehicleId: personVehicleId,
+      problemDescriptionZh: "   ",
+      context: context(frontDeskId, "req-create-empty-problem"),
+    });
+    await expect(service.getProblemDescriptionContext({
+      businessOrderId: empty.id,
+      viewerAccountId: ownerId,
+    })).resolves.toMatchObject({
+      original: {
+        contentZh: null,
+        contentEn: null,
+        sourceType: "creation",
+      },
+      current: null,
+      currentRound: null,
+    });
+
+    const order = await service.createBusinessOrder({
+      vehicleId: personVehicleId,
+      problemDescriptionZh: "发动机故障灯偶发点亮",
+      problemDescriptionEn: "The engine warning light comes on intermittently.",
+      context: context(frontDeskId, "req-create-problem"),
+    });
+    const created = await service.getProblemDescriptionContext({
+      businessOrderId: order.id,
+      viewerAccountId: ownerId,
+    });
+    expect(created).toMatchObject({
+      original: {
+        contentZh: "发动机故障灯偶发点亮",
+        contentEn: "The engine warning light comes on intermittently.",
+        sourceType: "creation",
+      },
+      current: {
+        versionNo: 1,
+        contentZh: "发动机故障灯偶发点亮",
+        sourceType: "creation",
+      },
+      currentRound: {
+        roundNo: 1,
+        versionNo: 1,
+        contentZh: "发动机故障灯偶发点亮",
+        sourceType: "creation",
+      },
+    });
+
+    await service.appendProblemDescriptionVersion({
+      businessOrderId: order.id,
+      scope: "business_order",
+      expectedVersion: 1,
+      contentZh: "发动机故障灯偶发点亮并伴随怠速不稳",
+      contentEn: null,
+      reason: "补充客户描述",
+      sourceType: "manual",
+      context: context(frontDeskId, "req-edit-order-problem"),
+    });
+    const afterOrderEdit = await service.getProblemDescriptionContext({
+      businessOrderId: order.id,
+      viewerAccountId: frontDeskId,
+    });
+    expect(afterOrderEdit.current).toMatchObject({
+      versionNo: 2,
+      contentZh: "发动机故障灯偶发点亮并伴随怠速不稳",
+    });
+    expect(afterOrderEdit.currentRound).toMatchObject({
+      versionNo: 1,
+      contentZh: "发动机故障灯偶发点亮",
+    });
+
+    await service.appendProblemDescriptionVersion({
+      businessOrderId: order.id,
+      repairRoundId: created.currentRound?.repairRoundId,
+      scope: "repair_round",
+      expectedVersion: 1,
+      contentZh: "本轮先完成诊断，不追加维修项目",
+      contentEn: null,
+      reason: "明确本轮范围",
+      sourceType: "manual",
+      context: context(frontDeskId, "req-edit-round-problem"),
+    });
+    const afterRoundEdit = await service.getProblemDescriptionContext({
+      businessOrderId: order.id,
+      viewerAccountId: frontDeskId,
+    });
+    expect(afterRoundEdit.current).toMatchObject({
+      versionNo: 2,
+      contentZh: "发动机故障灯偶发点亮并伴随怠速不稳",
+    });
+    expect(afterRoundEdit.currentRound).toMatchObject({
+      versionNo: 2,
+      contentZh: "本轮先完成诊断，不追加维修项目",
+    });
+
+    await expect(service.appendProblemDescriptionVersion({
+      businessOrderId: order.id,
+      scope: "business_order",
+      expectedVersion: 1,
+      contentZh: "过期窗口保存",
+      contentEn: null,
+      reason: "测试冲突",
+      sourceType: "manual",
+      context: context(frontDeskId, "req-stale-problem"),
+    })).rejects.toBeInstanceOf(BusinessOrderConflictError);
+
+    const audits = await database.query<{
+      event_type: string;
+      after_state: Record<string, unknown> | null;
+    }>(
+      `select event_type, after_state
+       from audit_events
+       where request_id in ('req-edit-order-problem', 'req-edit-round-problem')
+       order by id`,
+    );
+    expect(audits.rows.map((row) => row.event_type)).toEqual([
+      "business_order.problem_description_appended",
+      "repair_round.problem_description_appended",
+    ]);
+    expect(JSON.stringify(audits.rows)).not.toContain("发动机故障灯");
+    expect(JSON.stringify(audits.rows)).not.toContain("本轮先完成诊断");
   });
 
   it("requires an active contact belonging to a company vehicle payer", async () => {

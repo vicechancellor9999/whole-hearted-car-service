@@ -19,6 +19,8 @@ type BusinessOrdersApiDependencies = {
   createBusinessOrder(input: {
     vehicleId: number;
     companyContactId?: number | null;
+    problemDescriptionZh?: string | null;
+    problemDescriptionEn?: string | null;
     context: ReturnType<typeof apiActionContext>;
   }): Promise<unknown>;
 };
@@ -35,12 +37,23 @@ export function createBusinessOrdersApiHandler(dependencies: BusinessOrdersApiDe
     if (!session) return NextResponse.json({ error: "unauthorized" }, { status: 401 });
     if (request.method === "POST") {
       try {
-        const body = await request.json() as { vehicleId?: unknown; companyContactId?: unknown };
+        const body = await request.json() as {
+          vehicleId?: unknown;
+          companyContactId?: unknown;
+          problemDescriptionZh?: unknown;
+          problemDescriptionEn?: unknown;
+        };
         const vehicleId = Number(body.vehicleId);
         const companyContactId = body.companyContactId == null ? null : Number(body.companyContactId);
         const result = await dependencies.createBusinessOrder({
           vehicleId,
           companyContactId,
+          problemDescriptionZh: typeof body.problemDescriptionZh === "string"
+            ? body.problemDescriptionZh
+            : null,
+          problemDescriptionEn: typeof body.problemDescriptionEn === "string"
+            ? body.problemDescriptionEn
+            : null,
           context: apiActionContext(request, session.account.id),
         });
         return NextResponse.json(result, { status: 201 });

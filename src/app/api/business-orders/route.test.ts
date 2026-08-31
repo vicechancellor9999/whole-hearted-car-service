@@ -48,11 +48,17 @@ describe("GET /api/business-orders", () => {
     const response = await handler(new Request("http://localhost/api/business-orders", {
       method: "POST",
       headers: { "content-type": "application/json", "x-request-id": "req-create-order" },
-      body: JSON.stringify({ vehicleId: 31 }),
+      body: JSON.stringify({
+        vehicleId: 31,
+        problemDescriptionZh: " 发动机故障灯偶发点亮 ",
+        problemDescriptionEn: null,
+      }),
     }));
     expect(response.status).toBe(201);
     expect(createBusinessOrder).toHaveBeenCalledWith(expect.objectContaining({
       vehicleId: 31,
+      problemDescriptionZh: " 发动机故障灯偶发点亮 ",
+      problemDescriptionEn: null,
       context: expect.objectContaining({ actorAccountId: 9, requestId: "req-create-order" }),
     }));
   });

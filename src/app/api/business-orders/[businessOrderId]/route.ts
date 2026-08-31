@@ -20,6 +20,7 @@ type BusinessOrderDetailApiDependencies = {
   readSession(): Promise<BusinessOrderSession | null>;
   getOrder(input: ReadInput): Promise<unknown>;
   getCharges(input: ReadInput): Promise<unknown>;
+  getProblemDescriptions(input: ReadInput): Promise<unknown>;
   getLedger(input: ReadInput): Promise<unknown>;
   listDocuments(input: ReadInput): Promise<unknown>;
   listPaymentMethods(input: { viewerAccountId: number }): Promise<unknown>;
@@ -40,9 +41,10 @@ export function createBusinessOrderDetailApiHandler(
     }
     const input = { businessOrderId, viewerAccountId: session.account.id };
     try {
-      const [order, charges, ledger, documents, paymentMethods, chargeUnits, unreadMentionCount] = await Promise.all([
+      const [order, charges, problemDescriptions, ledger, documents, paymentMethods, chargeUnits, unreadMentionCount] = await Promise.all([
         dependencies.getOrder(input),
         dependencies.getCharges(input),
+        dependencies.getProblemDescriptions(input),
         dependencies.getLedger(input),
         dependencies.listDocuments(input),
         dependencies.listPaymentMethods({ viewerAccountId: session.account.id }),
@@ -62,6 +64,7 @@ export function createBusinessOrderDetailApiHandler(
       return NextResponse.json({
         order,
         charges,
+        problemDescriptions,
         ledger,
         refunds,
         documents,
@@ -90,6 +93,9 @@ export async function GET(_request: Request, context: RouteContext): Promise<Res
       readSession: currentSession,
       getOrder: (input) => runtime.service.getBusinessOrder(input),
       getCharges: (input) => runtime.service.getCurrentCharges(input),
+      getProblemDescriptions: (input) => (
+        runtime.service.getProblemDescriptionContext(input)
+      ),
       getLedger: (input) => runtime.payments.getBusinessOrderLedger(input),
       listDocuments: (input) => runtime.documents.listForBusinessOrder(input),
       countUnreadMentions: (input) => runtime.collaboration.countUnreadMentions(input),

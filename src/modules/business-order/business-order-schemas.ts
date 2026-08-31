@@ -7,13 +7,76 @@ const moneyText = z
   .max(30);
 
 const optionalText = (maximum: number) =>
-  z.string().trim().max(maximum).optional().transform((value) => value || null);
+  z.string().trim().max(maximum).nullable().optional().transform(
+    (value) => value || null,
+  );
 
 export const createBusinessOrderSchema = z.object({
   vehicleId: z.number().int().positive(),
   companyContactId: z.number().int().positive().nullable().optional().transform(
     (value) => value ?? null,
   ),
+  problemDescriptionZh: optionalText(10_000),
+  problemDescriptionEn: optionalText(10_000),
+});
+
+const problemDescriptionSourceSchema = z.enum([
+  "creation",
+  "manual",
+  "customer_concern",
+  "inspection_report",
+  "ai_suggestion",
+  "migration",
+]);
+
+export const appendProblemDescriptionVersionSchema = z.object({
+  businessOrderId: z.number().int().positive(),
+  repairRoundId: z.number().int().positive().nullable().optional().transform(
+    (value) => value ?? null,
+  ),
+  scope: z.enum(["business_order", "repair_round"]),
+  expectedVersion: z.number().int().nonnegative(),
+  contentZh: optionalText(10_000),
+  contentEn: optionalText(10_000),
+  reason: z.string().trim().min(1, "修改原因不能为空").max(1_000),
+  sourceType: problemDescriptionSourceSchema.default("manual"),
+  sourceReferenceId: z.number().int().positive().nullable().optional().transform(
+    (value) => value ?? null,
+  ),
+}).superRefine((value, context) => {
+  if (!value.contentZh && !value.contentEn) {
+    context.addIssue({
+      code: "custom",
+      message: "问题描述不能为空",
+      path: ["contentZh"],
+    });
+  }
+  if (value.scope === "repair_round" && value.repairRoundId === null) {
+    context.addIssue({
+      code: "custom",
+      message: "本轮问题描述必须指定维修轮次",
+      path: ["repairRoundId"],
+    });
+  }
+  if (value.scope === "business_order" && value.repairRoundId !== null) {
+    context.addIssue({
+      code: "custom",
+      message: "整张 Business Order 问题描述不能指定维修轮次",
+      path: ["repairRoundId"],
+    });
+  }
+  const needsReference = [
+    "customer_concern",
+    "inspection_report",
+    "ai_suggestion",
+  ].includes(value.sourceType);
+  if (needsReference !== (value.sourceReferenceId !== null)) {
+    context.addIssue({
+      code: "custom",
+      message: needsReference ? "当前来源必须指定来源记录" : "当前来源不能指定来源记录",
+      path: ["sourceReferenceId"],
+    });
+  }
 });
 
 export const chargeItemSchema = z.object({

@@ -16,6 +16,7 @@ import {
   BusinessOrderWriteDeniedError,
 } from "@formal/modules/business-order/business-order-errors";
 import {
+  appendProblemDescriptionVersionSchema,
   createBusinessOrderSchema,
   replaceChargeVersionSchema,
   type BusinessOrderNoteInput,
@@ -65,6 +66,46 @@ export type BusinessOrderRecord = {
   version: number;
 };
 
+export type ProblemDescriptionSource =
+  | "creation"
+  | "manual"
+  | "customer_concern"
+  | "inspection_report"
+  | "ai_suggestion"
+  | "migration";
+
+export type ProblemDescriptionOriginalSnapshot = {
+  contentZh: string | null;
+  contentEn: string | null;
+  sourceType: ProblemDescriptionSource;
+  sourceReferenceId: number | null;
+  confirmedBy: number;
+  confirmedByName: string;
+  confirmedAt: Date;
+};
+
+export type ProblemDescriptionVersionSnapshot = {
+  id: number;
+  versionNo: number;
+  contentZh: string | null;
+  contentEn: string | null;
+  sourceType: ProblemDescriptionSource;
+  sourceReferenceId: number | null;
+  changeReason: string;
+  createdBy: number;
+  createdByName: string;
+  createdAt: Date;
+};
+
+export type BusinessOrderProblemDescriptionContext = {
+  original: ProblemDescriptionOriginalSnapshot;
+  current: ProblemDescriptionVersionSnapshot | null;
+  currentRound: (ProblemDescriptionVersionSnapshot & {
+    repairRoundId: number;
+    roundNo: number;
+  }) | null;
+};
+
 export type BusinessOrderChargeSnapshot = {
   id: number;
   businessOrderId: number;
@@ -110,6 +151,8 @@ type BusinessOrderRow = {
   vehicle_vin_snapshot: string | null;
   status: BusinessOrderRecord["status"];
   current_charge_version_no: number;
+  current_repair_round_no: number;
+  current_problem_description_version_no: number;
   created_at: Date;
   voided_at: Date | null;
   void_reason: string | null;
@@ -154,6 +197,8 @@ export class BusinessOrderService {
   async createBusinessOrder(input: {
     vehicleId: number;
     companyContactId?: number | null;
+    problemDescriptionZh?: string | null;
+    problemDescriptionEn?: string | null;
     context: BusinessOrderActionContext;
   }): Promise<BusinessOrderRecord> {
     const fields = createBusinessOrderSchema.parse(input);
@@ -251,6 +296,14 @@ export class BusinessOrderService {
         );
         const insertedOrder = mapBusinessOrder(rows[0]);
         await transaction.query(
+          `insert into business_order_problem_originals
+            (business_order_id, content_zh, content_en, source_type,
+             source_reference_id, confirmed_by, confirmed_at)
+           values ($1, $2, $3, 'creation', null, $4, $5)`,
+          [insertedOrder.id, fields.problemDescriptionZh,
+            fields.problemDescriptionEn, input.context.actorAccountId, now],
+        );
+        await transaction.query(
           `insert into business_order_charge_versions
             (business_order_id, version_no, change_reason,
              labor_discount_minor, part_discount_minor,
@@ -267,18 +320,68 @@ export class BusinessOrderService {
            where id = $1`,
           [insertedOrder.id, now],
         );
-        await transaction.query(
+        const rounds = await transaction.query<{ id: number }>(
           `insert into repair_rounds
             (business_order_id, round_no, source, status,
              created_at, created_by, updated_at)
-           values ($1, 1, 'initial', 'waiting_assignment', $2, $3, $2)`,
+           values ($1, 1, 'initial', 'waiting_assignment', $2, $3, $2)
+           returning id`,
           [insertedOrder.id, now, input.context.actorAccountId],
         );
-        const order = { ...insertedOrder, currentChargeVersionNo: 1 };
+        const hasProblemDescription = Boolean(
+          fields.problemDescriptionZh || fields.problemDescriptionEn,
+        );
+        if (hasProblemDescription) {
+          await transaction.query(
+            `insert into business_order_problem_versions
+              (business_order_id, version_no, content_zh, content_en,
+               source_type, source_reference_id, change_reason,
+               created_by, created_at)
+             values ($1, 1, $2, $3, 'creation', null,
+                     'Business Order 创建', $4, $5)`,
+            [insertedOrder.id, fields.problemDescriptionZh,
+              fields.problemDescriptionEn, input.context.actorAccountId, now],
+          );
+          await transaction.query(
+            `update business_orders
+             set current_problem_description_version_no = 1
+             where id = $1`,
+            [insertedOrder.id],
+          );
+          await transaction.query(
+            `insert into repair_round_problem_versions
+              (repair_round_id, version_no, content_zh, content_en,
+               source_type, source_reference_id, change_reason,
+               created_by, created_at)
+             values ($1, 1, $2, $3, 'creation', null,
+                     '继承 Business Order 创建时问题描述', $4, $5)`,
+            [rounds[0].id, fields.problemDescriptionZh,
+              fields.problemDescriptionEn, input.context.actorAccountId, now],
+          );
+          await transaction.query(
+            `update repair_rounds
+             set current_problem_description_version_no = 1
+             where id = $1`,
+            [rounds[0].id],
+          );
+        }
+        const order = {
+          ...insertedOrder,
+          currentChargeVersionNo: 1,
+        };
         await audit(transaction, input.context, now, {
           eventType: "business_order.created",
           objectId: String(order.id),
-          after: order,
+          after: {
+            ...order,
+            problemDescription: {
+              originalRecorded: true,
+              currentVersionNo: hasProblemDescription ? 1 : 0,
+              currentRoundVersionNo: hasProblemDescription ? 1 : 0,
+              hasZh: fields.problemDescriptionZh !== null,
+              hasEn: fields.problemDescriptionEn !== null,
+            },
+          },
         });
         return order;
       });
@@ -337,6 +440,146 @@ export class BusinessOrderService {
       pageCount,
       total,
     };
+  }
+
+  async getProblemDescriptionContext(input: {
+    businessOrderId: number;
+    viewerAccountId: number;
+  }): Promise<BusinessOrderProblemDescriptionContext> {
+    await requireReader(this.database, input.viewerAccountId);
+    const orders = await selectBusinessOrder(this.database, input.businessOrderId);
+    if (!orders[0]) throw new BusinessOrderNotFoundError();
+    return selectProblemDescriptionContext(
+      this.database,
+      input.businessOrderId,
+      orders[0],
+    );
+  }
+
+  async appendProblemDescriptionVersion(input: {
+    businessOrderId: number;
+    repairRoundId?: number | null;
+    scope: "business_order" | "repair_round";
+    expectedVersion: number;
+    contentZh?: string | null;
+    contentEn?: string | null;
+    reason: string;
+    sourceType?: ProblemDescriptionSource;
+    sourceReferenceId?: number | null;
+    context: BusinessOrderActionContext;
+  }): Promise<BusinessOrderProblemDescriptionContext> {
+    const fields = appendProblemDescriptionVersionSchema.parse(input);
+    const now = input.context.now ?? new Date();
+    try {
+      return await this.database.transaction(async (transaction) => {
+        await requireWriter(transaction, input.context.actorAccountId);
+        const orders = await transaction.query<BusinessOrderRow>(
+          `select ${businessOrderColumns()}
+           from business_orders where id = $1 for update`,
+          [fields.businessOrderId],
+        );
+        const order = orders[0];
+        if (!order) throw new BusinessOrderNotFoundError();
+        if (order.voided_at) {
+          throw new BusinessOrderValidationError(
+            "已作废的 Business Order 不能修改问题描述",
+          );
+        }
+
+        if (fields.scope === "business_order") {
+          if (order.current_problem_description_version_no !== fields.expectedVersion) {
+            throw new BusinessOrderConflictError();
+          }
+          const versionNo = fields.expectedVersion + 1;
+          await transaction.query(
+            `insert into business_order_problem_versions
+              (business_order_id, version_no, content_zh, content_en,
+               source_type, source_reference_id, change_reason,
+               created_by, created_at)
+             values ($1, $2, $3, $4, $5::problem_description_source,
+                     $6, $7, $8, $9)`,
+            [fields.businessOrderId, versionNo, fields.contentZh,
+              fields.contentEn, fields.sourceType, fields.sourceReferenceId,
+              fields.reason, input.context.actorAccountId, now],
+          );
+          await transaction.query(
+            `update business_orders
+             set current_problem_description_version_no = $2,
+                 updated_at = $3
+             where id = $1`,
+            [fields.businessOrderId, versionNo, now],
+          );
+          await audit(transaction, input.context, now, {
+            eventType: "business_order.problem_description_appended",
+            objectId: String(fields.businessOrderId),
+            reason: fields.reason,
+            before: { versionNo: fields.expectedVersion },
+            after: problemDescriptionAuditSummary(fields, versionNo),
+          });
+        } else {
+          const rounds = await transaction.query<{
+            id: number;
+            current_problem_description_version_no: number;
+          }>(
+            `select id, current_problem_description_version_no
+             from repair_rounds
+             where id = $1 and business_order_id = $2
+             for update`,
+            [fields.repairRoundId, fields.businessOrderId],
+          );
+          const round = rounds[0];
+          if (!round) {
+            throw new BusinessOrderValidationError(
+              "维修轮次不属于当前 Business Order",
+            );
+          }
+          if (round.current_problem_description_version_no !== fields.expectedVersion) {
+            throw new BusinessOrderConflictError();
+          }
+          const versionNo = fields.expectedVersion + 1;
+          await transaction.query(
+            `insert into repair_round_problem_versions
+              (repair_round_id, version_no, content_zh, content_en,
+               source_type, source_reference_id, change_reason,
+               created_by, created_at)
+             values ($1, $2, $3, $4, $5::problem_description_source,
+                     $6, $7, $8, $9)`,
+            [round.id, versionNo, fields.contentZh, fields.contentEn,
+              fields.sourceType, fields.sourceReferenceId, fields.reason,
+              input.context.actorAccountId, now],
+          );
+          await transaction.query(
+            `update repair_rounds
+             set current_problem_description_version_no = $2
+             where id = $1`,
+            [round.id, versionNo],
+          );
+          await audit(transaction, input.context, now, {
+            eventType: "repair_round.problem_description_appended",
+            objectId: String(round.id),
+            reason: fields.reason,
+            before: { versionNo: fields.expectedVersion },
+            after: {
+              ...problemDescriptionAuditSummary(fields, versionNo),
+              businessOrderId: fields.businessOrderId,
+              repairRoundId: round.id,
+            },
+          });
+        }
+
+        const refreshed = await selectBusinessOrder(
+          transaction,
+          fields.businessOrderId,
+        );
+        return selectProblemDescriptionContext(
+          transaction,
+          fields.businessOrderId,
+          refreshed[0],
+        );
+      });
+    } catch (error) {
+      rethrowConflict(error);
+    }
   }
 
   async getCurrentCharges(input: {
@@ -607,6 +850,151 @@ async function selectBusinessOrder(executor: AuthSqlExecutor, id: number) {
   );
 }
 
+type ProblemOriginalRow = {
+  content_zh: string | null;
+  content_en: string | null;
+  source_type: ProblemDescriptionSource;
+  source_reference_id: number | null;
+  confirmed_by: number;
+  confirmed_by_name: string;
+  confirmed_at: Date;
+};
+
+type ProblemVersionRow = {
+  id: number;
+  version_no: number;
+  content_zh: string | null;
+  content_en: string | null;
+  source_type: ProblemDescriptionSource;
+  source_reference_id: number | null;
+  change_reason: string;
+  created_by: number;
+  created_by_name: string;
+  created_at: Date;
+};
+
+async function selectProblemDescriptionContext(
+  executor: AuthSqlExecutor,
+  businessOrderId: number,
+  order: BusinessOrderRow | undefined,
+): Promise<BusinessOrderProblemDescriptionContext> {
+  if (!order) throw new BusinessOrderNotFoundError();
+  const [originals, currentVersions, rounds] = await Promise.all([
+    executor.query<ProblemOriginalRow>(
+      `select original.content_zh, original.content_en,
+              original.source_type, original.source_reference_id,
+              original.confirmed_by,
+              account.display_name as confirmed_by_name,
+              original.confirmed_at
+       from business_order_problem_originals as original
+       join staff_accounts as account on account.id = original.confirmed_by
+       where original.business_order_id = $1
+       limit 1`,
+      [businessOrderId],
+    ),
+    order.current_problem_description_version_no > 0
+      ? executor.query<ProblemVersionRow>(
+        `select version.id, version.version_no, version.content_zh,
+                version.content_en, version.source_type,
+                version.source_reference_id, version.change_reason,
+                version.created_by, account.display_name as created_by_name,
+                version.created_at
+         from business_order_problem_versions as version
+         join staff_accounts as account on account.id = version.created_by
+         where version.business_order_id = $1 and version.version_no = $2
+         limit 1`,
+        [businessOrderId, order.current_problem_description_version_no],
+      )
+      : Promise.resolve([] as ProblemVersionRow[]),
+    executor.query<ProblemVersionRow & {
+      repair_round_id: number;
+      round_no: number;
+    }>(
+      `select round.id as repair_round_id, round.round_no,
+              version.id, version.version_no, version.content_zh,
+              version.content_en, version.source_type,
+              version.source_reference_id, version.change_reason,
+              version.created_by, account.display_name as created_by_name,
+              version.created_at
+       from repair_rounds as round
+       join repair_round_problem_versions as version
+         on version.repair_round_id = round.id
+        and version.version_no = round.current_problem_description_version_no
+       join staff_accounts as account on account.id = version.created_by
+       where round.business_order_id = $1 and round.round_no = $2
+       limit 1`,
+      [businessOrderId, order.current_repair_round_no],
+    ),
+  ]);
+  const original = originals[0];
+  if (!original) {
+    throw new BusinessOrderNotFoundError("Business Order 原始问题描述不存在");
+  }
+  const round = rounds[0];
+  return {
+    original: {
+      contentZh: original.content_zh,
+      contentEn: original.content_en,
+      sourceType: original.source_type,
+      sourceReferenceId: original.source_reference_id == null
+        ? null
+        : Number(original.source_reference_id),
+      confirmedBy: Number(original.confirmed_by),
+      confirmedByName: original.confirmed_by_name,
+      confirmedAt: new Date(original.confirmed_at),
+    },
+    current: currentVersions[0]
+      ? mapProblemDescriptionVersion(currentVersions[0])
+      : null,
+    currentRound: round
+      ? {
+        ...mapProblemDescriptionVersion(round),
+        repairRoundId: Number(round.repair_round_id),
+        roundNo: round.round_no,
+      }
+      : null,
+  };
+}
+
+function mapProblemDescriptionVersion(
+  row: ProblemVersionRow,
+): ProblemDescriptionVersionSnapshot {
+  return {
+    id: Number(row.id),
+    versionNo: row.version_no,
+    contentZh: row.content_zh,
+    contentEn: row.content_en,
+    sourceType: row.source_type,
+    sourceReferenceId: row.source_reference_id == null
+      ? null
+      : Number(row.source_reference_id),
+    changeReason: row.change_reason,
+    createdBy: Number(row.created_by),
+    createdByName: row.created_by_name,
+    createdAt: new Date(row.created_at),
+  };
+}
+
+function problemDescriptionAuditSummary(
+  fields: {
+    scope: "business_order" | "repair_round";
+    sourceType: ProblemDescriptionSource;
+    sourceReferenceId: number | null;
+    contentZh: string | null;
+    contentEn: string | null;
+  },
+  versionNo: number,
+) {
+  return {
+    scope: fields.scope,
+    versionNo,
+    sourceType: fields.sourceType,
+    sourceReferenceId: fields.sourceReferenceId,
+    hasZh: fields.contentZh !== null,
+    hasEn: fields.contentEn !== null,
+  };
+}
+
 function businessOrderColumns(prefix?: string) {
   const p = prefix ? `${prefix}.` : "";
   return `${p}id, ${p}order_no, ${p}vehicle_id,
@@ -615,7 +1003,8 @@ function businessOrderColumns(prefix?: string) {
           ${p}payer_trn_snapshot, ${p}payer_contact_name_snapshot,
           ${p}vehicle_plate_snapshot, ${p}vehicle_description_snapshot,
           ${p}vehicle_vin_snapshot, ${p}status,
-          ${p}current_charge_version_no, ${p}created_at,
+          ${p}current_charge_version_no, ${p}current_repair_round_no,
+          ${p}current_problem_description_version_no, ${p}created_at,
           ${p}voided_at, ${p}void_reason, ${p}version`;
 }
 
