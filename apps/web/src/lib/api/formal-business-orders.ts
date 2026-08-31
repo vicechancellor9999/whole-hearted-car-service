@@ -308,32 +308,49 @@ export type FormalBusinessOrderList = {
   total: number;
 };
 
-export type FormalProblemDescriptionSource = "manual" | "ai" | "migration";
+export type FormalProblemDescriptionSource =
+  | "creation"
+  | "manual"
+  | "customer_concern"
+  | "inspection_report"
+  | "ai_suggestion"
+  | "migration";
 
 export type FormalProblemDescriptionOriginal = {
   contentZh: string | null;
   contentEn: string | null;
   sourceType: FormalProblemDescriptionSource;
-  createdByAccountId: number | null;
-  createdAt: string;
+  sourceReferenceId: number | null;
+  confirmedBy: number;
+  confirmedByName: string;
+  confirmedAt: string;
 };
 
 export type FormalProblemDescriptionVersion = {
+  id: number;
   versionNo: number;
   contentZh: string | null;
   contentEn: string | null;
   sourceType: FormalProblemDescriptionSource;
-  editedByAccountId: number;
-  editedAt: string;
+  sourceReferenceId: number | null;
+  changeReason: string;
+  createdBy: number;
+  createdByName: string;
+  createdAt: string;
 };
 
 export type FormalBusinessOrderProblemDescriptionContext = {
   original: FormalProblemDescriptionOriginal;
   current: FormalProblemDescriptionVersion | null;
+  businessOrderHistory: FormalProblemDescriptionVersion[];
   currentRound: (FormalProblemDescriptionVersion & {
     repairRoundId: number;
     roundNo: number;
   }) | null;
+  currentRoundHistory: Array<FormalProblemDescriptionVersion & {
+    repairRoundId: number;
+    roundNo: number;
+  }>;
 };
 
 export type FormalBusinessOrderDetail = {
@@ -575,6 +592,30 @@ export function createFormalBusinessOrder(input: {
     method: "POST",
     headers: { "content-type": "application/json" },
     body: JSON.stringify(payload),
+  });
+}
+
+export function appendFormalProblemDescription(
+  businessOrderId: number,
+  input: {
+    scope: "business_order" | "repair_round";
+    repairRoundId?: number | null;
+    expectedVersion: number;
+    contentZh?: string | null;
+    contentEn?: string | null;
+    reason: string;
+  },
+): Promise<FormalBusinessOrderProblemDescriptionContext> {
+  return formalJson(`/api/formal/business-orders/${businessOrderId}/problem-descriptions`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({
+      ...input,
+      contentZh: input.contentZh?.trim() || null,
+      contentEn: input.contentEn?.trim() || null,
+      reason: input.reason.trim(),
+      sourceType: "manual",
+    }),
   });
 }
 

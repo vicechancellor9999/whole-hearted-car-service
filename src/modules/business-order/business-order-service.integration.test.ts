@@ -302,6 +302,10 @@ describe("BusinessOrderService", () => {
       versionNo: 2,
       contentZh: "本轮先完成诊断，不追加维修项目",
     });
+    expect(afterRoundEdit.businessOrderHistory.map((version) => version.versionNo))
+      .toEqual([2, 1]);
+    expect(afterRoundEdit.currentRoundHistory.map((version) => version.versionNo))
+      .toEqual([2, 1]);
 
     await expect(service.appendProblemDescriptionVersion({
       businessOrderId: order.id,

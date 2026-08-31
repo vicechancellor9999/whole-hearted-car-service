@@ -7,6 +7,7 @@ import { AlertCircle, RefreshCw } from "lucide-react";
 import { FormalInspectionCreateDialog } from "@/components/orders/formal-inspection-create-dialog";
 import { FormalBusinessOrderMessages } from "@/components/orders/formal-business-order-messages";
 import { FormalBusinessOrderDocumentsWorkspace } from "@/components/orders/formal-business-order-documents-workspace";
+import { FormalBusinessOrderProblemDescription } from "@/components/orders/formal-business-order-problem-description";
 import {
   FormalBusinessOrderHistoryTimeline,
   type FormalBusinessOrderHistoryItem,
@@ -878,6 +879,16 @@ export function FormalBusinessOrderDetailView({ businessOrderId }: { businessOrd
             {PROGRESS.map(([status, labelZh, labelEn], index) => <div key={status} className={`rounded-md border px-2 py-2 text-center text-[11px] font-semibold ${index < progressIndex ? "border-accent-solid bg-accent-solid text-accent-foreground" : index === progressIndex ? "border-state-warning-border bg-state-warning-subtle text-state-warning-text" : "border-line bg-layer-2 text-ink-soft"}`}>{index + 1} {english ? labelEn : labelZh}</div>)}
           </div>
         </header>
+
+        <FormalBusinessOrderProblemDescription
+          businessOrderId={businessOrderId}
+          context={data.problemDescriptions}
+          canWrite={data.capabilities.canWrite && !order.voided}
+          onSaved={(problemDescriptions) => {
+            setData((current) => current ? { ...current, problemDescriptions } : current);
+            setNotice(english ? "Problem description saved as a new version" : "问题描述已保存为新版本");
+          }}
+        />
 
         {notice ? <p role="status" className="rounded-xl border border-state-success-border bg-state-success-subtle px-4 py-3 text-sm font-semibold text-state-success-text">{notice}</p> : null}
         {error ? <p role="alert" className="rounded-xl border border-state-danger-border bg-state-danger-subtle px-4 py-3 text-sm font-semibold text-state-danger-text">{error}</p> : null}

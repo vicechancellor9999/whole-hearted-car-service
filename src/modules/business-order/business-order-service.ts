@@ -100,10 +100,15 @@ export type ProblemDescriptionVersionSnapshot = {
 export type BusinessOrderProblemDescriptionContext = {
   original: ProblemDescriptionOriginalSnapshot;
   current: ProblemDescriptionVersionSnapshot | null;
+  businessOrderHistory: ProblemDescriptionVersionSnapshot[];
   currentRound: (ProblemDescriptionVersionSnapshot & {
     repairRoundId: number;
     roundNo: number;
   }) | null;
+  currentRoundHistory: Array<ProblemDescriptionVersionSnapshot & {
+    repairRoundId: number;
+    roundNo: number;
+  }>;
 };
 
 export type BusinessOrderChargeSnapshot = {
@@ -879,7 +884,7 @@ async function selectProblemDescriptionContext(
   order: BusinessOrderRow | undefined,
 ): Promise<BusinessOrderProblemDescriptionContext> {
   if (!order) throw new BusinessOrderNotFoundError();
-  const [originals, currentVersions, rounds] = await Promise.all([
+  const [originals, businessOrderVersions, rounds] = await Promise.all([
     executor.query<ProblemOriginalRow>(
       `select original.content_zh, original.content_en,
               original.source_type, original.source_reference_id,
@@ -892,8 +897,7 @@ async function selectProblemDescriptionContext(
        limit 1`,
       [businessOrderId],
     ),
-    order.current_problem_description_version_no > 0
-      ? executor.query<ProblemVersionRow>(
+    executor.query<ProblemVersionRow>(
         `select version.id, version.version_no, version.content_zh,
                 version.content_en, version.source_type,
                 version.source_reference_id, version.change_reason,
@@ -901,11 +905,10 @@ async function selectProblemDescriptionContext(
                 version.created_at
          from business_order_problem_versions as version
          join staff_accounts as account on account.id = version.created_by
-         where version.business_order_id = $1 and version.version_no = $2
-         limit 1`,
-        [businessOrderId, order.current_problem_description_version_no],
-      )
-      : Promise.resolve([] as ProblemVersionRow[]),
+         where version.business_order_id = $1
+         order by version.version_no desc`,
+        [businessOrderId],
+      ),
     executor.query<ProblemVersionRow & {
       repair_round_id: number;
       round_no: number;
@@ -919,10 +922,9 @@ async function selectProblemDescriptionContext(
        from repair_rounds as round
        join repair_round_problem_versions as version
          on version.repair_round_id = round.id
-        and version.version_no = round.current_problem_description_version_no
        join staff_accounts as account on account.id = version.created_by
        where round.business_order_id = $1 and round.round_no = $2
-       limit 1`,
+       order by version.version_no desc`,
       [businessOrderId, order.current_repair_round_no],
     ),
   ]);
@@ -931,6 +933,14 @@ async function selectProblemDescriptionContext(
     throw new BusinessOrderNotFoundError("Business Order 原始问题描述不存在");
   }
   const round = rounds[0];
+  const businessOrderHistory = businessOrderVersions.map(
+    mapProblemDescriptionVersion,
+  );
+  const currentRoundHistory = rounds.map((candidate) => ({
+    ...mapProblemDescriptionVersion(candidate),
+    repairRoundId: Number(candidate.repair_round_id),
+    roundNo: candidate.round_no,
+  }));
   return {
     original: {
       contentZh: original.content_zh,
@@ -943,9 +953,10 @@ async function selectProblemDescriptionContext(
       confirmedByName: original.confirmed_by_name,
       confirmedAt: new Date(original.confirmed_at),
     },
-    current: currentVersions[0]
-      ? mapProblemDescriptionVersion(currentVersions[0])
-      : null,
+    current: businessOrderHistory.find(
+      (version) => version.versionNo === order.current_problem_description_version_no,
+    ) ?? null,
+    businessOrderHistory,
     currentRound: round
       ? {
         ...mapProblemDescriptionVersion(round),
@@ -953,6 +964,7 @@ async function selectProblemDescriptionContext(
         roundNo: round.round_no,
       }
       : null,
+    currentRoundHistory,
   };
 }
 
