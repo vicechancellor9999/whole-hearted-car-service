@@ -72,7 +72,7 @@ export function buildBusinessOrderDocumentContent(
       fields.push(
         field(`workItems.${index}.nameZh`, `施工项目 ${index + 1}`, item.nameZh, "charges"),
         field(`workItems.${index}.descriptionZh`, `工作说明 ${index + 1}`, item.descriptionZh ?? "", "charges", true),
-        field(`workItems.${index}.quantity`, `数量 ${index + 1}`, `${item.quantity} ${item.unitLabelZh}`, "charges"),
+        field(`workItems.${index}.quantity`, `数量 ${index + 1}`, `${item.quantity} ${item.kind === "labor" ? "JOB" : item.unitLabelZh}`, "charges"),
       );
     });
     snapshot.notes.forEach((note, index) => fields.push(
@@ -110,29 +110,18 @@ export function buildBusinessOrderDocumentContent(
     fields.push(
       field(`charges.items.${index}.nameZh`, `收费项目 ${index + 1}`, item.nameZh, "charges"),
       field(`charges.items.${index}.descriptionZh`, `项目说明 ${index + 1}`, item.descriptionZh ?? "", "charges", true),
-      field(`charges.items.${index}.quantity`, `数量 ${index + 1}`, `${item.quantity} ${item.unitLabelZh}`, "charges"),
-      field(`charges.items.${index}.unitPrice`, `含税单价 ${index + 1}`, money(item.unitPriceMinor), "charges"),
-      field(`charges.items.${index}.discount`, `本项折扣 ${index + 1}`, money(item.itemDiscountMinor), "charges"),
-      field(`charges.items.${index}.subtotal`, `含税小计 ${index + 1}`, money(item.subtotalMinor), "charges"),
+      field(`charges.items.${index}.quantity`, `数量 ${index + 1}`, `${item.quantity} ${item.kind === "labor" ? "JOB" : item.unitLabelZh}`, "charges"),
+      field(`charges.items.${index}.unitPrice`, `含税单价 ${index + 1}`, item.pendingQuote ? "待报价" : money(item.unitPriceMinor), "charges"),
+      field(`charges.items.${index}.discount`, `本项折扣 ${index + 1}`, item.pendingQuote ? "—" : money(item.itemDiscountMinor), "charges"),
+      field(`charges.items.${index}.subtotal`, `含税小计 ${index + 1}`, item.pendingQuote ? "—" : money(item.subtotalMinor), "charges"),
     );
   });
   snapshot.charges.notes.forEach((note, index) => {
     if (note.contentZh) fields.push(field(`notes.${index}.contentZh`, `备注 ${index + 1}`, note.contentZh, "notes", true));
     if (note.contentEn) fields.push(field(`notes.${index}.contentEn`, `Note ${index + 1}`, note.contentEn, "notes", true));
   });
-  snapshot.transactions.forEach((transaction, index) => fields.push(
-    field(
-      `transactions.${index}.summary`,
-      `收付款 ${index + 1}`,
-      `${transaction.type === "payment" ? "收款" : "退款"} ${transaction.referenceNo} · ${money(transaction.amountMinor)} · ${transaction.methodLabelZh}`,
-      "transactions",
-    ),
-  ));
   fields.push(
-    field("totals.currentDue", "折后应收", money(snapshot.totals.currentDueMinor), "charges"),
-    field("totals.totalPaid", "累计收款", money(snapshot.totals.totalPaidMinor), "transactions"),
-    field("totals.totalRefunded", "累计退款", money(snapshot.totals.totalRefundedMinor), "transactions"),
-    field("totals.balance", "未结余额", money(snapshot.totals.balanceMinor), "transactions"),
+    field("totals.currentDue", snapshot.charges.items.some((item) => item.pendingQuote) ? "已报价金额" : "折后应收", money(snapshot.totals.currentDueMinor), "charges"),
     field("approval.statementZh", "客户确认", snapshot.approval.statementZh, "approval", true),
     field("approval.statementEn", "Customer acknowledgement", snapshot.approval.statementEn, "approval", true),
     field("footer.left", "页脚", "客户签字：____________________    日期：____________________", "footer"),

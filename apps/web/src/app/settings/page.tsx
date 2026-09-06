@@ -34,7 +34,9 @@ export default function SettingsPage() {
           </section>
         </div>
 
-        <section className="mt-3 rounded-[22px] border border-dashed border-line p-4 text-[11px] text-ink-soft">Twilio 短信 / WhatsApp 对接将在取得 Account SID、Auth Token 与发信号码后启用；当前取车通知按前台人工执行并由系统记录。</section>
+        <section className="mt-3 rounded-[22px] border border-dashed border-line p-4 text-[11px] leading-5 text-ink-soft">
+          <strong className="text-ink">客户通信服务：</strong>检查报告短信通过服务器端接口发送，供应商接受后才写入发送记录；WhatsApp 继续由前台打开会话并发送。短信服务接入需要接口地址、鉴权信息和发信号码。
+        </section>
       </div>
     </div>
   );

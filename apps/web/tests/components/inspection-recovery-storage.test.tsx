@@ -1,0 +1,84 @@
+import { afterEach, beforeEach, expect, it, vi } from "vitest";
+import { act, cleanup, render, renderHook, screen } from "@testing-library/react";
+import { InspectionCreationRecoveryPanel, useInspectionCreationRecovery, type InspectionCreationAttempt } from "../../src/components/orders/inspection-creation-recovery";
+beforeEach(() => sessionStorage.clear());
+afterEach(() => { cleanup(); vi.restoreAllMocks(); });
+const pending: InspectionCreationAttempt = { id: "attempt-1", status: "pending", draft: { inspectionTeamId: "3", inspectorId: "", summaryZh: "检查异响", specialCaseNotesZh: "保留备注", plateQuery: "4321AB", selectedVehicle: { id: 8, title: "4321AB", detail: "Toyota" }, sourceBusinessOrderId: 12 } };
+it("recovers a pending inspection as unconfirmed after remount with vehicle and source order intact", () => {
+  const first = renderHook(() => useInspectionCreationRecovery(1, 12));
+  act(() => first.result.current.track(pending)); first.unmount();
+  const next = renderHook(() => useInspectionCreationRecovery(1, 12));
+  expect(next.result.current.attempts[0]).toMatchObject({ id: "attempt-1", status: "unconfirmed", draft: pending.draft });
+  act(() => next.result.current.restore(next.result.current.attempts[0]));
+  expect(next.result.current.draft).toMatchObject({ ...pending.draft, recoveryAttemptId: "attempt-1" });
+  expect(next.result.current.attempts).toHaveLength(1);
+  next.unmount();
+});
+it("isolates accounts and filters source orders while the report list can recover all own attempts", () => {
+  const first = renderHook(() => useInspectionCreationRecovery(1, 12));
+  act(() => first.result.current.track(pending)); first.unmount();
+  const otherAccount = renderHook(() => useInspectionCreationRecovery(2));
+  const otherOrder = renderHook(() => useInspectionCreationRecovery(1, 13));
+  const ownList = renderHook(() => useInspectionCreationRecovery(1));
+  expect(otherAccount.result.current.attempts).toEqual([]);
+  expect(otherOrder.result.current.attempts).toEqual([]);
+  expect(ownList.result.current.attempts).toHaveLength(1);
+  otherAccount.unmount(); otherOrder.unmount(); ownList.unmount();
+});
+it("preserves a newer attempt when an earlier page receives its late creation result", () => {
+  const old = renderHook(() => useInspectionCreationRecovery(1));
+  act(() => old.result.current.track(pending));
+  const callback = old.result.current.track;
+  old.unmount();
+  const next = renderHook(() => useInspectionCreationRecovery(1));
+  act(() => next.result.current.track({ ...pending, id: "attempt-2" }));
+  act(() => callback({ ...pending, status: "saved", report: { id: 91, reportNo: "IR-91" } }));
+  next.unmount();
+  const refreshed = renderHook(() => useInspectionCreationRecovery(1));
+  expect(refreshed.result.current.attempts).toHaveLength(2);
+  expect(refreshed.result.current.attempts.find(value => value.id === pending.id)?.report?.id).toBe(91);
+  refreshed.unmount();
+});
+it("keeps failed cleanup retryable and removes the persistent entry once storage recovers", () => {
+  const view = renderHook(() => useInspectionCreationRecovery(1));
+  act(() => view.result.current.track({ ...pending, status: "saved", report: { id: 91, reportNo: "IR-91" } }));
+  const write = vi.spyOn(Storage.prototype, "setItem").mockImplementation(() => { throw new Error("unavailable"); });
+  act(() => view.result.current.dismiss(pending.id));
+  expect(view.result.current.attempts).toHaveLength(1);
+  expect(view.result.current.storageAvailable).toBe(false);
+  write.mockRestore();
+  act(() => view.result.current.dismiss(pending.id));
+  expect(view.result.current.attempts).toEqual([]);
+  view.unmount();
+  const refreshed = renderHook(() => useInspectionCreationRecovery(1));
+  expect(refreshed.result.current.attempts).toEqual([]);
+  refreshed.unmount();
+});
+it("does not return an unresolved recovered attempt to a saving state when tracking another submission", () => {
+  const original = renderHook(() => useInspectionCreationRecovery(1));
+  act(() => original.result.current.track(pending)); original.unmount();
+  const next = renderHook(() => useInspectionCreationRecovery(1));
+  act(() => next.result.current.track({ ...pending, id: "attempt-2" }));
+  expect(next.result.current.attempts.find(value => value.id === pending.id)?.status).toBe("unconfirmed");
+  next.unmount();
+});
+it("identifies the recovered vehicle and provides its source order and plate-filtered verification route", () => {
+  render(<InspectionCreationRecoveryPanel attempts={[{ ...pending, status: "unconfirmed", error: "需要核对" }]} onRestore={vi.fn()} onDismiss={vi.fn()} storageAvailable />);
+  expect(screen.getByText("4321AB")).toBeTruthy();
+  expect(screen.getByRole("link", { name: "查看来源业务单 #12" }).getAttribute("href")).toBe("/orders/business/12");
+  expect(screen.getByRole("link", { name: "新标签页核对列表" }).getAttribute("href")).toBe("/orders/inspections?search=4321AB");
+});
+it("invalidates old UI callbacks after account cycling and unmount without discarding their own stored attempt", () => {
+  const view = renderHook(({ accountId }) => useInspectionCreationRecovery(accountId), { initialProps: { accountId: 1 } });
+  const old = view.result.current;
+  act(() => old.track(pending));
+  view.rerender({ accountId: 2 });
+  expect(old.isCurrentScope()).toBe(false);
+  view.rerender({ accountId: 1 });
+  expect(old.isCurrentScope()).toBe(false);
+  expect(view.result.current.isCurrentScope()).toBe(true);
+  const current = view.result.current;
+  view.unmount();
+  expect(current.isCurrentScope()).toBe(false);
+  expect(sessionStorage.getItem("wh:inspection-creation:v1:1")).toContain("attempt-1");
+});

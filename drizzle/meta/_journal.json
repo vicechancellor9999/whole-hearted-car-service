@@ -288,6 +288,83 @@
       "when": 1788163200000,
       "tag": "0040_business_order_problem_descriptions",
       "breakpoints": true
+    },
+    {
+      "idx": 41,
+      "version": "7",
+      "when": 1788249600000,
+      "tag": "0041_problem_description_record_deletion",
+      "breakpoints": true
+    },
+    {
+      "idx": 42,
+      "version": "7",
+      "when": 1788253200000,
+      "tag": "0042_inspection_report_workspaces",
+      "breakpoints": true
+    },
+    {
+      "idx": 43,
+      "version": "7",
+      "when": 1788256800000,
+      "tag": "0043_repair_round_performance_draft",
+      "breakpoints": true
+    },
+    {
+      "idx": 44,
+      "version": "7",
+      "when": 1788260400000,
+      "tag": "0044_invalid_repair_round_deletion",
+      "breakpoints": true
+    },
+    {
+      "idx": 45,
+      "version": "7",
+      "when": 1788264000000,
+      "tag": "0045_inspection_workspace_record_deletion",
+      "breakpoints": true
+    },
+    {
+      "idx": 46,
+      "version": "7",
+      "when": 1788267600000,
+      "tag": "0046_repair_round_performance_guard",
+      "breakpoints": true
+    },
+    {
+      "idx": 47,
+      "version": "7",
+      "when": 1788271200000,
+      "tag": "0047_formal_handoff_performance_corrections",
+      "breakpoints": true
+    },
+    {
+      "idx": 48,
+      "version": "7",
+      "when": 1788361200000,
+      "tag": "0048_employee_salary_revision",
+      "breakpoints": true
+    },
+    {
+      "idx": 49,
+      "version": "7",
+      "when": 1788364800000,
+      "tag": "0049_business_order_categories",
+      "breakpoints": true
+    },
+    {
+      "idx": 50,
+      "version": "7",
+      "when": 1788368400000,
+      "tag": "0050_conservative_business_order_categories",
+      "breakpoints": true
+    },
+    {
+      "idx": 51,
+      "version": "7",
+      "when": 1788604200000,
+      "tag": "0051_business_order_pending_quotes",
+      "breakpoints": true
     }
   ]
 }

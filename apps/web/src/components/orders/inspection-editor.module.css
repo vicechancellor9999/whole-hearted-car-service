@@ -1,0 +1,38 @@
+.workspace button,
+.workspace input:not([type="radio"]):not([type="checkbox"]) {
+  min-height: 44px;
+  min-width: 44px;
+}
+
+.workspace textarea {
+  min-height: 80px;
+}
+
+.removeLine {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  align-self: end;
+  justify-self: end;
+}
+
+.quotation {
+  container-type: inline-size;
+}
+
+.lineAmounts {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+  margin-top: 8px;
+}
+
+.lineAmounts label {
+  min-width: 0;
+}
+
+@container (min-width: 680px) {
+  .lineAmounts {
+    grid-template-columns: 80px minmax(82px, .8fr) repeat(3, minmax(110px, 1fr)) 44px;
+  }
+}

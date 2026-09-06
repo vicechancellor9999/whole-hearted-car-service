@@ -1,130 +1,68 @@
 import { expect, test } from "@playwright/test";
-import {
-  printPdfBytes,
-  type PdfPrintDependencies,
-  type PdfPrintWindow,
-} from "../../src/lib/orders/ir-pdf-print";
+import { printPdfBytes, type PdfPrintDependencies, type PdfPrintSurface } from "../../src/lib/orders/ir-pdf-print";
 
-interface ListenerRegistry {
-  load: Set<() => void>;
-  error: Set<() => void>;
-}
-
-function createPrintHarness(options: { printError?: Error; popupBlocked?: boolean } = {}) {
-  const listeners: ListenerRegistry = { load: new Set(), error: new Set() };
-  const calls: string[] = [];
-  let capturedBlob: Blob | null = null;
-  let openedUrl: string | null = null;
-  let openedTarget: string | null = null;
-  let revokedUrl: string | null = null;
-
-  const popup: PdfPrintWindow = {
-    focus() {
-      calls.push("focus");
-    },
-    print() {
-      calls.push("print");
-      if (options.printError) throw options.printError;
-    },
-    close() {
-      calls.push("close");
-    },
-    addEventListener(type, listener) {
-      listeners[type].add(listener);
-    },
-    removeEventListener(type, listener) {
-      listeners[type].delete(listener);
-    },
-  };
-
-  const dependencies: PdfPrintDependencies = {
-    createObjectURL(blob) {
-      capturedBlob = blob;
-      return "blob:exact-selected-attachment";
-    },
-    revokeObjectURL(url) {
-      revokedUrl = url;
-      calls.push("revoke");
-    },
-    openWindow(url, target) {
-      openedUrl = url;
-      openedTarget = target;
-      return options.popupBlocked ? null : popup;
-    },
-    setTimeout() {
-      return 17;
-    },
-    clearTimeout() {
-      calls.push("clear-timeout");
-    },
-    loadTimeoutMs: 5_000,
-  };
-
-  return {
-    calls,
-    dependencies,
-    dispatch(type: keyof ListenerRegistry) {
-      for (const listener of [...listeners[type]]) listener();
-    },
-    get capturedBlob() {
-      return capturedBlob;
-    },
-    get openedUrl() {
-      return openedUrl;
-    },
-    get openedTarget() {
-      return openedTarget;
-    },
-    get revokedUrl() {
-      return revokedUrl;
-    },
-  };
-}
-
-const selectedAttachment = {
-  metadata: {
-    id: "ir-file-bilingual-v7",
-    language: "bilingual" as const,
-    fileName: "inspection-report-bilingual-v7.pdf",
-  },
-  bytes: Uint8Array.from([0x25, 0x50, 0x44, 0x46, 0x2d, 0x37, 0x0a, 0x01, 0xff]),
+const attachment = {
+  metadata: { id: "selected-en-r7", language: "en" as const, fileName: "customer-en-r7.pdf" },
+  bytes: Uint8Array.from([37, 80, 68, 70, 255]),
 };
 
-test("prints the exact selected attachment bytes only after its PDF window loads", async () => {
-  const harness = createPrintHarness();
+function harness(options: { unsupported?: boolean; renderError?: boolean } = {}) {
+  const calls: string[] = [];
+  const events = { beforeprint: new Set<() => void>(), afterprint: new Set<() => void>() };
+  let input: Uint8Array | undefined;
+  let timeout: (() => void) | undefined;
+  const surface: PdfPrintSurface = {
+    focus: () => { calls.push("focus"); },
+    print: () => { calls.push("print"); if (!options.unsupported) for (const fn of events.beforeprint) fn(); },
+    dispose: () => { calls.push("dispose"); },
+    addEventListener: (type, fn) => { events[type].add(fn); },
+    removeEventListener: (type, fn) => { events[type].delete(fn); },
+  };
+  const dependencies: PdfPrintDependencies = {
+    prepare: async (bytes) => { input = bytes; if (options.renderError) throw new Error("PDF 损坏"); calls.push("rendered-all-pages"); return surface; },
+    setTimeout: (fn) => { timeout = fn; return 1; },
+    clearTimeout: () => {},
+  };
+  return { calls, dependencies, get input() { return input; }, finish: () => { for (const fn of [...events.afterprint]) fn(); }, timeout: () => timeout?.() };
+}
 
-  const resultPromise = printPdfBytes(selectedAttachment, harness.dependencies);
-
-  expect(harness.openedUrl).toBe("blob:exact-selected-attachment");
-  expect(harness.openedTarget).toBe("_blank");
-  expect(harness.calls).not.toContain("print");
-  expect(harness.capturedBlob?.type).toBe("application/pdf");
-  expect(Array.from(new Uint8Array(await harness.capturedBlob!.arrayBuffer()))).toEqual(
-    Array.from(selectedAttachment.bytes),
-  );
-
-  harness.dispatch("load");
-
-  await expect(resultPromise).resolves.toEqual({
-    attachmentId: selectedAttachment.metadata.id,
-    language: selectedAttachment.metadata.language,
-    fileName: selectedAttachment.metadata.fileName,
+test("prints all pages of the exact selected PDF, keeping the surface until afterprint", async () => {
+  const h = harness();
+  await expect(printPdfBytes(attachment, h.dependencies)).resolves.toEqual({
+    attachmentId: attachment.metadata.id, language: attachment.metadata.language, fileName: attachment.metadata.fileName,
   });
-  expect(harness.calls).toEqual(["focus", "print", "clear-timeout", "close", "revoke"]);
-  expect(harness.revokedUrl).toBe("blob:exact-selected-attachment");
+  expect(h.input).toEqual(attachment.bytes);
+  expect(h.input).not.toBe(attachment.bytes);
+  expect(h.calls).toEqual(["rendered-all-pages", "focus", "print"]);
+  h.finish();
+  expect(h.calls).toEqual(["rendered-all-pages", "focus", "print", "dispose"]);
 });
 
-test("rejects visibly actionable popup and print failures while cleaning the object URL", async () => {
-  const blockedHarness = createPrintHarness({ popupBlocked: true });
-  await expect(printPdfBytes(selectedAttachment, blockedHarness.dependencies)).rejects.toThrow(
-    "浏览器阻止了打印窗口",
-  );
-  expect(blockedHarness.revokedUrl).toBe("blob:exact-selected-attachment");
+test("aborting while the PDF surface is preparing never opens native print", async () => {
+  const h = harness();
+  const controller = new AbortController();
+  let ready!: (value: PdfPrintSurface) => void;
+  const surface = await h.dependencies.prepare(attachment.bytes, attachment.metadata.fileName);
+  const result = printPdfBytes(attachment, { ...h.dependencies, prepare: () => new Promise((resolve) => { ready = resolve; }) }, controller.signal);
+  const rejected = expect(result).rejects.toMatchObject({ name: "AbortError" });
+  controller.abort(); ready(surface);
+  await rejected;
+  expect(h.calls).not.toContain("print");
+  expect(h.calls).toContain("dispose");
+});
 
-  const printHarness = createPrintHarness({ printError: new Error("native print unavailable") });
-  const printPromise = printPdfBytes(selectedAttachment, printHarness.dependencies);
-  printHarness.dispatch("load");
-  await expect(printPromise).rejects.toThrow("native print unavailable");
-  expect(printHarness.calls).toEqual(["focus", "print", "clear-timeout", "close", "revoke"]);
-  expect(printHarness.revokedUrl).toBe("blob:exact-selected-attachment");
+test("unsupported native printing has an actionable error rather than false success", async () => {
+  const h = harness({ unsupported: true });
+  const pending = printPdfBytes(attachment, h.dependencies);
+  await Promise.resolve();
+  h.timeout();
+  await expect(pending).rejects.toThrow("下载 PDF");
+  expect(h.calls).toContain("dispose");
+});
+
+test("render failure never calls print or mutates the selected PDF", async () => {
+  const h = harness({ renderError: true });
+  await expect(printPdfBytes(attachment, h.dependencies)).rejects.toThrow("PDF 损坏");
+  expect(h.calls).not.toContain("print");
+  expect(attachment.bytes).toEqual(Uint8Array.from([37, 80, 68, 70, 255]));
 });

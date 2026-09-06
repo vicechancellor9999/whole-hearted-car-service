@@ -28,6 +28,8 @@ const migrationPaths = [
   "0011_repair_rounds.sql",
   "0018_business_order_number_format.sql",
   "0040_business_order_problem_descriptions.sql",
+  "0049_business_order_categories.sql",
+  "0051_business_order_pending_quotes.sql",
 ].map((name) => resolve(process.cwd(), "drizzle", name));
 
 let database: PGlite;
@@ -206,6 +208,48 @@ describe("BusinessOrderService", () => {
     expect(audits.rows.map((row) => row.event_type)).toEqual([
       "business_order.created",
     ]);
+  });
+
+  it("stores multiple AI-selected categories and returns compact list facts", async () => {
+    const order = await service.createBusinessOrder({
+      vehicleId: personVehicleId,
+      problemDescriptionZh: "先检查发动机异响并做保养，需要时更换损坏部件",
+      categories: ["inspection", "maintenance", "repair", "inspection"],
+      context: context(frontDeskId, "req-create-categorized-order"),
+    });
+
+    expect(order.categories).toEqual(["maintenance", "repair", "inspection"]);
+    const list = await service.listBusinessOrders({
+      viewerAccountId: ownerId,
+      category: "inspection",
+    });
+    expect(list.items).toEqual([
+      expect.objectContaining({
+        id: order.id,
+        categories: ["maintenance", "repair", "inspection"],
+        serviceSummary: "先检查发动机异响并做保养，需要时更换损坏部件",
+        totalDueMinor: 0,
+        assignedTeam: null,
+      }),
+    ]);
+
+    await database.exec(`
+      select set_config('whole_hearted.repair_event_projection', 'on', false);
+      insert into repair_rounds
+        (business_order_id, round_no, source, after_sales_issue, status,
+         created_at, created_by, updated_at)
+      values (${order.id}, 2, 'after_sales', '客户返厂复查', 'waiting_assignment',
+              '2026-08-25T14:30:00Z', ${frontDeskId}, '2026-08-25T14:30:00Z');
+      update business_orders set current_repair_round_no = 2 where id = ${order.id};
+    `);
+    const rework = await service.listBusinessOrders({
+      viewerAccountId: ownerId,
+      category: "rework",
+    });
+    expect(rework.items[0]).toMatchObject({
+      id: order.id,
+      categories: ["maintenance", "repair", "inspection", "rework"],
+    });
   });
 
   it("stores an explicit original and keeps Business Order and repair-round descriptions independent", async () => {
@@ -454,6 +498,92 @@ describe("BusinessOrderService", () => {
         [charges.id],
       ),
     ).rejects.toThrow(/charge facts are append-only/);
+  });
+
+  it("rejects fractional quantities without appending a version and accepts explicit whole quantities", async () => {
+    const order = await service.createBusinessOrder({ vehicleId: personVehicleId, context: context(frontDeskId, "quantity-create") });
+    const before = await service.getCurrentCharges({ businessOrderId: order.id, viewerAccountId: frontDeskId });
+    const fields = {
+      businessOrderId: order.id, expectedBusinessOrderVersion: order.version, reason: "人工核对数量",
+      laborDiscount: "0", partDiscount: "0", otherDiscount: "0", wholeOrderDiscount: "0", notes: [],
+      context: context(frontDeskId, "quantity-save"),
+    };
+    const item = { kind: "part" as const, nameZh: "清洗剂", unitItemId: eachUnitId, unitPrice: "800", itemDiscount: "0" };
+    await expect(service.replaceChargeVersion({ ...fields, items: [{ ...item, quantity: "1.250" }] })).rejects.toThrow(/正整数/);
+    expect(await service.getCurrentCharges({ businessOrderId: order.id, viewerAccountId: frontDeskId })).toEqual(before);
+    const saved = await service.replaceChargeVersion({ ...fields, items: [{ ...item, quantity: "2.000" }] });
+    expect(saved.versionNo).toBe(before.versionNo + 1);
+    expect(Number(saved.items[0].quantity)).toBe(2);
+    expect(saved.items[0].unitPriceMinor).toBe(80000);
+    expect(saved.totals.totalDueMinor).toBe(160000);
+  });
+
+  it("preserves pending versus free prices and records later pricing as a new immutable version", async () => {
+    const order = await service.createBusinessOrder({
+      vehicleId: personVehicleId,
+      context: context(frontDeskId, "pending-create"),
+    });
+    const fields = {
+      businessOrderId: order.id, reason: "已知价格与待报价项目",
+      laborDiscount: "0", partDiscount: "0", otherDiscount: "0", wholeOrderDiscount: "0", notes: [],
+    };
+    const common = { unitItemId: eachUnitId, quantity: "1", itemDiscount: "0" };
+    const first = await service.replaceChargeVersion({
+      ...fields, expectedBusinessOrderVersion: order.version,
+      items: [
+        { ...common, kind: "part", nameZh: "待报清洗剂", unitPrice: "", pendingQuote: true },
+        { ...common, kind: "labor", nameZh: "免费复查", unitPrice: "0" },
+        { ...common, kind: "labor", nameZh: "已报诊断", unitPrice: "800" },
+      ],
+      context: context(frontDeskId, "pending-save"),
+    });
+    expect(first.items.map((item) => item.pendingQuote)).toEqual([true, false, false]);
+    expect(first.totals.totalDueMinor).toBe(80000);
+    const reread = await service.getCurrentCharges({ businessOrderId: order.id, viewerAccountId: frontDeskId });
+    expect(reread.items[0]).toMatchObject({ nameZh: "待报清洗剂", pendingQuote: true, unitPriceMinor: 0 });
+    const pendingList = await service.listBusinessOrders({ viewerAccountId: frontDeskId, search: order.orderNo });
+    expect(pendingList.items.find((item) => item.id === order.id)).toMatchObject({ pendingQuoteCount: 1 });
+
+    const second = await service.replaceChargeVersion({
+      ...fields, expectedBusinessOrderVersion: first.businessOrderVersion, reason: "补充清洗剂价格",
+      items: [
+        { ...common, kind: "part", nameZh: "待报清洗剂", unitPrice: "200", pendingQuote: false },
+        { ...common, kind: "labor", nameZh: "免费复查", unitPrice: "0" },
+        { ...common, kind: "labor", nameZh: "已报诊断", unitPrice: "800" },
+      ],
+      context: context(frontDeskId, "pending-priced"),
+    });
+    expect(second.versionNo).toBe(first.versionNo + 1);
+    expect(second.items[0]).toMatchObject({ pendingQuote: false, unitPriceMinor: 20000 });
+    const pricedList = await service.listBusinessOrders({ viewerAccountId: frontDeskId, search: order.orderNo });
+    expect(pricedList.items.find((item) => item.id === order.id)).toMatchObject({ pendingQuoteCount: 0 });
+    expect(second.totals.totalDueMinor).toBe(100000);
+    const old = await database.query<{ pending_quote: boolean; unit_price_minor: number }>(
+      "select pending_quote, unit_price_minor from business_order_charge_items where charge_version_id = $1 order by sort_order",
+      [first.id],
+    );
+    expect(old.rows[0]).toEqual({ pending_quote: true, unit_price_minor: 0 });
+    const audits = await database.query<{ event_type: string; reason: string }>(
+      "select event_type, reason from audit_events where request_id = 'pending-priced'",
+    );
+    expect(audits.rows).toEqual([{ event_type: "business_order.charges_replaced", reason: "补充清洗剂价格" }]);
+    await expect(database.query("update business_order_charge_items set pending_quote = false where id = $1", [first.items[0].id]))
+      .rejects.toThrow(/charge facts are append-only/);
+    // Test the database check separately from the earlier sealed-version trigger.
+    await database.exec("create temporary table pending_quote_constraint_probe (like business_order_charge_items including defaults including constraints)");
+    await expect(database.query(
+      `insert into pending_quote_constraint_probe
+       (id, charge_version_id, kind, name_zh, unit_item_id, quantity, unit_price_minor, item_discount_minor, subtotal_minor, sort_order, pending_quote)
+       values (1, $1, 'part', 'invalid pending', $2, 1, 100, 0, 100, 99, true)`,
+      [second.id, eachUnitId],
+    )).rejects.toThrow(/business_order_charge_items_pending_amounts_zero/);
+    const legacy = await database.query<{ pending_quote: boolean }>(
+      `insert into pending_quote_constraint_probe
+       (id, charge_version_id, kind, name_zh, unit_item_id, quantity, unit_price_minor, item_discount_minor, subtotal_minor, sort_order)
+       values (2, $1, 'part', 'legacy free', $2, 1, 0, 0, 0, 100) returning pending_quote`,
+      [second.id, eachUnitId],
+    );
+    expect(legacy.rows[0].pending_quote).toBe(false);
   });
 
   it("rejects discounts that exceed their scope and stale aggregate versions", async () => {

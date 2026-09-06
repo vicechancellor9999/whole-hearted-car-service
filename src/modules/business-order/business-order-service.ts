@@ -24,6 +24,13 @@ import {
   type ParsedBusinessOrderNote,
   voidBusinessOrderSchema,
 } from "@formal/modules/business-order/business-order-schemas";
+import {
+  classifyBusinessOrderText,
+  normalizeBusinessOrderCategories,
+  withReworkCategory,
+  type BusinessOrderBaseCategory,
+  type BusinessOrderCategory,
+} from "@formal/modules/business-order/business-order-category";
 
 export {
   BusinessOrderConflictError,
@@ -64,6 +71,15 @@ export type BusinessOrderRecord = {
   voided: boolean;
   voidReason: string | null;
   version: number;
+  categories?: BusinessOrderCategory[];
+};
+
+export type BusinessOrderListItem = Omit<BusinessOrderRecord, "categories"> & {
+  categories: BusinessOrderCategory[];
+  serviceSummary: string | null;
+  totalDueMinor: number;
+  pendingQuoteCount: number;
+  assignedTeam: { id: number; name: string } | null;
 };
 
 export type ProblemDescriptionSource =
@@ -127,6 +143,7 @@ export type BusinessOrderChargeSnapshot = {
     unitItemId: number;
     quantity: string;
     unitPriceMinor: number;
+    pendingQuote: boolean;
     itemDiscountMinor: number;
     subtotalMinor: number;
     sortOrder: number;
@@ -162,6 +179,15 @@ type BusinessOrderRow = {
   voided_at: Date | null;
   void_reason: string | null;
   version: number;
+  categories: BusinessOrderBaseCategory[] | string;
+};
+
+type BusinessOrderListRow = BusinessOrderRow & {
+  service_summary: string | null;
+  total_due_minor: number;
+  pending_quote_count: number;
+  assigned_team_id: number | null;
+  assigned_team_name: string | null;
 };
 
 type VehiclePayerRow = {
@@ -204,6 +230,7 @@ export class BusinessOrderService {
     companyContactId?: number | null;
     problemDescriptionZh?: string | null;
     problemDescriptionEn?: string | null;
+    categories?: BusinessOrderBaseCategory[];
     context: BusinessOrderActionContext;
   }): Promise<BusinessOrderRecord> {
     const fields = createBusinessOrderSchema.parse(input);
@@ -270,6 +297,12 @@ export class BusinessOrderService {
         }
         await transaction.query("lock table business_orders in share row exclusive mode");
         const orderNo = await nextBusinessOrderNumber(transaction, now);
+        const categories = fields.categories.length > 0
+          ? normalizeBusinessOrderCategories(fields.categories)
+          : classifyBusinessOrderText([
+              fields.problemDescriptionZh,
+              fields.problemDescriptionEn,
+            ].filter(Boolean).join(" "));
         const rows = await transaction.query<BusinessOrderRow>(
           `insert into business_orders
             (order_no, vehicle_id, payer_person_customer_id,
@@ -277,10 +310,10 @@ export class BusinessOrderService {
              payer_display_name_snapshot, payer_phone_snapshot,
              payer_trn_snapshot, payer_contact_name_snapshot,
              vehicle_plate_snapshot, vehicle_description_snapshot,
-             vehicle_vin_snapshot, current_charge_version_no,
+             vehicle_vin_snapshot, current_charge_version_no, categories,
              created_at, updated_at, created_by)
            values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11,
-                   $12, 0, $13, $13, $14)
+                   $12, 0, $13::business_order_category[], $14, $14, $15)
            returning ${businessOrderColumns()}`,
           [
             orderNo,
@@ -295,6 +328,7 @@ export class BusinessOrderService {
             vehicle.plate_display,
             `${vehicle.make} ${vehicle.model}`.trim(),
             vehicle.vin,
+            `{${categories.join(",")}}`,
             now,
             input.context.actorAccountId,
           ],
@@ -379,6 +413,7 @@ export class BusinessOrderService {
           objectId: String(order.id),
           after: {
             ...order,
+            categories,
             problemDescription: {
               originalRecorded: true,
               currentVersionNo: hasProblemDescription ? 1 : 0,
@@ -409,6 +444,7 @@ export class BusinessOrderService {
     viewerAccountId: number;
     search?: string;
     status?: BusinessOrderRecord["status"];
+    category?: BusinessOrderCategory;
     page?: number;
     pageSize?: number;
   }) {
@@ -417,29 +453,85 @@ export class BusinessOrderService {
     const requestedPage = positivePage(input.page);
     const search = input.search?.normalize("NFKC").trim() || null;
     const status = input.status ?? null;
+    const category = input.category ?? null;
     const like = search ? `%${search}%` : null;
     const counts = await this.database.query<{ total: number }>(
       `select count(*)::integer as total from business_orders
        where ($1::text is null or order_no ilike $2
           or vehicle_plate_snapshot ilike $2
           or payer_display_name_snapshot ilike $2)
-         and ($3::business_order_status is null or status = $3)`,
-      [search, like, status],
+         and ($3::business_order_status is null or status = $3)
+         and case
+           when $4::text is null then true
+           when $4 = 'rework' then current_repair_round_no >= 2
+           else categories @> array[$4::business_order_category]
+         end`,
+      [search, like, status, category],
     );
     const total = Number(counts[0]?.total ?? 0);
     const pageCount = Math.max(1, Math.ceil(total / pageSize));
     const page = Math.min(requestedPage, pageCount);
-    const rows = await this.database.query<BusinessOrderRow>(
-      `select ${businessOrderColumns()} from business_orders
-       where ($1::text is null or order_no ilike $2
-          or vehicle_plate_snapshot ilike $2
-          or payer_display_name_snapshot ilike $2)
-         and ($3::business_order_status is null or status = $3)
-       order by created_at desc, id desc offset $4 limit $5`,
-      [search, like, status, (page - 1) * pageSize, pageSize],
+    const rows = await this.database.query<BusinessOrderListRow>(
+      `select ${businessOrderColumns("business_order")},
+              coalesce(nullif(charge_items.summary, ''),
+                       round_problem.content_zh,
+                       order_problem.content_zh,
+                       original_problem.content_zh,
+                       nullif(current_round.after_sales_issue, '')) as service_summary,
+              coalesce(charge.total_due_minor, 0) as total_due_minor,
+              coalesce(charge_items.pending_quote_count, 0) as pending_quote_count,
+              current_round.assigned_team_id,
+              team.name as assigned_team_name
+       from business_orders as business_order
+       left join repair_rounds as current_round
+         on current_round.business_order_id = business_order.id
+        and current_round.round_no = business_order.current_repair_round_no
+       left join repair_teams as team on team.id = current_round.assigned_team_id
+       left join business_order_charge_versions as charge
+         on charge.business_order_id = business_order.id
+        and charge.version_no = business_order.current_charge_version_no
+       left join lateral (
+         select string_agg(item.name_zh, '、' order by item.sort_order) as summary,
+                count(*) filter (where item.pending_quote)::integer as pending_quote_count
+         from business_order_charge_items as item
+         where item.charge_version_id = charge.id
+       ) as charge_items on true
+       left join repair_round_problem_versions as round_problem
+         on round_problem.repair_round_id = current_round.id
+        and round_problem.version_no = current_round.current_problem_description_version_no
+       left join business_order_problem_versions as order_problem
+         on order_problem.business_order_id = business_order.id
+        and order_problem.version_no = business_order.current_problem_description_version_no
+       left join business_order_problem_originals as original_problem
+         on original_problem.business_order_id = business_order.id
+       where ($1::text is null or business_order.order_no ilike $2
+          or business_order.vehicle_plate_snapshot ilike $2
+          or business_order.payer_display_name_snapshot ilike $2)
+         and ($3::business_order_status is null or business_order.status = $3)
+         and case
+           when $4::text is null then true
+           when $4 = 'rework' then business_order.current_repair_round_no >= 2
+           else business_order.categories @> array[$4::business_order_category]
+         end
+       order by business_order.created_at desc, business_order.id desc offset $5 limit $6`,
+      [search, like, status, category, (page - 1) * pageSize, pageSize],
     );
     return {
-      items: rows.map(mapBusinessOrder),
+      items: rows.map((row): BusinessOrderListItem => ({
+        ...mapBusinessOrder(row),
+        categories: withReworkCategory(
+          Array.isArray(row.categories)
+            ? row.categories
+            : row.categories.replace(/^\{|\}$/g, "").split(",").filter(Boolean),
+          row.current_repair_round_no,
+        ),
+        serviceSummary: row.service_summary,
+        totalDueMinor: Number(row.total_due_minor),
+        pendingQuoteCount: Number(row.pending_quote_count),
+        assignedTeam: row.assigned_team_id === null || !row.assigned_team_name
+          ? null
+          : { id: Number(row.assigned_team_id), name: row.assigned_team_name },
+      })),
       page,
       pageSize,
       pageCount,
@@ -750,12 +842,12 @@ async function insertChargeItems(
       `insert into business_order_charge_items
         (charge_version_id, kind, name_zh, name_en, description_zh,
          description_en, unit_item_id, quantity, unit_price_minor,
-         item_discount_minor, subtotal_minor, sort_order)
+         item_discount_minor, subtotal_minor, sort_order, pending_quote)
        values ($1, $2::charge_item_kind, $3, $4, $5, $6, $7,
-               $8::numeric, $9, $10, $11, $12)`,
+               $8::numeric, $9, $10, $11, $12, $13)`,
       [chargeVersionId, item.kind, item.nameZh, item.nameEn,
         item.descriptionZh, item.descriptionEn, item.unitItemId, item.quantity,
-        item.unitPriceMinor, item.itemDiscountMinor, item.subtotalMinor, index + 1],
+        item.unitPriceMinor, item.itemDiscountMinor, item.subtotalMinor, index + 1, item.pendingQuote],
     );
   }
 }
@@ -798,11 +890,12 @@ async function selectChargeSnapshot(
     name_zh: string; name_en: string | null;
     description_zh: string | null; description_en: string | null;
     unit_item_id: number; quantity: string; unit_price_minor: number;
+    pending_quote: boolean;
     item_discount_minor: number; subtotal_minor: number; sort_order: number;
   }>(
     `select id, kind, name_zh, name_en, description_zh, description_en,
             unit_item_id, quantity::text as quantity, unit_price_minor,
-            item_discount_minor, subtotal_minor, sort_order
+            item_discount_minor, subtotal_minor, sort_order, pending_quote
      from business_order_charge_items
      where charge_version_id = $1 order by sort_order, id`,
     [version.id],
@@ -837,6 +930,7 @@ async function selectChargeSnapshot(
       nameEn: item.name_en, descriptionZh: item.description_zh,
       descriptionEn: item.description_en, unitItemId: Number(item.unit_item_id),
       quantity: item.quantity, unitPriceMinor: Number(item.unit_price_minor),
+      pendingQuote: item.pending_quote,
       itemDiscountMinor: Number(item.item_discount_minor),
       subtotalMinor: Number(item.subtotal_minor), sortOrder: item.sort_order,
     })),
@@ -1017,7 +1111,7 @@ function businessOrderColumns(prefix?: string) {
           ${p}vehicle_vin_snapshot, ${p}status,
           ${p}current_charge_version_no, ${p}current_repair_round_no,
           ${p}current_problem_description_version_no, ${p}created_at,
-          ${p}voided_at, ${p}void_reason, ${p}version`;
+          ${p}voided_at, ${p}void_reason, ${p}version, ${p}categories`;
 }
 
 function mapBusinessOrder(row: BusinessOrderRow | undefined): BusinessOrderRecord {
@@ -1038,6 +1132,12 @@ function mapBusinessOrder(row: BusinessOrderRow | undefined): BusinessOrderRecor
     status: row.status, currentChargeVersionNo: row.current_charge_version_no,
     createdAt: new Date(row.created_at), voided: row.voided_at !== null,
     voidReason: row.void_reason, version: row.version,
+    categories: withReworkCategory(
+      Array.isArray(row.categories)
+        ? row.categories
+        : row.categories.replace(/^\{|\}$/g, "").split(",").filter(Boolean),
+      row.current_repair_round_no,
+    ),
   };
 }
 

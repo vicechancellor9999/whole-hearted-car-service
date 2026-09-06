@@ -1,0 +1,44 @@
+.reader { height: 100%; min-height: 0; color: var(--wh-text); }
+.fullscreen { padding: 12px; }
+.toolbar { position: relative; z-index: 30; display: flex; flex-shrink: 0; align-items: center; justify-content: space-between; gap: 16px; padding: 0 0 12px; }
+.documentChoice { display: flex; align-items: center; gap: 6px; min-width: 0; flex: 1; }
+.documentSelect { min-width: 0; max-width: 380px; width: 100%; height: 40px; padding: 0 26px 0 10px; border-radius: 8px; background: transparent; border: 1px solid var(--wh-border-subtle); font-size: 14px; font-weight: 600; }
+.actions { display: flex; align-items: center; gap: 6px; flex-shrink: 0; }
+.iconButton, .secondaryButton, .printButton { display: inline-flex; align-items: center; justify-content: center; gap: 6px; height: 40px; flex-shrink: 0; border-radius: 8px; font-size: 13px; font-weight: 600; white-space: nowrap; }
+.iconButton { width: 40px; color: var(--wh-text-soft); }
+.secondaryButton { padding: 0 12px; }
+.printButton { padding: 0 16px; background: var(--wh-accent); color: white; margin-left: 4px; }
+.reader button:disabled { opacity: .4; cursor: not-allowed; }
+.reader button:focus-visible, .reader a:focus-visible, .reader select:focus-visible { outline: 2px solid var(--wh-accent); outline-offset: 2px; }
+.iconButton:hover, .secondaryButton:hover { background: var(--wh-layer-2); }
+.languages { display: flex; padding: 3px; border-radius: 8px; background: var(--wh-layer-2); margin-right: 8px; }
+.languages button { min-height: 34px; padding: 0 10px; font-size: 12px; font-weight: 600; border-radius: 5px; color: var(--wh-text-soft); }
+.languages button[aria-pressed="true"] { color: var(--wh-accent); background: var(--wh-layer-1); box-shadow: 0 1px 3px #0f172a14; }
+.stage { position: relative; flex: 1; min-height: 0; display: flex; }
+.preview { min-width: 0; min-height: 0; width: 100%; display: flex; flex-direction: column; overflow: hidden; border-radius: 10px; border: 1px solid var(--wh-border-subtle); background: var(--wh-layer-2); }
+.caption { display: flex; justify-content: space-between; gap: 12px; padding: 9px 16px; font-size: 11px; color: var(--wh-text-soft); flex-shrink: 0; }
+.caption > span:first-child { font-variant-numeric: tabular-nums; white-space: nowrap; }
+.history { position: absolute; left: 0; top: 0; z-index: 40; width: min(360px,100%); max-height: 100%; overflow-y: auto; padding: 12px; border: 1px solid var(--wh-border-subtle); border-radius: 10px; background: var(--wh-layer-1); box-shadow: 0 12px 40px #0f172a29; }
+.revisionChoice { display: grid; grid-template-columns: auto 1fr; align-items: center; gap: 12px; padding: 8px 0 12px; font-size: 12px; }
+.revisionChoice select { min-width: 0; min-height: 40px; padding: 0 8px; background: var(--wh-layer-2); border-radius: 6px; }
+@media (max-width: 1000px) {
+  .toolbar { flex-wrap: wrap; gap: 6px; padding-bottom: 8px; }
+  .documentChoice { flex-basis: 100%; }
+  .documentSelect { max-width: none; }
+  .actions { width: 100%; justify-content: flex-end; }
+  .languages { margin-right: auto; }
+  .caption { flex-wrap: wrap; gap: 3px 8px; padding: 8px 12px; }
+}
+@media (pointer: coarse), (max-width: 640px) {
+  .iconButton, .secondaryButton, .printButton, .documentSelect { height: 44px; }
+  .iconButton { width: 44px; }
+  .languages button { min-height: 38px; }
+  .documentSelect { font-size: 14px; }
+}
+@media (max-width: 460px) {
+  .actions { gap: 1px; flex-wrap: wrap; }
+  .secondaryButton { padding: 0 6px; font-size: 12px; }
+  .printButton { padding: 0 10px; font-size: 12px; }
+  .languages { margin-right: auto; padding: 2px; }
+  .languages button { padding: 0 7px; }
+}

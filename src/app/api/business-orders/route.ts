@@ -5,7 +5,9 @@ import { createBusinessOrderRuntime } from "@formal/modules/business-order/busin
 
 type BusinessOrderSession = { account: { id: number } };
 type BusinessOrderStatus = "waiting_assignment" | "assigned" | "in_repair" | "return_pending_review" | "formally_handed_off";
+type BusinessOrderCategory = "maintenance" | "repair" | "inspection" | "rework";
 const BUSINESS_ORDER_STATUSES = new Set<BusinessOrderStatus>(["waiting_assignment", "assigned", "in_repair", "return_pending_review", "formally_handed_off"]);
+const BUSINESS_ORDER_CATEGORIES = new Set<BusinessOrderCategory>(["maintenance", "repair", "inspection", "rework"]);
 
 type BusinessOrdersApiDependencies = {
   readSession(): Promise<BusinessOrderSession | null>;
@@ -13,6 +15,7 @@ type BusinessOrdersApiDependencies = {
     viewerAccountId: number;
     search?: string;
     status?: BusinessOrderStatus;
+    category?: BusinessOrderCategory;
     page?: number;
     pageSize?: number;
   }): Promise<unknown>;
@@ -21,6 +24,7 @@ type BusinessOrdersApiDependencies = {
     companyContactId?: number | null;
     problemDescriptionZh?: string | null;
     problemDescriptionEn?: string | null;
+    categories?: Array<Exclude<BusinessOrderCategory, "rework">>;
     context: ReturnType<typeof apiActionContext>;
   }): Promise<unknown>;
 };
@@ -42,6 +46,7 @@ export function createBusinessOrdersApiHandler(dependencies: BusinessOrdersApiDe
           companyContactId?: unknown;
           problemDescriptionZh?: unknown;
           problemDescriptionEn?: unknown;
+          categories?: unknown;
         };
         const vehicleId = Number(body.vehicleId);
         const companyContactId = body.companyContactId == null ? null : Number(body.companyContactId);
@@ -54,6 +59,10 @@ export function createBusinessOrdersApiHandler(dependencies: BusinessOrdersApiDe
           problemDescriptionEn: typeof body.problemDescriptionEn === "string"
             ? body.problemDescriptionEn
             : null,
+          categories: Array.isArray(body.categories)
+            ? body.categories.filter((category): category is Exclude<BusinessOrderCategory, "rework"> =>
+                category === "maintenance" || category === "repair" || category === "inspection")
+            : undefined,
           context: apiActionContext(request, session.account.id),
         });
         return NextResponse.json(result, { status: 201 });
@@ -67,11 +76,16 @@ export function createBusinessOrdersApiHandler(dependencies: BusinessOrdersApiDe
     const status = rawStatus && BUSINESS_ORDER_STATUSES.has(rawStatus as BusinessOrderStatus)
       ? rawStatus as BusinessOrderStatus
       : undefined;
+    const rawCategory = url.searchParams.get("category");
+    const category = rawCategory && BUSINESS_ORDER_CATEGORIES.has(rawCategory as BusinessOrderCategory)
+      ? rawCategory as BusinessOrderCategory
+      : undefined;
     try {
       const result = await dependencies.listBusinessOrders({
         viewerAccountId: session.account.id,
         search,
         status,
+        category,
         page: positiveInteger(url.searchParams.get("page"), 1),
         pageSize: Math.min(100, positiveInteger(url.searchParams.get("pageSize"), 20)),
       });
@@ -93,4 +107,8 @@ export async function GET(request: Request): Promise<Response> {
   } finally {
     await runtime.close();
   }
+}
+
+export async function POST(request: Request): Promise<Response> {
+  return GET(request);
 }

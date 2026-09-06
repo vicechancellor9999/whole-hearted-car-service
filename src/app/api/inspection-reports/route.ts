@@ -73,14 +73,16 @@ export function createInspectionReportsApiHandler(dependencies: InspectionReport
         });
         return NextResponse.json(report, { status: 201 });
       }
-      return NextResponse.json(await dependencies.list({
+      const result = await dependencies.list({
         viewerAccountId: session.account.id,
         ...(positiveQuery(url.searchParams.get("page")) ? { page: positiveQuery(url.searchParams.get("page")) } : {}),
         ...(positiveQuery(url.searchParams.get("sourceBusinessOrderId"))
           ? { sourceBusinessOrderId: positiveQuery(url.searchParams.get("sourceBusinessOrderId")) }
           : {}),
         ...(url.searchParams.get("search") ? { search: url.searchParams.get("search") ?? undefined } : {}),
-      }));
+      });
+      if (!result || typeof result !== "object" || Array.isArray(result)) throw new Error("Inspection Report 列表响应无效");
+      return NextResponse.json({ ...result, currentAccountId: session.account.id });
     } catch (error) {
       const status = typeof error === "object" && error !== null && "status" in error
         ? Number((error as { status: unknown }).status)

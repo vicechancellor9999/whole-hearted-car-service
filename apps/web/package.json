@@ -11,6 +11,7 @@
     "test:collaboration": "node --test tests/collaboration/*.test.mjs",
     "test:e2e": "playwright test",
     "test:unit": "playwright test --config=playwright.unit.config.ts",
+    "test:workspace": "vitest run --config=vitest.workspace.config.mts",
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {

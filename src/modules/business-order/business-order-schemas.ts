@@ -18,6 +18,11 @@ export const createBusinessOrderSchema = z.object({
   ),
   problemDescriptionZh: optionalText(10_000),
   problemDescriptionEn: optionalText(10_000),
+  categories: z.array(z.enum(["maintenance", "repair", "inspection"]))
+    .max(12)
+    .optional()
+    .default([])
+    .transform((categories) => [...new Set(categories)]),
 });
 
 const problemDescriptionSourceSchema = z.enum([
@@ -89,11 +94,23 @@ export const chargeItemSchema = z.object({
   quantity: z
     .string()
     .trim()
-    .regex(/^(0|[1-9]\d*)(?:\.\d{1,3})?$/, "数量格式不正确，最多三位小数")
+    .regex(/^[1-9]\d*(?:\.0{1,3})?$/, "数量须为正整数，请核对数量与单价")
     .max(24)
-    .refine((value) => /[1-9]/.test(value), "数量必须大于 0"),
-  unitPrice: moneyText,
+    .transform((value) => value.replace(/\.0+$/, "")),
+  pendingQuote: z.boolean().default(false),
+  unitPrice: z.union([moneyText, z.literal("")]),
   itemDiscount: moneyText,
+}).superRefine((item, context) => {
+  if (item.pendingQuote) {
+    if (item.unitPrice !== "" && Number(item.unitPrice) !== 0) {
+      context.addIssue({ code: "custom", path: ["unitPrice"], message: "待报价项目不能同时填写确定单价；请确认价格后取消待报价" });
+    }
+    if (Number(item.itemDiscount) !== 0) {
+      context.addIssue({ code: "custom", path: ["itemDiscount"], message: "待报价项目尚无确定金额；请补充价格后填写本项折扣" });
+    }
+  } else if (!item.unitPrice) {
+    context.addIssue({ code: "custom", path: ["unitPrice"], message: "请填写单价，或将该项目标为待报价后继续保存" });
+  }
 });
 
 export const businessOrderNoteSchema = z.object({

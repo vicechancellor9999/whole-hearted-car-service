@@ -21,6 +21,7 @@ describe("GET /api/inspection-reports", () => {
     const response = await handler(new Request("http://localhost/api/inspection-reports?page=2&sourceBusinessOrderId=12"));
 
     expect(response.status).toBe(200);
+    expect(await response.json()).toMatchObject({ currentAccountId: 9, items: [] });
     expect(list).toHaveBeenCalledWith({ viewerAccountId: 9, page: 2, sourceBusinessOrderId: 12 });
   });
 });

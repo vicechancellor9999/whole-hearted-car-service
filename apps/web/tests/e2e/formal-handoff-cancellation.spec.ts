@@ -1,5 +1,6 @@
 import { expect, test, type Page } from "@playwright/test";
 import { usePerformanceIdentity } from "./helpers/performance-session";
+import type { FormalChargeSnapshot, FormalChargeUnit } from "../../src/lib/api/formal-business-orders";
 
 test.beforeEach(async ({ page }) => {
   await usePerformanceIdentity(page, "superadmin");
@@ -51,7 +52,7 @@ function businessOrderDetail(canWrite: boolean, cancelled = false) {
         totalDueMinor: 150_000,
         includedGctMinor: 19_565,
       },
-      items: [],
+      items: [] as FormalChargeSnapshot["items"],
       notes: [],
       businessOrderVersion: cancelled ? 5 : 4,
     },
@@ -66,7 +67,7 @@ function businessOrderDetail(canWrite: boolean, cancelled = false) {
     refunds: [],
     documents: [],
     paymentMethods: [],
-    chargeUnits: [],
+    chargeUnits: [] as FormalChargeUnit[],
     capabilities: { canWrite, canRecordPayment: false, canRefund: false },
   };
 }
@@ -200,6 +201,215 @@ test("只读账号看不到取消交单和售后回厂写入口", async ({ page 
   await expect(page.getByRole("button", { name: "售后回厂" })).toHaveCount(0);
 });
 
+test("缺少问题描述上下文的旧详情负载显示问题描述标题和修改入口", async ({ page }) => {
+  await installFormalFixtures(page);
+  await page.goto("/orders/business/7");
+
+  await expect(page.getByTestId("business-order-problem-context")).toBeVisible();
+  await expect(page.getByTestId("business-order-problem-empty")).toContainText("问题描述");
+  await expect(page.getByTestId("business-order-problem-empty").getByRole("button", { name: "修改问题描述" })).toBeVisible();
+  await expect(page.getByTestId("business-order-problem-context")).not.toContainText("创建业务单时未填写问题描述");
+});
+
+test("编辑和输入回车不保存，明确点击保存才创建一个收费版本", async ({ page }) => {
+  let chargeWrites = 0;
+  await installFormalFixtures(page);
+  const detailWithCharges = businessOrderDetail(true);
+  detailWithCharges.charges.items = [{
+    id: 41,
+    kind: "labor",
+    nameZh: "检查工时",
+    nameEn: "Inspection labor",
+    descriptionZh: null,
+    descriptionEn: null,
+    unitItemId: 1,
+    quantity: "1.000",
+    unitPriceMinor: 150_000,
+    itemDiscountMinor: 0,
+    subtotalMinor: 150_000,
+    sortOrder: 1,
+  }];
+  detailWithCharges.chargeUnits = [{ id: 1, code: "hour", labelZh: "工时", labelEn: "Hour" }];
+  await page.route("**/api/formal/business-orders/7", (route) => route.fulfill({
+    status: 200,
+    contentType: "application/json",
+    body: JSON.stringify(detailWithCharges),
+  }));
+  await page.route("**/api/formal/business-orders/7/charges", (route) => {
+    chargeWrites += 1;
+    return route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify(businessOrderDetail(true).charges),
+    });
+  });
+  await page.goto("/orders/business/7");
+
+  await page.getByRole("button", { name: "编辑收费项目" }).click();
+
+  await expect(page.getByRole("button", { name: "保存收费项目" })).toBeVisible();
+  await expect(page.getByRole("button", { name: "取消编辑" })).toBeVisible();
+  await expect(page.getByRole("status")).toHaveCount(0);
+  await page.waitForTimeout(150);
+  expect(chargeWrites).toBe(0);
+
+  const itemNameInput = page.getByRole("textbox", { name: "项目名称", exact: true }).first();
+  const composingEnterPrevented = await itemNameInput.evaluate((input) => {
+    const event = new KeyboardEvent("keydown", { key: "Enter", bubbles: true, cancelable: true, isComposing: true });
+    input.dispatchEvent(event);
+    return event.defaultPrevented;
+  });
+  expect(composingEnterPrevented).toBe(false);
+
+  await itemNameInput.press("Enter");
+  await page.waitForTimeout(150);
+  expect(chargeWrites).toBe(0);
+  await expect(page.getByRole("button", { name: "保存收费项目" })).toBeVisible();
+
+  await page.getByRole("button", { name: "保存收费项目" }).click();
+  await expect.poll(() => chargeWrites).toBe(1);
+  await expect(page.getByRole("status")).toContainText("收费项目已保存为新版本");
+});
+
+test("收费行删空后在修改原因按回车也不会绕过禁用的保存按钮", async ({ page }) => {
+  let chargeWrites = 0;
+  await installFormalFixtures(page);
+  const detailWithCharges = businessOrderDetail(true);
+  detailWithCharges.charges.items = [{
+    id: 41,
+    kind: "labor",
+    nameZh: "检查工时",
+    nameEn: "Inspection labor",
+    descriptionZh: null,
+    descriptionEn: null,
+    unitItemId: 1,
+    quantity: "1.000",
+    unitPriceMinor: 150_000,
+    itemDiscountMinor: 0,
+    subtotalMinor: 150_000,
+    sortOrder: 1,
+  }];
+  detailWithCharges.chargeUnits = [{ id: 1, code: "hour", labelZh: "工时", labelEn: "Hour" }];
+  await page.route("**/api/formal/business-orders/7", (route) => route.fulfill({
+    status: 200,
+    contentType: "application/json",
+    body: JSON.stringify(detailWithCharges),
+  }));
+  await page.route("**/api/formal/business-orders/7/charges", (route) => {
+    chargeWrites += 1;
+    return route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify(businessOrderDetail(true).charges),
+    });
+  });
+  await page.goto("/orders/business/7");
+
+  await page.getByRole("button", { name: "编辑收费项目" }).click();
+  const chargeForm = page.locator("#charge-edit-form");
+  await chargeForm.getByRole("button", { name: "删", exact: true }).first().click();
+  await expect(page.getByRole("button", { name: "保存收费项目" })).toBeDisabled();
+
+  await chargeForm.getByRole("textbox", { name: "修改原因" }).press("Enter");
+  await page.waitForTimeout(150);
+
+  expect(chargeWrites).toBe(0);
+  await expect(page.getByRole("button", { name: "保存收费项目" })).toBeDisabled();
+});
+
+test("收费编辑的单位和金额字段与项目名称首行顶部对齐", async ({ page }) => {
+  await installFormalFixtures(page);
+  const detailWithCharges = businessOrderDetail(true);
+  detailWithCharges.charges.items = [{
+    id: 41,
+    kind: "labor",
+    nameZh: "检查工时",
+    nameEn: "Inspection labor",
+    descriptionZh: "检查车辆",
+    descriptionEn: "Inspect vehicle",
+    unitItemId: 1,
+    quantity: "1.000",
+    unitPriceMinor: 150_000,
+    itemDiscountMinor: 0,
+    subtotalMinor: 150_000,
+    sortOrder: 1,
+  }];
+  detailWithCharges.chargeUnits = [{ id: 1, code: "hour", labelZh: "工时", labelEn: "Hour" }];
+  await page.route("**/api/formal/business-orders/7", (route) => route.fulfill({
+    status: 200,
+    contentType: "application/json",
+    body: JSON.stringify(detailWithCharges),
+  }));
+  await page.goto("/orders/business/7");
+  await page.getByRole("button", { name: "编辑收费项目" }).click();
+
+  const labelTops = await page.locator("#charge-edit-form").evaluate((form) => {
+    const labelTop = (selector: string) => {
+      const field = form.querySelector<HTMLElement>(selector);
+      const label = field?.closest("label");
+      if (!label) throw new Error(`Missing label for ${selector}`);
+      return label.getBoundingClientRect().top;
+    };
+    return {
+      item: labelTop('input[aria-label="项目名称"]'),
+      unit: labelTop('select[aria-label="单位"]'),
+      quantity: labelTop('input[aria-label="数量"]'),
+      unitPrice: labelTop('input[aria-label="含税单价"]'),
+      itemDiscount: labelTop('input[aria-label="本项折扣"]'),
+    };
+  });
+
+  expect(labelTops.unit).toBeCloseTo(labelTops.item, 0);
+  expect(labelTops.quantity).toBeCloseTo(labelTops.item, 0);
+  expect(labelTops.unitPrice).toBeCloseTo(labelTops.item, 0);
+  expect(labelTops.itemDiscount).toBeCloseTo(labelTops.item, 0);
+});
+
+test("只有本轮问题时仍可修改整单问题并查看版本历史", async ({ page }) => {
+  await installFormalFixtures(page);
+  await page.route("**/api/formal/business-orders/7", (route) => route.fulfill({
+    status: 200,
+    contentType: "application/json",
+    body: JSON.stringify({
+      ...businessOrderDetail(true),
+      problemDescriptions: {
+        original: {
+          contentZh: null,
+          contentEn: null,
+          sourceType: "creation",
+          sourceReferenceId: null,
+          confirmedBy: 2,
+          confirmedByName: "测试管理员",
+          confirmedAt: "2026-08-26T12:00:00.000Z",
+        },
+        current: null,
+        businessOrderHistory: [],
+        currentRound: {
+          id: 93,
+          versionNo: 1,
+          contentZh: "本轮检查发动机异响",
+          contentEn: "Inspect engine noise this round",
+          sourceType: "manual",
+          sourceReferenceId: null,
+          changeReason: "补充返修范围",
+          createdBy: 2,
+          createdByName: "测试管理员",
+          createdAt: "2026-08-27T12:00:00.000Z",
+          repairRoundId: 21,
+          roundNo: 1,
+        },
+        currentRoundHistory: [],
+      },
+    }),
+  }));
+  await page.goto("/orders/business/7");
+
+  await expect(page.getByTestId("repair-round-current-problem")).toContainText("本轮检查发动机异响");
+  await expect(page.getByRole("button", { name: "修改整单问题描述" })).toBeVisible();
+  await page.getByRole("button", { name: "查看问题历史" }).click();
+  await expect(page.getByRole("heading", { name: "原始内容与版本历史" })).toBeVisible();
+});
+
 test("English Business Order localizes all four workspaces and action cards", async ({ page }) => {
   await page.addInitScript(() => localStorage.setItem("wh_language_v1", "en"));
   await installFormalFixtures(page);
@@ -225,7 +435,7 @@ test("English Business Order localizes all four workspaces and action cards", as
   }));
 
   await page.goto("/orders/business/7?tab=operations");
-  await expect(page.getByRole("tab", { name: "Charges · Payments · Repair team" })).toBeVisible();
+  await expect(page.getByRole("tab", { name: "Business Order details" })).toBeVisible();
   await expect(page.locator("#business-order-operations-workspace")).not.toContainText(/[\p{Script=Han}]/u);
   await expect(page.locator("#business-order-repair-workspace")).not.toContainText(/[\p{Script=Han}]/u);
   await expect(page.locator("#business-order-finance-workspace")).not.toContainText(/[\p{Script=Han}]/u);
@@ -274,6 +484,104 @@ test("业务单右栏的四个金额卡片在桌面窄栏内不溢出", async ({
 
   expect(overflow.scrollWidth).toBeLessThanOrEqual(overflow.clientWidth);
   expect(cardWidths.every((width) => width >= 180)).toBe(true);
+});
+
+test("三联文件列表和预览区始终伸展到桌面工作区底部", async ({ page }) => {
+  await page.setViewportSize({ width: 1625, height: 1000 });
+  await installFormalFixtures(page);
+  await page.goto("/orders/business/7?tab=documents");
+
+  for (const height of [1000, 1200]) {
+    await page.setViewportSize({ width: 1625, height });
+    const bounds = await page.locator("#business-order-documents-workspace").evaluate((panel) => {
+      const browser = panel.querySelector<HTMLElement>(":scope > div > section > div.mt-3.grid");
+      if (!browser) throw new Error("Missing document browser");
+      return {
+        panelBottom: panel.getBoundingClientRect().bottom,
+        browserBottom: browser.getBoundingClientRect().bottom,
+        panelPaddingBottom: Number.parseFloat(getComputedStyle(panel).paddingBottom),
+      };
+    });
+
+    expect(Math.abs(bounds.panelBottom - bounds.panelPaddingBottom - bounds.browserBottom)).toBeLessThanOrEqual(1);
+  }
+});
+
+test("业务附件使用紧凑横向卡片避免图片撑高列表", async ({ page }) => {
+  await page.setViewportSize({ width: 1625, height: 1000 });
+  await installFormalFixtures(page);
+  await page.route("**/api/formal/business-orders/7/attachments", (route) => route.fulfill({
+    status: 200,
+    contentType: "application/json",
+    body: JSON.stringify({
+      items: [1, 2].map((id) => ({
+        id,
+        businessOrderId: 7,
+        fileId: 100 + id,
+        category: "customer_signature",
+        caption: null,
+        messageId: null,
+        originalName: `${id}-very-long-customer-signature-file-name.png`,
+        mediaType: "image/png",
+        sizeBytes: 10_240,
+        uploaderAccountId: 2,
+        uploaderDisplayName: "测试管理员",
+        linkedAt: "2026-08-28T11:00:00.000Z",
+      })),
+    }),
+  }));
+  await page.goto("/orders/business/7?tab=attachments");
+
+  const cards = page.locator('#business-order-attachments-workspace a[href*="/attachments/"]');
+  await expect(cards).toHaveCount(2);
+  const measurements = await cards.evaluateAll((nodes) => nodes.map((node) => ({
+    cardWidth: node.getBoundingClientRect().width,
+    cardHeight: node.getBoundingClientRect().height,
+    imageHeight: node.querySelector("img")?.getBoundingClientRect().height ?? 0,
+    descriptionWidth: node.lastElementChild?.getBoundingClientRect().width ?? 0,
+  })));
+
+  expect(measurements.every(({ cardWidth, cardHeight, imageHeight, descriptionWidth }) => (
+    cardWidth <= 282
+    && cardHeight <= 100
+    && imageHeight <= 100
+    && descriptionWidth <= 168
+  ))).toBe(true);
+});
+
+test("业务附件可调用标准摄像头或高拍仪并安全关闭取景", async ({ page }) => {
+  await page.addInitScript(() => {
+    Object.defineProperty(navigator, "mediaDevices", {
+      configurable: true,
+      value: {
+        getUserMedia: async (constraints: MediaStreamConstraints) => {
+          sessionStorage.setItem("business-order-camera-constraints", JSON.stringify(constraints));
+          return new MediaStream();
+        },
+      },
+    });
+  });
+  await installFormalFixtures(page);
+  await page.route("**/api/formal/business-orders/7/attachments", (route) => route.fulfill({
+    status: 200,
+    contentType: "application/json",
+    body: JSON.stringify({ items: [] }),
+  }));
+  await page.goto("/orders/business/7?tab=attachments");
+
+  await page.getByTestId("business-order-camera-open").click();
+  await expect(page.getByTestId("business-order-camera-preview")).toBeVisible();
+  expect(await page.evaluate(() => JSON.parse(sessionStorage.getItem("business-order-camera-constraints") ?? "null"))).toEqual({
+    audio: false,
+    video: {
+      facingMode: { ideal: "environment" },
+      width: { ideal: 2560 },
+      height: { ideal: 1440 },
+    },
+  });
+  await page.getByTestId("business-order-camera-close").click();
+  await expect(page.getByTestId("business-order-camera-preview")).toHaveCount(0);
+  await expect(page.getByTestId("business-order-camera-open")).toBeVisible();
 });
 
 test("业务单详情在舒适暗色下使用渐进式应用层级", async ({ page }) => {

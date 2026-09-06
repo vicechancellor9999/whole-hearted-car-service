@@ -100,6 +100,12 @@ const optionalReasonNote = z.string().max(1_000, "删除原因说明不能超过
   .nullable()
   .transform((value) => value?.normalize("NFKC").trim() || null);
 
+const deletionRequestIdSchema = z.string().trim().min(8).max(128).regex(/^[A-Za-z0-9._:-]+$/, "删除请求编号格式无效");
+
+export function parseDeletionRequestId(value: unknown): string {
+  return deletionRequestIdSchema.parse(value);
+}
+
 const executeInputSchema = z.object({
   root: recordLocatorSchema,
   selectedRecords: selectedRecordsSchema.min(1, "请选择要删除的记录"),
@@ -109,10 +115,7 @@ const executeInputSchema = z.object({
     (value) => value.normalize("NFKC").trim().toUpperCase(),
   ),
   previewFingerprint: z.string().regex(/^[0-9a-f]{64}$/, "删除预览已失效，请重新检查"),
-  requestId: z.string().trim().min(8).max(128).regex(
-    /^[A-Za-z0-9._:-]+$/,
-    "删除请求编号格式无效",
-  ),
+  requestId: deletionRequestIdSchema,
 }).superRefine((value, context) => {
   addDuplicateIssues(value.selectedRecords, context);
   if (value.reasonCode === "other" && !value.reasonNote) {

@@ -2,6 +2,8 @@ import { NextResponse } from "next/server";
 import type { NextRequest } from "next/server";
 
 export function proxy(request: NextRequest) {
+  // Public rendering code, not a document or a business-data endpoint.
+  if (request.nextUrl.pathname === "/pdf.worker.min.mjs") return NextResponse.next();
   if (request.cookies.has("wh_session")) return NextResponse.next();
   const loginUrl = request.nextUrl.clone();
   loginUrl.pathname = "/login";

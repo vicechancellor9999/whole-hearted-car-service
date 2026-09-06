@@ -204,21 +204,56 @@ function cleanDescription(rest: string): string {
     .trim();
 }
 
-export function parseQuickOrderInput(raw: string): ParsedQuickItem[] {
+/** Formal fallback only: price evidence must be a fee/currency expression or a trailing standalone amount. */
+function extractFormalPrice(line: string): { price: number | null; rest: string } {
+  if (/合计|总价|总共|\btotal\b/i.test(line)) return { price: null, rest: line };
+  const amount = "(?:\\d{1,3}(?:,\\d{3})+|\\d+)(?:\\.\\d{1,2})?";
+  const patterns = [
+    new RegExp(`(?:工时费?|工费|人工费?|配件价|单价|价格|收费|labor|labour|JMD|\\$)\\s*[:：]?\\s*(${amount})(?![\\d.])`, "gi"),
+    new RegExp(`(${amount})\\s*(?:JMD|元|块)(?![A-Za-z])`, "gi"),
+    new RegExp(`(?:^|\\s|[—–])(${amount})\\s*$`, "g"),
+  ];
+  const matches = new Map<number, { amount: string; start: number; end: number }>();
+  for (const pattern of patterns) {
+    for (const match of line.matchAll(pattern)) {
+      const amountIndex = match.index! + match[0].indexOf(match[1]);
+      if (!matches.has(amountIndex)) matches.set(amountIndex, { amount: match[1], start: match.index!, end: match.index! + match[0].length });
+    }
+  }
+  if (matches.size !== 1) return { price: null, rest: line };
+  const match = [...matches.values()][0];
+  return { price: Number(match.amount.replaceAll(",", "")), rest: `${line.slice(0, match.start)} ${line.slice(match.end)}`.trim() };
+}
+
+function formalPricing(line: string, price: number | null, unit: string | null) {
+  const laborFree = /(?:工时费?|工费|人工费?)\s*(?:免费|免收)|免工时|\blabo[u]?r\s+(?:free|no charge)\b/i.test(line);
+  const mentionsLabor = /工时|工费|人工|\blabo[u]?r\b|\bJOB\b/i.test(line);
+  const material = unit !== null || (!/^(?:更换|维修|检修|检查|清洗|安装)/.test(line) && /剂|机油|滤芯|轮胎|水泵|刹车片|刹车盘/.test(line));
+  const category: QuickItemCategory = laborFree && material ? "parts" : mentionsLabor ? "labor" : "parts";
+  const explicitlyFree = laborFree ? !material : /(?<!不|非)(?:免费|赠送|赠品|免收)[。.!！\s]*$|\bfree\s*$/i.test(line);
+  const knownPrice = price ?? (explicitlyFree ? 0 : null);
+  return { category, pendingQuote: knownPrice === null, price: knownPrice, laborFree };
+}
+
+export function parseQuickOrderInput(raw: string, formal = false): ParsedQuickItem[] {
   const lines = raw
     .split(/\n+/)
     .map((line) => line.trim())
     .filter((line) => line.length > 0);
   const items: ParsedQuickItem[] = [];
   for (const line of lines) {
-    const { price, rest: afterPrice } = extractPrice(line);
-    const { quantity, unit, rest: afterQty } = extractQuantity(afterPrice);
-    const { category, pendingQuote } = classify(line, price);
+    const firstQuantity = formal ? extractQuantity(line) : null;
+    const extracted = formal ? extractFormalPrice(firstQuantity!.rest) : extractPrice(line);
+    const { quantity, unit, rest: afterQty } = firstQuantity ? { ...firstQuantity, rest: extracted.rest } : extractQuantity(extracted.rest);
+    const pricing = formal ? formalPricing(line, extracted.price, unit) : { ...classify(line, extracted.price), price: extracted.price, laborFree: false };
+    const { price, category, pendingQuote } = pricing;
     const cleaned = cleanDescription(afterQty) || line;
-    const { name, remark } = splitSymptomAction(cleaned);
+    const split = splitSymptomAction(cleaned);
+    const name = formal && !pendingQuote ? split.name.replace(/(?:免费|赠送|免收)[。.!！\s]*$/, "").trim() || split.name : split.name;
+    const remark = formal && pricing.laborFree && category === "parts" ? [split.remark, "工时免费；配件价格按原文核对。"].filter(Boolean).join("，") : split.remark;
     const phrases = splitPartPhrases(name);
     const isActionName = /^(更换|维修|检修|安装|加)/.test(name);
-    if (category === "labor" && price !== null && phrases.length > 0 && !isActionName) {
+    if (category === "labor" && price !== null && phrases.length > 0 && !isActionName && !(formal && pricing.laborFree)) {
       // “配件清单 + 工时费”：生成 1 条工时（名称=更换+清单，金额=工时费）+ 每条配件 1 条待报价
       items.push({
         descZh: "更换" + phrases.join("、"),
@@ -309,7 +344,7 @@ export function parseChargeEntryInput(raw: string): ParsedChargeEntry {
   }
 
   return {
-    items: parseQuickOrderInput(chargeLines.join("\n")),
+    items: parseQuickOrderInput(chargeLines.join("\n"), true),
     notes,
   };
 }

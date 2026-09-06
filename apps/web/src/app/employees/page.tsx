@@ -112,7 +112,7 @@ function EmployeesContent() {
       await refresh();
       setSalaryEditingId(null);
       setSalaryAmount("");
-      setNotice("新的个人基准工资已按整月生效保存");
+      setNotice(`${salaryMonth} 基准工资已保存；该月及后续沿用此工资版本的班组目标、完成率和应发工资会自动重新计算`);
     } catch (error) {
       setNotice(error instanceof Error ? error.message : "基准工资保存失败");
     }
@@ -195,8 +195,9 @@ function EmployeesContent() {
                 {salaryEditingId === employee.id ? <div className="grid w-full gap-2 rounded-lg bg-surface p-3 sm:grid-cols-[1fr_1fr_auto_auto]">
                   <input aria-label="基准工资生效月份" type="month" value={salaryMonth} onChange={(event) => setSalaryMonth(event.target.value)} className="min-h-9 rounded-lg border border-line px-3 text-xs" />
                   <input aria-label="新的基准工资 CNY" inputMode="decimal" value={salaryAmount} onChange={(event) => setSalaryAmount(event.target.value)} placeholder="新的 CNY 金额" className="min-h-9 rounded-lg border border-line px-3 text-xs" />
-                  <button type="button" onClick={() => void saveSalary()} className="rounded-lg bg-primary px-3 text-xs font-semibold text-white">保存新版本</button>
+                  <button type="button" onClick={() => void saveSalary()} className="rounded-lg bg-primary px-3 text-xs font-semibold text-white">保存或修订</button>
                   <button type="button" onClick={() => setSalaryEditingId(null)} className="rounded-lg border border-line px-3 text-xs">取消</button>
+                  <p className="text-[10px] text-ink-soft sm:col-span-4">可以选择过去月份；再次保存同一月份会修订该月工资，并重算该月及后续沿用此版本月份的相关绩效。</p>
                 </div> : null}
               </div>
             ))}

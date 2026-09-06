@@ -24,14 +24,24 @@ const EVENT_LABELS: Record<string, string> = {
   "business_order.work_return_rejected": "退回维修回单",
   "business_order.formally_handed_off": "正式交单",
   "business_order.formal_handoff_cancelled": "取消本次正式交单",
+  "business_order.performance_draft_set": "设置维修轮次绩效草稿",
+  "business_order.performance_adjusted": "调整维修轮次绩效",
   "business_order.after_sales_round_started": "开始下一轮售后维修",
-  "business_order.after_sales_round_cancelled": "撤销误建售后维修轮次",
+  "business_order.after_sales_round_cancelled": "删除售后维修轮次",
+  "business_order.invalid_after_sales_round_deleted": "删除售后维修轮次",
   "business_order.charge_version_replaced": "修改收费项目和备注",
   "business_order.charges_replaced": "修改收费项目和备注",
   "business_order.document_generated": "生成正式打印文件",
   "business_order.document_reprinted": "补打正式打印文件",
   "business_order.document_revision_created": "保存打印单据修订",
   "business_order.voided": "删除 Business Order",
+  "inspection_report.created": "创建检查报告",
+  "inspection_report.submitted": "提交检查报告",
+  "inspection_report.correction_created": "创建检查报告更正版",
+  "inspection_report.workspace_version_appended": "保存检查报告新版本",
+  "inspection_report.customer_reply_recorded": "登记客户回复",
+  "inspection_report.followup_status_corrected": "更正客户跟进状态",
+  "inspection_report.customer_notification_initiated": "登记向客户发送检查报告",
 };
 
 const EVENT_LABELS_EN: Record<string, string> = {
@@ -44,14 +54,24 @@ const EVENT_LABELS_EN: Record<string, string> = {
   "business_order.work_return_rejected": "Returned work return to repair team",
   "business_order.formally_handed_off": "Formally handed off repair round",
   "business_order.formal_handoff_cancelled": "Cancelled this formal handoff",
+  "business_order.performance_draft_set": "Set repair-round performance draft",
+  "business_order.performance_adjusted": "Adjusted repair-round performance",
   "business_order.after_sales_round_started": "Started the next after-sales repair round",
-  "business_order.after_sales_round_cancelled": "Cancelled an accidental after-sales repair round",
+  "business_order.after_sales_round_cancelled": "Deleted an after-sales repair round",
+  "business_order.invalid_after_sales_round_deleted": "Deleted an after-sales repair round",
   "business_order.charge_version_replaced": "Updated charges and notes",
   "business_order.charges_replaced": "Updated charges and notes",
   "business_order.document_generated": "Generated a formal print document",
   "business_order.document_reprinted": "Reprinted a formal print document",
   "business_order.document_revision_created": "Saved a print-document revision",
   "business_order.voided": "Deleted Business Order",
+  "inspection_report.created": "Created inspection report",
+  "inspection_report.submitted": "Submitted inspection report",
+  "inspection_report.correction_created": "Created a corrected inspection report",
+  "inspection_report.workspace_version_appended": "Saved a new inspection-report version",
+  "inspection_report.customer_reply_recorded": "Recorded customer reply",
+  "inspection_report.followup_status_corrected": "Corrected customer follow-up status",
+  "inspection_report.customer_notification_initiated": "Recorded inspection report sent to customer",
 };
 
 const FIELD_LABELS: Record<string, string> = {
@@ -63,6 +83,8 @@ const FIELD_LABELS: Record<string, string> = {
   actualStaffMemberId: "实际维修工",
   odometerKm: "接车里程",
   performanceMinor: "绩效值",
+  performanceDraftMinor: "绩效草稿值",
+  repairRoundNo: "维修轮次",
   amountMinor: "金额",
   balanceAfterMinor: "操作后未结余额",
   chargeVersionNo: "收费版本",
@@ -85,7 +107,7 @@ const FIELD_LABELS: Record<string, string> = {
 const FIELD_LABELS_EN: Record<string, string> = {
   status: "Status", roundNo: "Repair round", teamId: "Repair team", assignedTeamId: "Repair team",
   workReturnId: "Work return", actualStaffMemberId: "Actual mechanic", odometerKm: "Intake mileage",
-  performanceMinor: "Performance value", amountMinor: "Amount", balanceAfterMinor: "Outstanding balance after action",
+  performanceMinor: "Performance value", performanceDraftMinor: "Performance draft value", repairRoundNo: "Repair round", amountMinor: "Amount", balanceAfterMinor: "Outstanding balance after action",
   chargeVersionNo: "Charge version", documentNo: "Print document number", revisionNo: "Print revision",
   paymentNo: "Payment number", refundNo: "Refund number", receiptNo: "Receipt number",
   paymentMethodCode: "Payment or refund method", originalDocumentStatus: "Original customer document",
@@ -133,6 +155,30 @@ const ATTACHMENT_CATEGORY_LABELS_EN: Record<string, string> = {
   other: "Other",
 };
 
+const DELETION_REASON_LABELS = {
+  duplicate: "重复记录",
+  input_error: "录入错误",
+  test_data: "测试数据",
+  other: "其他原因",
+} as const;
+const DELETION_REASON_LABELS_EN = {
+  duplicate: "Duplicate record",
+  input_error: "Input error",
+  test_data: "Test data",
+  other: "Other reason",
+} as const;
+
+export function businessOrderAuditReason(reason: string | null, language: UiLanguage = "zh"): string | null {
+  const value = reason?.trim();
+  if (!value) return null;
+  const structured = value.match(/^(duplicate|input_error|test_data|other)(?::\s*(.+))?$/s);
+  if (!structured) return value;
+  const code = structured[1] as keyof typeof DELETION_REASON_LABELS;
+  const label = (language === "en" ? DELETION_REASON_LABELS_EN : DELETION_REASON_LABELS)[code];
+  const note = structured[2]?.trim();
+  return note ? `${label}${language === "en" ? ": " : "："}${note}` : label;
+}
+
 function formatBytes(value: number): string {
   if (!Number.isFinite(value) || value < 0) return "未知大小";
   if (value < 1024) return `${Math.round(value)} B`;
@@ -153,10 +199,14 @@ function auditValue(field: string, value: unknown, masterData: FormalMasterData,
   const english = language === "en";
   if (value === null || value === undefined || value === "") return english ? "Empty" : "空";
   if ((field === "teamId" || field === "assignedTeamId") && typeof value === "number") {
-    return english ? `Team ${value} · Translation required` : masterData.teams.find((team) => team.id === value)?.name ?? `维修班组 #${value}`;
+    return masterData.teams.find((team) => team.id === value)?.name
+      ?? (english ? `Repair team #${value}` : `维修班组 #${value}`);
   }
   if (field === "status" && typeof value === "string") {
     return formalBusinessOrderStatusLabel(value as Parameters<typeof formalBusinessOrderStatusLabel>[0], language);
+  }
+  if (field === "repairRoundNo" && typeof value === "number") {
+    return english ? `Repair round ${value}` : `第 ${value} 轮`;
   }
   if (field === "paymentMethodCode" && typeof value === "string") {
     return (english ? PAYMENT_METHOD_LABELS_EN : PAYMENT_METHOD_LABELS)[value] ?? (english ? "Other method" : "其他方式");
@@ -181,9 +231,8 @@ function countArray(value: unknown): number {
   return Array.isArray(value) ? value.length : 0;
 }
 
-function unknownEventLabel(eventType: string, language: UiLanguage): string {
-  const readable = eventType.split(".").at(-1)?.replaceAll("_", " ").trim();
-  return language === "en" ? `Recorded business event: ${readable || eventType}` : `记录业务事件：${readable || eventType}`;
+function unknownEventLabel(_eventType: string, language: UiLanguage): string {
+  return language === "en" ? "Other business record" : "其他业务记录";
 }
 
 export function businessOrderAuditSummary(
@@ -243,6 +292,16 @@ export function businessOrderAuditSummary(
     const revision = typeof values.revisionNo === "number" ? ` R${values.revisionNo}` : "";
     return `${english ? "Saved print-document revision" : "保存打印单据修订"}${documentNo}${revision}`;
   }
+  if (eventType === "inspection_report.created" || eventType === "inspection_report.submitted") {
+    const reportNo = typeof values.reportNo === "string" ? ` ${values.reportNo}` : "";
+    const label = (english ? EVENT_LABELS_EN : EVENT_LABELS)[eventType];
+    return `${label}${reportNo}`;
+  }
+  if (eventType === "inspection_report.workspace_version_appended") {
+    const versionNo = typeof values.versionNo === "number" ? values.versionNo : null;
+    if (versionNo === null) return english ? "Saved a new inspection-report version" : "保存检查报告新版本";
+    return english ? `Saved inspection report version ${versionNo}` : `保存检查报告第 ${versionNo} 版`;
+  }
   if (eventType === "business_order.attachment_linked_to_message") {
     return english ? `Added ${countArray(values.attachmentIds)} attachments to a Business Order comment` : `将 ${countArray(values.attachmentIds)} 份附件加入业务单留言`;
   }
@@ -256,8 +315,78 @@ export function businessOrderAuditSummary(
   }
   if (eventType === "business_order.round_assigned") {
     const round = typeof values.roundNo === "number" ? (english ? `Repair round ${values.roundNo}` : `第 ${values.roundNo} 轮维修`) : (english ? "Repair task" : "维修任务");
-    const team = auditValue("assignedTeamId", values.assignedTeamId, masterData, language);
+    const teamId = values.teamId ?? values.assignedTeamId;
+    if (teamId === null || teamId === undefined || teamId === "") {
+      return english
+        ? `${round} was assigned; repair team was not recorded`
+        : `${round}已派单，未登记维修班组`;
+    }
+    const team = auditValue("teamId", teamId, masterData, language);
     return english ? `${round} assigned to ${team}` : `${round}派给${team}`;
+  }
+  if (eventType === "business_order.round_paper_acceptance_recorded") {
+    const round = typeof values.roundNo === "number" ? values.roundNo : null;
+    return english
+      ? `Front desk recorded paper acceptance${round === null ? "" : ` for repair round ${round}`}`
+      : `前台登记${round === null ? "" : `第 ${round} 轮维修`}纸质接单`;
+  }
+  if (eventType === "business_order.paper_work_return_recorded_and_approved") {
+    const round = typeof values.roundNo === "number" ? values.roundNo : null;
+    return english
+      ? `Front desk recorded and approved a paper work return${round === null ? "" : ` for repair round ${round}`}`
+      : `前台登记并审核通过${round === null ? "" : `第 ${round} 轮维修`}纸质回单`;
+  }
+  if (eventType === "business_order.round_assignment_withdrawn") {
+    const round = typeof values.roundNo === "number" ? values.roundNo : null;
+    return english
+      ? `Withdrew the repair-team assignment${round === null ? "" : ` for repair round ${round}`}`
+      : `撤回${round === null ? "" : `第 ${round} 轮维修`}班组派单`;
+  }
+  if (eventType === "business_order.intake_photo_linked") {
+    const round = typeof values.roundNo === "number" ? values.roundNo : null;
+    return english
+      ? `Archived an intake-mileage photo${round === null ? "" : ` for repair round ${round}`}`
+      : `归档${round === null ? "" : `第 ${round} 轮维修`}接车里程照片`;
+  }
+  if (eventType === "business_order.problem_description_appended") {
+    const version = typeof values.versionNo === "number" ? values.versionNo : null;
+    return english
+      ? `Updated the overall Business Order problem description${version === null ? "" : ` (V${version})`}`
+      : `更新整张 Business Order 问题描述${version === null ? "" : `（V${version}）`}`;
+  }
+  if (eventType === "repair_round.problem_description_appended") {
+    const version = typeof values.versionNo === "number" ? values.versionNo : null;
+    return english
+      ? `Updated a repair-round problem description${version === null ? "" : ` (V${version})`}`
+      : `更新维修轮次问题描述${version === null ? "" : `（V${version}）`}`;
+  }
+  if (eventType === "business_order.performance_draft_set") {
+    const round = typeof values.repairRoundNo === "number"
+      ? (english ? `repair round ${values.repairRoundNo}` : `第 ${values.repairRoundNo} 轮维修`)
+      : (english ? "the repair round" : "本轮维修");
+    return english ? `Set performance draft for ${round}` : `设置${round}绩效草稿`;
+  }
+  if (eventType === "business_order.performance_adjusted") {
+    const round = typeof values.repairRoundNo === "number"
+      ? (english ? `repair round ${values.repairRoundNo}` : `第 ${values.repairRoundNo} 轮维修`)
+      : (english ? "the repair round" : "本轮维修");
+    return english ? `Adjusted performance for ${round}` : `调整${round}绩效`;
+  }
+  if (eventType === "business_order.invalid_after_sales_round_deleted") {
+    const deletedRound = typeof values.cancelledRoundNo === "number"
+      ? values.cancelledRoundNo
+      : null;
+    const restoredRound = typeof values.previousRoundNo === "number"
+      ? values.previousRoundNo
+      : null;
+    if (english) {
+      return deletedRound && restoredRound
+        ? `Deleted repair round ${deletedRound} and restored repair round ${restoredRound}`
+        : "Deleted an after-sales repair round";
+    }
+    return deletedRound && restoredRound
+      ? `删除第 ${deletedRound} 轮维修，恢复到第 ${restoredRound} 轮`
+      : "删除售后维修轮次";
   }
   return (english ? EVENT_LABELS_EN : EVENT_LABELS)[eventType] ?? unknownEventLabel(eventType, language);
 }

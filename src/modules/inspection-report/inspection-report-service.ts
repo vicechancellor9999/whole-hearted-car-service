@@ -5,6 +5,12 @@ import type {
 } from "@formal/modules/auth/session-repository";
 import { writeAuditEvent } from "@formal/modules/audit/audit-service";
 import type { BusinessOrderActionContext } from "@formal/modules/business-order/business-order-service";
+import {
+  buildInspectionOriginalQuotationText,
+  deriveInspectionFollowupStage,
+  deriveOriginalInspectionQuotation,
+  type InspectionFollowupStage,
+} from "@formal/modules/inspection-report/inspection-report-derivation";
 
 type FindingInput = {
   findingZh: string;
@@ -40,6 +46,7 @@ type InspectionReportRow = {
   submitted_at: Date | null;
   submitted_by: number | null;
   version: number;
+  current_workspace_version_no: number;
 };
 
 type InspectionReportListRow = InspectionReportRow & {
@@ -55,6 +62,7 @@ type InspectionReportListRow = InspectionReportRow & {
   inspector_name: string | null;
   team_name: string;
   source_business_order_no: string | null;
+  latest_communication_status: "initiated" | "confirmed" | "not_delivered" | null;
 };
 
 export type InspectionReportRecord = {
@@ -77,7 +85,44 @@ export type InspectionReportRecord = {
   submittedAt: Date | null;
   submittedBy: number | null;
   version: number;
+  currentWorkspaceVersionNo?: number;
   findings: Array<ParsedFinding & { id: number; sortOrder: number }>;
+};
+
+export type InspectionReportOrganizedContent = {
+  summaryZh: string;
+  summaryEn: string | null;
+  specialCaseNotesZh: string | null;
+  specialCaseNotesEn?: string | null;
+  findings: ParsedFinding[];
+};
+
+export type InspectionReportQuotation = {
+  status: "pending" | "entered" | "not_quoted";
+  noteZh: string | null;
+  noteEn: string | null;
+  wholeOrderDiscountMinor?: number;
+  lines: Array<{
+    kind: "labor" | "part" | "other";
+    nameZh: string;
+    nameEn: string | null;
+    descriptionZh: string | null;
+    descriptionEn: string | null;
+    quantity: string;
+    unitPriceMinor: number | null;
+    itemDiscountMinor?: number;
+    subtotalMinor: number | null;
+  }>;
+};
+
+export type InspectionReportWorkspaceVersion = {
+  versionNo: number;
+  source: "original" | "manual" | "ai";
+  changeReason: string;
+  createdAt: Date;
+  createdBy: number;
+  organized: InspectionReportOrganizedContent;
+  quotation: InspectionReportQuotation;
 };
 
 export type InspectionReportListItem = {
@@ -86,6 +131,8 @@ export type InspectionReportListItem = {
     id: number;
     plate: string;
     description: string;
+    descriptionZh: string;
+    descriptionEn: string;
   };
   customer: {
     name: string | null;
@@ -96,6 +143,11 @@ export type InspectionReportListItem = {
   inspectorName: string | null;
   teamName: string;
   sourceBusinessOrder: { id: number; orderNo: string } | null;
+  followupStage: InspectionFollowupStage;
+};
+
+export type InspectionReportDetailItem = InspectionReportListItem & {
+  workspace: InspectionReportWorkspaceVersion;
 };
 
 export type InspectionReportCommunicationRecord = {
@@ -363,7 +415,7 @@ export class InspectionReportService {
   async getInspectionReport(input: {
     inspectionReportId: number;
     viewerAccountId: number;
-  }): Promise<InspectionReportListItem> {
+  }): Promise<InspectionReportDetailItem> {
     const reportId = positiveId(input.inspectionReportId, "Inspection Report");
     const access = await requireReportReader(this.database, input.viewerAccountId);
     const rows = await this.database.query<InspectionReportListRow>(
@@ -372,7 +424,73 @@ export class InspectionReportService {
       [reportId, access.role === "mechanic" ? access.currentTeamId : null],
     );
     if (!rows[0]) throw new InspectionReportNotFoundError();
-    return mapListItem(this.database, rows[0]);
+    const item = await mapListItem(this.database, rows[0]);
+    return { ...item, workspace: await selectWorkspace(this.database, item.report) };
+  }
+
+  async updateInspectionReportWorkspace(input: {
+    inspectionReportId: number;
+    expectedVersion: number;
+    organized: InspectionReportOrganizedContent;
+    quotation: InspectionReportQuotation;
+    source: "manual" | "ai";
+    changeReason: string;
+    context: BusinessOrderActionContext;
+  }): Promise<InspectionReportDetailItem> {
+    const reportId = positiveId(input.inspectionReportId, "Inspection Report");
+    const expectedVersion = positiveId(input.expectedVersion, "Inspection Report 版本");
+    const organized = parseOrganizedContent(input.organized);
+    const quotation = parseQuotation(input.quotation);
+    const changeReason = nonempty(input.changeReason, "修改原因");
+    if (!(["manual", "ai"] as const).includes(input.source)) {
+      throw new InspectionReportValidationError("整理来源无效");
+    }
+    const now = input.context.now ?? new Date();
+    return this.database.transaction(async (transaction) => {
+      const rows = await selectReportRows(transaction, reportId, true);
+      const report = rows[0];
+      if (!report) throw new InspectionReportNotFoundError();
+      await requireReportWriter(
+        transaction,
+        input.context.actorAccountId,
+        Number(report.inspection_team_id),
+        nullableNumber(report.actual_inspector_staff_member_id),
+      );
+      if (Number(report.version) !== expectedVersion) {
+        throw new InspectionReportValidationError("Inspection Report 已被其他操作修改，请刷新后重试");
+      }
+      const versionNo = Number(report.current_workspace_version_no) + 1;
+      await transaction.query(
+        `insert into inspection_report_workspace_versions
+          (inspection_report_id, version_no, organized_content, quotation,
+           source, change_reason, created_by, created_at)
+         values ($1, $2, $3::jsonb, $4::jsonb, $5, $6, $7, $8)`,
+        [reportId, versionNo, JSON.stringify(organized), JSON.stringify(quotation),
+          input.source, changeReason, input.context.actorAccountId, now],
+      );
+      const updated = await transaction.query<{ version: number }>(
+        `update inspection_reports
+         set current_workspace_version_no = $2, version = version + 1
+         where id = $1 and version = $3 returning version`,
+        [reportId, versionNo, expectedVersion],
+      );
+      if (!updated[0]) {
+        throw new InspectionReportValidationError("Inspection Report 已被其他操作修改，请刷新后重试");
+      }
+      await audit(transaction, input.context, now, "inspection_report.workspace_version_appended", reportId, {
+        versionNo,
+        source: input.source,
+        quotationStatus: quotation.status,
+        quotationLineCount: quotation.lines.length,
+      });
+      const detailRows = await transaction.query<InspectionReportListRow>(
+        `${reportListQuery()} where report.id = $1`,
+        [reportId],
+      );
+      if (!detailRows[0]) throw new InspectionReportNotFoundError();
+      const item = await mapListItem(transaction, detailRows[0]);
+      return { ...item, workspace: await selectWorkspace(transaction, item.report) };
+    });
   }
 
   async listInspectionReports(input: {
@@ -433,6 +551,8 @@ export class InspectionReportService {
     channel: "sms" | "email" | "whatsapp";
     targetContact: string;
     noteOrReply?: string | null;
+    status?: "initiated" | "confirmed" | "not_delivered";
+    eventKind?: "notification" | "reply" | "status_correction";
     context: BusinessOrderActionContext;
   }): Promise<InspectionReportCommunicationRecord> {
     const reportId = positiveId(input.inspectionReportId, "Inspection Report");
@@ -440,6 +560,14 @@ export class InspectionReportService {
     const noteOrReply = optionalText(input.noteOrReply);
     if (!["sms", "email", "whatsapp"].includes(input.channel)) {
       throw new InspectionReportValidationError("通知渠道无效");
+    }
+    const status = input.status ?? "initiated";
+    if (!["initiated", "confirmed", "not_delivered"].includes(status)) {
+      throw new InspectionReportValidationError("客户跟进状态无效");
+    }
+    const eventKind = input.eventKind ?? "notification";
+    if (!["notification", "reply", "status_correction"].includes(eventKind)) {
+      throw new InspectionReportValidationError("客户跟进事件类型无效");
     }
     const now = input.context.now ?? new Date();
     return this.database.transaction(async (transaction) => {
@@ -451,17 +579,23 @@ export class InspectionReportService {
         `insert into inspection_report_communications
           (inspection_report_id, vehicle_id, source_business_order_id, channel,
            target_contact, initiated_at, initiated_by, status, note_or_reply)
-         values ($1, $2, $3, $4, $5, $6, $7, 'initiated', $8)
+         values ($1, $2, $3, $4, $5, $6, $7, $8, $9)
          returning ${communicationColumns()}`,
         [reportId, report.vehicle_id, report.source_business_order_id, input.channel,
-          targetContact, now, input.context.actorAccountId, noteOrReply],
+          targetContact, now, input.context.actorAccountId, status, noteOrReply],
       );
       const communication = mapCommunication(inserted[0]!);
-      await audit(transaction, input.context, now, "inspection_report.customer_notification_initiated", reportId, {
+      const auditEvent = eventKind === "reply"
+        ? "inspection_report.customer_reply_recorded"
+        : eventKind === "status_correction"
+          ? "inspection_report.followup_status_corrected"
+          : "inspection_report.customer_notification_initiated";
+      await audit(transaction, input.context, now, auditEvent, reportId, {
         communicationId: communication.id,
         channel: communication.channel,
         targetContact: communication.targetContact,
         status: communication.status,
+        eventKind,
       });
       return communication;
     });
@@ -492,14 +626,22 @@ function reportListQuery() {
           coalesce(person.email, company.email) as customer_email,
           inspector.full_name as inspector_name,
           team.name as team_name,
-          source_order.order_no as source_business_order_no
+          source_order.order_no as source_business_order_no,
+          latest_communication.status as latest_communication_status
    from inspection_reports as report
    join vehicles as vehicle on vehicle.id = report.vehicle_id
    left join personal_customers as person on person.id = vehicle.current_person_customer_id
    left join company_accounts as company on company.id = vehicle.current_company_account_id
    left join staff_members as inspector on inspector.id = report.actual_inspector_staff_member_id
    join repair_teams as team on team.id = report.inspection_team_id
-   left join business_orders as source_order on source_order.id = report.source_business_order_id`;
+   left join business_orders as source_order on source_order.id = report.source_business_order_id
+   left join lateral (
+     select communication.status
+     from inspection_report_communications as communication
+     where communication.inspection_report_id = report.id
+     order by communication.initiated_at desc, communication.id desc
+     limit 1
+   ) as latest_communication on true`;
 }
 
 async function mapListItem(
@@ -508,11 +650,17 @@ async function mapListItem(
 ): Promise<InspectionReportListItem> {
   const report = await mapReportWithFindings(executor, row);
   const plate = row.vehicle_plate_display ?? "未登记车牌";
-  const make = row.vehicle_make_zh ?? row.vehicle_make;
-  const model = row.vehicle_model_zh ?? row.vehicle_model;
+  const descriptionZh = `${row.vehicle_make_zh ?? row.vehicle_make} ${row.vehicle_model_zh ?? row.vehicle_model}`.trim();
+  const descriptionEn = `${row.vehicle_make} ${row.vehicle_model}`.trim();
   return {
     report,
-    vehicle: { id: report.vehicleId, plate, description: `${make} ${model}`.trim() },
+    vehicle: {
+      id: report.vehicleId,
+      plate,
+      description: descriptionZh,
+      descriptionZh,
+      descriptionEn,
+    },
     customer: {
       name: row.customer_name,
       phone: row.customer_phone,
@@ -524,6 +672,10 @@ async function mapListItem(
     sourceBusinessOrder: report.sourceBusinessOrderId === null || row.source_business_order_no === null
       ? null
       : { id: report.sourceBusinessOrderId, orderNo: row.source_business_order_no },
+    followupStage: deriveInspectionFollowupStage(
+      report.currentWorkspaceVersionNo ?? 0,
+      row.latest_communication_status ? [{ status: row.latest_communication_status }] : [],
+    ),
   };
 }
 
@@ -665,6 +817,7 @@ async function mapReportWithFindings(
     submittedAt: row.submitted_at ? new Date(row.submitted_at) : null,
     submittedBy: nullableNumber(row.submitted_by),
     version: row.version,
+    currentWorkspaceVersionNo: Number(row.current_workspace_version_no),
     findings: findings.map((finding) => ({
       id: Number(finding.id),
       findingZh: finding.finding_zh,
@@ -843,7 +996,150 @@ function reportColumns(prefix?: string) {
           ${p}inspection_team_id, ${p}actual_inspector_staff_member_id,
           ${p}special_case_notes_zh, ${p}paper_photo_file_id,
           ${p}status, ${p}created_at, ${p}created_by,
-          ${p}submitted_at, ${p}submitted_by, ${p}version`;
+          ${p}submitted_at, ${p}submitted_by, ${p}version,
+          ${p}current_workspace_version_no`;
+}
+
+async function selectWorkspace(
+  executor: AuthSqlExecutor,
+  report: InspectionReportRecord,
+): Promise<InspectionReportWorkspaceVersion> {
+  const currentWorkspaceVersionNo = report.currentWorkspaceVersionNo ?? 0;
+  if (currentWorkspaceVersionNo === 0) {
+    return {
+      versionNo: 0,
+      source: "original",
+      changeReason: "维修工原始回单",
+      createdAt: report.createdAt,
+      createdBy: report.createdBy,
+      organized: {
+        summaryZh: report.summaryZh,
+        summaryEn: report.summaryEn,
+        specialCaseNotesZh: report.specialCaseNotesZh,
+        specialCaseNotesEn: null,
+        findings: report.findings.map(({ id: _id, sortOrder: _sortOrder, ...finding }) => finding),
+      },
+      quotation: deriveOriginalInspectionQuotation(buildInspectionOriginalQuotationText({
+        summaryZh: report.summaryZh,
+        summaryEn: report.summaryEn,
+        specialCaseNotesZh: report.specialCaseNotesZh,
+        findings: report.findings,
+      })),
+    };
+  }
+  const rows = await executor.query<{
+    version_no: number;
+    source: "manual" | "ai";
+    change_reason: string;
+    created_at: Date;
+    created_by: number;
+    organized_content: InspectionReportOrganizedContent;
+    quotation: InspectionReportQuotation;
+  }>(
+    `select version_no, source, change_reason, created_at, created_by,
+            organized_content, quotation
+     from inspection_report_workspace_versions
+     where inspection_report_id = $1 and version_no = $2 limit 1`,
+    [report.id, currentWorkspaceVersionNo],
+  );
+  const row = rows[0];
+  if (!row) throw new InspectionReportValidationError("Inspection Report 当前整理版本不存在");
+  return {
+    versionNo: Number(row.version_no),
+    source: row.source,
+    changeReason: row.change_reason,
+    createdAt: new Date(row.created_at),
+    createdBy: Number(row.created_by),
+    organized: parseOrganizedContent(row.organized_content),
+    quotation: parseQuotation(row.quotation),
+  };
+}
+
+function parseOrganizedContent(value: InspectionReportOrganizedContent): InspectionReportOrganizedContent {
+  if (!value || typeof value !== "object") {
+    throw new InspectionReportValidationError("整理后的检查报告无效");
+  }
+  return {
+    summaryZh: nonempty(value.summaryZh, "整理后的检查总结"),
+    summaryEn: optionalText(value.summaryEn),
+    specialCaseNotesZh: optionalText(value.specialCaseNotesZh),
+    specialCaseNotesEn: optionalText(value.specialCaseNotesEn),
+    findings: (Array.isArray(value.findings) ? value.findings : []).map((finding) => ({
+      findingZh: nonempty(finding.findingZh, "检查结果"),
+      findingEn: optionalText(finding.findingEn),
+      recommendationZh: optionalText(finding.recommendationZh),
+      recommendationEn: optionalText(finding.recommendationEn),
+    })),
+  };
+}
+
+function parseQuotation(value: InspectionReportQuotation): InspectionReportQuotation {
+  if (!value || typeof value !== "object" || !["pending", "entered", "not_quoted"].includes(value.status)) {
+    throw new InspectionReportValidationError("报价状态无效");
+  }
+  const lines = Array.isArray(value.lines) ? value.lines.map((line) => {
+    if (!line || !["labor", "part", "other"].includes(line.kind)) {
+      throw new InspectionReportValidationError("报价项目类别无效");
+    }
+    const quantity = nonempty(String(line.quantity ?? ""), "报价数量");
+    const numericQuantity = Number(quantity);
+    if (!Number.isFinite(numericQuantity) || numericQuantity <= 0) {
+      throw new InspectionReportValidationError("报价数量无效");
+    }
+    const unitPriceMinor = nullableMoneyMinor(line.unitPriceMinor, "报价单价");
+    const itemDiscountMinor = nullableMoneyMinor(line.itemDiscountMinor, "本项折扣") ?? 0;
+    const subtotalMinor = nullableMoneyMinor(line.subtotalMinor, "报价小计");
+    if (itemDiscountMinor > 0 && unitPriceMinor === null) {
+      throw new InspectionReportValidationError("填写本项折扣前必须填写报价单价");
+    }
+    if (unitPriceMinor !== null) {
+      const grossMinor = Math.round(unitPriceMinor * numericQuantity);
+      if (itemDiscountMinor > grossMinor) {
+        throw new InspectionReportValidationError("本项折扣不能超过项目原价");
+      }
+      if (subtotalMinor !== null && subtotalMinor !== grossMinor - itemDiscountMinor) {
+        throw new InspectionReportValidationError("报价小计必须等于数量乘单价减本项折扣");
+      }
+    }
+    return {
+      kind: line.kind,
+      nameZh: nonempty(line.nameZh, "报价项目名称"),
+      nameEn: optionalText(line.nameEn),
+      descriptionZh: optionalText(line.descriptionZh),
+      descriptionEn: optionalText(line.descriptionEn),
+      quantity,
+      unitPriceMinor,
+      itemDiscountMinor,
+      subtotalMinor,
+    };
+  }) : [];
+  if (value.status === "entered" && lines.length === 0) {
+    throw new InspectionReportValidationError("已报价时至少需要一个报价项目");
+  }
+  if (value.status === "entered" && lines.some((line) => line.subtotalMinor === null)) {
+    throw new InspectionReportValidationError("已报价项目必须填写小计");
+  }
+  const wholeOrderDiscountMinor = nullableMoneyMinor(value.wholeOrderDiscountMinor, "整单优惠") ?? 0;
+  const lineSubtotalMinor = lines.reduce((sum, line) => sum + (line.subtotalMinor ?? 0), 0);
+  if (wholeOrderDiscountMinor > lineSubtotalMinor) {
+    throw new InspectionReportValidationError("整单优惠不能超过报价小计");
+  }
+  return {
+    status: value.status,
+    noteZh: optionalText(value.noteZh),
+    noteEn: optionalText(value.noteEn),
+    wholeOrderDiscountMinor,
+    lines,
+  };
+}
+
+function nullableMoneyMinor(value: unknown, label: string): number | null {
+  if (value === null || value === undefined || value === "") return null;
+  const parsed = Number(value);
+  if (!Number.isSafeInteger(parsed) || parsed < 0) {
+    throw new InspectionReportValidationError(`${label}无效`);
+  }
+  return parsed;
 }
 
 function parseDraftInput(input: {

@@ -5,10 +5,14 @@ import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { AlertCircle, RefreshCw, Users } from "lucide-react";
 import { PageHeader } from "@/components/layout/page-header";
-import { fetchFormalPerformance, type FormalMonthlyPerformance } from "@/lib/api/formal-performance";
+import {
+  fetchFormalPerformance,
+  performanceMonthHref,
+  type FormalMonthlyPerformance,
+} from "@/lib/api/formal-performance";
 import { useI18n } from "@/lib/i18n/language";
 import { businessDateInJamaica } from "@/lib/orders/document-number";
-import { cn, formatJMDFull } from "@/lib/utils";
+import { cn, formatCNYFull, formatJMDFull } from "@/lib/utils";
 
 function currentJamaicaMonth(): string {
   const date = businessDateInJamaica(new Date());
@@ -24,7 +28,11 @@ export function PerformanceWorkspace() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const requestedTeamId = searchParams.get("team");
-  const month = currentJamaicaMonth();
+  const requestedMonth = searchParams.get("month");
+  const currentMonth = currentJamaicaMonth();
+  const month = requestedMonth && /^\d{4}-(0[1-9]|1[0-2])$/.test(requestedMonth)
+    ? requestedMonth
+    : currentMonth;
   const [summary, setSummary] = useState<FormalMonthlyPerformance | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -92,11 +100,26 @@ export function PerformanceWorkspace() {
             {teams.length > 0 ? (
               <nav aria-label={t("performance.team.switch")} data-testid="performance-team-switcher" className="mt-4 flex flex-wrap gap-2">
                 {teams.map((team) => (
-                  <button key={team.teamId} type="button" onClick={() => router.push(`/performance?team=${encodeURIComponent(String(team.teamId))}`)}
+                  <button key={team.teamId} type="button" onClick={() => router.push(performanceMonthHref(month, team.teamId))}
                     className={cn("min-h-9 rounded-lg border px-3 text-xs font-semibold", team.teamId === selectedTeam?.teamId ? "border-primary bg-primary text-white" : "border-line text-ink-soft hover:border-primary-300 dark:border-slate-600 dark:text-slate-300")}>{teamLabel(team)}</button>
                 ))}
               </nav>
             ) : null}
+            <label className="mt-4 block max-w-56 text-xs font-semibold text-ink dark:text-slate-200">
+              {language === "zh" ? "查看月份" : "Performance month"}
+              <input
+                data-testid="performance-month-picker"
+                aria-label={language === "zh" ? "绩效月份" : "Performance month"}
+                type="month"
+                value={month}
+                max={currentMonth}
+                onChange={(event) => router.push(performanceMonthHref(
+                  event.target.value,
+                  selectedTeam?.teamId ?? null,
+                ))}
+                className="mt-1 min-h-10 w-full rounded-lg border border-line bg-white px-3 text-sm font-semibold dark:border-slate-600 dark:bg-slate-900"
+              />
+            </label>
           </header>
 
           {loading ? <div data-testid="performance-loading" className="m-5 h-44 animate-pulse rounded-xl bg-slate-100 dark:bg-slate-700" /> : null}
@@ -116,7 +139,7 @@ export function PerformanceWorkspace() {
           ) : null}
           {!loading && !error && selectedTeam ? (
             <div className="space-y-4 p-4 sm:p-5">
-              <div className="grid gap-3 sm:grid-cols-3">
+              <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
                 <div className="rounded-xl border border-line p-4 dark:border-slate-700"><p className="text-[11px] text-ink-soft">{t("performance.summary.performance")}</p><p data-testid="performance-counted-value" className="mt-2 text-xl font-bold tabular-nums">{formatPerformance(selectedTeam.performanceMinor)}</p><p className="mt-1 text-[11px] text-ink-soft">{t("performance.summary.validHandoffs", { count: selectedTeam.handoffCount })}</p></div>
                 <div className="rounded-xl border border-line p-4 dark:border-slate-700"><p className="text-[11px] text-ink-soft">{t("performance.summary.cancelled")}</p><p data-testid="performance-cancelled-count" className="mt-2 text-xl font-bold tabular-nums">{t("performance.summary.cancelledCount", { count: selectedTeam.cancelledHandoffCount })}</p><p className="mt-1 text-[11px] text-ink-soft">{t("performance.summary.cancelledHint")}</p></div>
                 <div className={cn("rounded-xl border p-4", targetConfigured ? "border-emerald-200 bg-emerald-50/60 dark:border-emerald-500/30 dark:bg-emerald-500/5" : "border-amber-200 bg-amber-50/60 dark:border-amber-500/30 dark:bg-amber-500/5")}>
@@ -141,6 +164,51 @@ export function PerformanceWorkspace() {
                     <p className="sr-only">{selectedTeam.targetMissingReasons.slice(1).join("；")}</p>
                   ) : null}
                 </div>
+                <div className="rounded-xl border border-line p-4 dark:border-slate-700">
+                  <p className="text-[11px] text-ink-soft">{language === "zh" ? "全组应发工资测算" : "Estimated team payroll"}</p>
+                  <p data-testid="performance-payroll-total" className="mt-2 text-xl font-bold tabular-nums">
+                    {selectedTeam.payrollTotalCnyMinor === null
+                      ? (language === "zh" ? "无法测算" : "Unavailable")
+                      : formatCNYFull(selectedTeam.payrollTotalCnyMinor / 100)}
+                  </p>
+                  <p className="mt-1 text-[11px] text-ink-soft">
+                    {language === "zh" ? "基准工资 × 班组完成率，仅作测算" : "Base salary × team completion rate; estimate only"}
+                  </p>
+                </div>
+              </div>
+
+              <div className="overflow-hidden rounded-xl border border-line dark:border-slate-700">
+                <div className="border-b border-line px-4 py-3 text-sm font-bold dark:border-slate-700">
+                  {language === "zh" ? `${monthLabel}成员工资测算` : `${monthLabel} member payroll estimate`}
+                </div>
+                {selectedTeam.members.length === 0 ? (
+                  <div className="p-6 text-center text-sm text-ink-soft">
+                    {language === "zh" ? "该月份没有可计算的班组成员" : "No eligible team members for this month"}
+                  </div>
+                ) : (
+                  <div className="overflow-x-auto">
+                    <table data-testid="performance-member-payroll" className="w-full min-w-[720px] text-left text-xs">
+                      <thead className="bg-surface text-ink-soft dark:bg-slate-900/60 dark:text-slate-300">
+                        <tr>
+                          <th className="px-4 py-2.5">{language === "zh" ? "员工" : "Employee"}</th>
+                          <th className="px-4 py-2.5">{language === "zh" ? "该月基准工资" : "Monthly base salary"}</th>
+                          <th className="px-4 py-2.5">{language === "zh" ? "携带目标" : "Carried target"}</th>
+                          <th className="px-4 py-2.5">{language === "zh" ? "应发工资测算" : "Estimated payable"}</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-line dark:divide-slate-700">
+                        {selectedTeam.members.map((member) => (
+                          <tr key={member.memberId}>
+                            <td className="px-4 py-3 font-semibold">{member.memberName}</td>
+                            <td className="px-4 py-3 tabular-nums">{member.salaryCnyMinor === null ? "—" : formatCNYFull(member.salaryCnyMinor / 100)}</td>
+                            <td className="px-4 py-3 tabular-nums">{member.targetPerformanceMinor === null ? "—" : formatPerformance(member.targetPerformanceMinor)}</td>
+                            <td className="px-4 py-3 font-semibold tabular-nums">{member.payableSalaryCnyMinor === null ? "—" : formatCNYFull(member.payableSalaryCnyMinor / 100)}</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                )}
               </div>
 
               <div className="rounded-xl border border-line dark:border-slate-700">

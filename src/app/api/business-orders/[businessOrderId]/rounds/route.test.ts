@@ -2,12 +2,31 @@ import { describe, expect, it, vi } from "vitest";
 import { createBusinessOrderRoundsApiHandler } from "@formal/app/api/business-orders/[businessOrderId]/rounds/route";
 
 describe("/api/business-orders/:id/rounds", () => {
+  it.each([undefined, null, 0, -1, 1.5, "21", true])("rejects an invalid or missing performance target %s before invoking the writer", async (repairRoundId) => {
+    const writer = vi.fn();
+    const handler = createBusinessOrderRoundsApiHandler({
+      readSession: async () => ({ account: { id: 9 } }),
+      getCurrentRound: vi.fn(), listRepairRounds: vi.fn(),
+      assignRound: vi.fn(), withdrawAssignment: vi.fn(), cancelAfterSalesRound: vi.fn(),
+      recordAcceptanceOnBehalf: vi.fn(), startAfterSalesRound: vi.fn(), recordIntakeMileage: vi.fn(),
+      submitWorkReturn: vi.fn(), approveWorkReturn: vi.fn(), returnWorkReturn: vi.fn(),
+      formallyHandOffRound: vi.fn(), cancelFormalHandoffInSameMonth: vi.fn(), setPerformanceDraft: writer,
+    });
+    const response = await handler(new Request("http://local/api/business-orders/7/rounds", {
+      method: "POST", headers: { "content-type": "application/json" },
+      body: JSON.stringify({ action: "set_performance_draft", repairRoundId, repairRoundVersion: 1, performanceValue: "1250" }),
+    }), { businessOrderId: 7 });
+    expect(response.status).toBe(400);
+    expect(await response.json()).toMatchObject({ error: expect.stringContaining("刷新后重新核对") });
+    expect(writer).not.toHaveBeenCalled();
+  });
   it("returns current round and immutable round history", async () => {
     const handler = createBusinessOrderRoundsApiHandler({
       readSession: async () => ({ account: { id: 9 } }),
       getCurrentRound: vi.fn(async () => ({ id: 3, roundNo: 1 })),
       listRepairRounds: vi.fn(async () => [{ id: 3, roundNo: 1 }]),
       listAuditTrail: vi.fn(async () => [{ id: 88, eventType: "business_order.charge_version_replaced" }]),
+      getAfterSalesRoundDeletionPreview: vi.fn(async () => ({ eligible: false, blockers: [] })),
       assignRound: vi.fn(), withdrawAssignment: vi.fn(), cancelAfterSalesRound: vi.fn(), startAfterSalesRound: vi.fn(), recordIntakeMileage: vi.fn(),
       recordAcceptanceOnBehalf: vi.fn(),
       submitWorkReturn: vi.fn(), approveWorkReturn: vi.fn(), returnWorkReturn: vi.fn(),
@@ -20,6 +39,7 @@ describe("/api/business-orders/:id/rounds", () => {
       current: { id: 3, roundNo: 1 },
       history: [{ id: 3, roundNo: 1 }],
       auditTrail: [{ id: 88, eventType: "business_order.charge_version_replaced" }],
+      afterSalesRoundDeletion: { eligible: false, blockers: [] },
     });
   });
 
@@ -209,6 +229,34 @@ describe("/api/business-orders/:id/rounds", () => {
     }));
   });
 
+  it("accepts a front-desk paper return when mechanic and source file are not yet recorded", async () => {
+    const recordPaperWorkReturnAndFormallyHandOff = vi.fn(async () => ({ id: 43 }));
+    const handler = createBusinessOrderRoundsApiHandler({
+      readSession: async () => ({ account: { id: 9 } }),
+      getCurrentRound: vi.fn(async () => ({ id: 3, status: "formally_handed_off" })),
+      listRepairRounds: vi.fn(async () => []), assignRound: vi.fn(), withdrawAssignment: vi.fn(),
+      cancelAfterSalesRound: vi.fn(), recordAcceptanceOnBehalf: vi.fn(), startAfterSalesRound: vi.fn(),
+      recordIntakeMileage: vi.fn(), submitWorkReturn: vi.fn(), approveWorkReturn: vi.fn(),
+      returnWorkReturn: vi.fn(), formallyHandOffRound: vi.fn(), cancelFormalHandoffInSameMonth: vi.fn(),
+      recordPaperWorkReturnAndFormallyHandOff,
+    });
+    const response = await handler(new Request("http://local/api/business-orders/7/rounds", {
+      method: "POST", headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        action: "record_paper_return_and_formal_handoff",
+        repairRoundVersion: 6,
+        attachmentIds: [],
+        performanceValue: "19900",
+      }),
+    }), { businessOrderId: 7 });
+
+    expect(response.status).toBe(200);
+    expect(recordPaperWorkReturnAndFormallyHandOff).toHaveBeenCalledWith(expect.objectContaining({
+      actualStaffMemberId: undefined,
+      attachmentIds: [],
+    }));
+  });
+
   it("cancels an empty after-sales round created by mistake", async () => {
     const cancelAfterSalesRound = vi.fn(async () => ({ cancelled: true }));
     const handler = createBusinessOrderRoundsApiHandler({
@@ -230,6 +278,57 @@ describe("/api/business-orders/:id/rounds", () => {
       businessOrderId: 7,
       expectedRepairRoundVersion: 1,
     }));
+  });
+
+  it("forwards the confirmed invalid-round deletion payload and returns a refreshed preview", async () => {
+    const deleteInvalidAfterSalesRound = vi.fn(async () => ({
+      cancelled: true,
+      deletedRoundNo: 2,
+      restoredRoundNo: 1,
+    }));
+    const getAfterSalesRoundDeletionPreview = vi.fn(async () => null);
+    const handler = createBusinessOrderRoundsApiHandler({
+      readSession: async () => ({ account: { id: 9 } }),
+      getCurrentRound: vi.fn(async () => ({ id: 2, roundNo: 1, status: "formally_handed_off" })),
+      listRepairRounds: vi.fn(async () => [{ id: 2, roundNo: 1 }]),
+      getAfterSalesRoundDeletionPreview,
+      deleteInvalidAfterSalesRound,
+      assignRound: vi.fn(), withdrawAssignment: vi.fn(), cancelAfterSalesRound: vi.fn(),
+      recordAcceptanceOnBehalf: vi.fn(), startAfterSalesRound: vi.fn(),
+      recordIntakeMileage: vi.fn(), submitWorkReturn: vi.fn(), approveWorkReturn: vi.fn(),
+      returnWorkReturn: vi.fn(), formallyHandOffRound: vi.fn(),
+      cancelFormalHandoffInSameMonth: vi.fn(),
+    });
+    const response = await handler(new Request("http://local/api/business-orders/7/rounds", {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        "x-request-id": "delete-invalid-round-request",
+      },
+      body: JSON.stringify({
+        action: "delete_invalid_after_sales",
+        repairRoundVersion: 8,
+        previewFingerprint: "a".repeat(64),
+        reasonCode: "test_data",
+        reasonNote: "整轮测试数据",
+        confirmationRecordNo: "KGN-WH-2026082500001/R2",
+      }),
+    }), { businessOrderId: 7 });
+
+    expect(response.status).toBe(200);
+    expect(deleteInvalidAfterSalesRound).toHaveBeenCalledWith(expect.objectContaining({
+      businessOrderId: 7,
+      expectedRepairRoundVersion: 8,
+      previewFingerprint: "a".repeat(64),
+      reasonCode: "test_data",
+      reasonNote: "整轮测试数据",
+      confirmationRecordNo: "KGN-WH-2026082500001/R2",
+      context: expect.objectContaining({ requestId: "delete-invalid-round-request" }),
+    }));
+    expect(await response.json()).toMatchObject({
+      result: { cancelled: true, deletedRoundNo: 2, restoredRoundNo: 1 },
+      afterSalesRoundDeletion: null,
+    });
   });
 
   it("cancels a formal handoff for the Business Order in the URL", async () => {
@@ -295,6 +394,87 @@ describe("/api/business-orders/:id/rounds", () => {
 
     expect(response.status).toBe(400);
     expect(cancelFormalHandoffInSameMonth).not.toHaveBeenCalled();
+  });
+
+  it("forwards a signed JMD performance draft to the current-round service action", async () => {
+    const setPerformanceDraft = vi.fn(async () => ({
+      id: 3,
+      performanceDraftMinor: -1_234,
+      version: 7,
+    }));
+    const handler = createBusinessOrderRoundsApiHandler({
+      readSession: async () => ({ account: { id: 9 } }),
+      getCurrentRound: vi.fn(async () => ({ id: 3, roundNo: 1, performanceDraftMinor: -1_234 })),
+      listRepairRounds: vi.fn(async () => []),
+      assignRound: vi.fn(), withdrawAssignment: vi.fn(), cancelAfterSalesRound: vi.fn(),
+      recordAcceptanceOnBehalf: vi.fn(), startAfterSalesRound: vi.fn(),
+      recordIntakeMileage: vi.fn(), submitWorkReturn: vi.fn(), approveWorkReturn: vi.fn(),
+      returnWorkReturn: vi.fn(), formallyHandOffRound: vi.fn(),
+      cancelFormalHandoffInSameMonth: vi.fn(),
+      setPerformanceDraft,
+    });
+
+    const response = await handler(new Request("http://local/api/business-orders/7/rounds", {
+      method: "POST", headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        action: "set_performance_draft",
+        repairRoundId: 21,
+        repairRoundVersion: 6,
+        performanceValue: "-12.34",
+      }),
+    }), { businessOrderId: 7 });
+
+    expect(response.status).toBe(200);
+    expect(setPerformanceDraft).toHaveBeenCalledWith(expect.objectContaining({
+      businessOrderId: 7,
+      expectedRepairRoundVersion: 6,
+      expectedRepairRoundId: 21,
+      performanceValue: "-12.34",
+      context: expect.objectContaining({ actorAccountId: 9 }),
+    }));
+    expect(await response.json()).toMatchObject({
+      result: { performanceDraftMinor: -1_234 },
+    });
+  });
+
+  it("adjusts an active formal handoff performance with the handoff id, round version, and reason", async () => {
+    const adjustFormalHandoffPerformanceInSameMonth = vi.fn(async () => ({
+      id: 44,
+      performanceMinor: 1_800_000,
+    }));
+    const handler = createBusinessOrderRoundsApiHandler({
+      readSession: async () => ({ account: { id: 9 } }),
+      getCurrentRound: vi.fn(async () => ({ id: 3, roundNo: 1, status: "formally_handed_off" })),
+      listRepairRounds: vi.fn(async () => []),
+      assignRound: vi.fn(), withdrawAssignment: vi.fn(), cancelAfterSalesRound: vi.fn(),
+      recordAcceptanceOnBehalf: vi.fn(), startAfterSalesRound: vi.fn(),
+      recordIntakeMileage: vi.fn(), submitWorkReturn: vi.fn(), approveWorkReturn: vi.fn(),
+      returnWorkReturn: vi.fn(), formallyHandOffRound: vi.fn(),
+      cancelFormalHandoffInSameMonth: vi.fn(),
+      adjustFormalHandoffPerformanceInSameMonth,
+    });
+
+    const response = await handler(new Request("http://local/api/business-orders/7/rounds", {
+      method: "POST",
+      headers: { "content-type": "application/json", "x-request-id": "adjust-performance-request" },
+      body: JSON.stringify({
+        action: "adjust_formal_handoff_performance",
+        formalHandoffId: 42,
+        repairRoundVersion: 8,
+        performanceValue: "18000",
+        reason: "本轮绩效录入错误",
+      }),
+    }), { businessOrderId: 7 });
+
+    expect(response.status).toBe(200);
+    expect(adjustFormalHandoffPerformanceInSameMonth).toHaveBeenCalledWith(expect.objectContaining({
+      businessOrderId: 7,
+      formalHandoffId: 42,
+      expectedRepairRoundVersion: 8,
+      performanceValue: "18000",
+      reason: "本轮绩效录入错误",
+      context: expect.objectContaining({ actorAccountId: 9, requestId: "adjust-performance-request" }),
+    }));
   });
 
   it.each([

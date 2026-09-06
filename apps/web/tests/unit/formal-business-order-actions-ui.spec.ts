@@ -1,7 +1,10 @@
 import { expect, test } from "@playwright/test";
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
-import { formalGroupedChargeDiscounts } from "../../src/lib/api/formal-business-orders";
+import {
+  formalGroupedChargeDiscounts,
+  formalGroupedChargeNetTotals,
+} from "../../src/lib/api/formal-business-orders";
 
 const detail = () => readFileSync(resolve(process.cwd(), "src/components/orders/formal-business-order-detail.tsx"), "utf8");
 const component = (name: string) => readFileSync(resolve(process.cwd(), `src/components/${name}`), "utf8");
@@ -24,8 +27,8 @@ test("收费项目有显式编辑入口并保存新版本", () => {
 
 test("收费汇总不重复显示清单中已有的本项折扣", () => {
   const source = detail();
-  const summaryStart = source.indexOf('<div className="mt-4 grid gap-2 border-t border-line pt-3');
-  const summaryEnd = source.indexOf('{charges.notes.length', summaryStart);
+  const summaryStart = source.lastIndexOf('<div', source.indexOf('data-testid="business-order-labor-total"'));
+  const summaryEnd = source.indexOf('<ChargeSection charges=', summaryStart);
   const summary = source.slice(summaryStart, summaryEnd);
 
   expect(summaryStart).toBeGreaterThan(-1);
@@ -50,6 +53,38 @@ test("收费汇总按工时、配件和其他费用归集每行本项折扣", ()
     partDiscountMinor: 60_000,
     otherDiscountMinor: 25_000,
   });
+});
+
+test("收费汇总显示工时、配件和其他费用的折后合计，并交代整单优惠", () => {
+  expect(formalGroupedChargeNetTotals({
+    items: [
+      { kind: "labor", subtotalMinor: 1_990_000 },
+      { kind: "labor", subtotalMinor: 600_000 },
+      { kind: "part", subtotalMinor: 480_000 },
+      { kind: "other", subtotalMinor: 200_000 },
+    ],
+    totals: {
+      laborDiscountMinor: 100_000,
+      partDiscountMinor: 30_000,
+      otherDiscountMinor: 20_000,
+    },
+  })).toEqual({
+    laborTotalMinor: 2_490_000,
+    partTotalMinor: 450_000,
+    otherTotalMinor: 180_000,
+  });
+
+  const source = detail();
+  expect(source).toContain("工时合计");
+  expect(source).toContain("配件合计");
+  expect(source).toContain("其他费用合计");
+  expect(source).toContain("Other charges total");
+  expect(source).toContain("整单优惠");
+  expect(source).toContain("Whole-order discount");
+  expect(source).toContain('data-testid="business-order-labor-total"');
+  expect(source).toContain('data-testid="business-order-part-total"');
+  expect(source).toContain('data-testid="business-order-other-total"');
+  expect(source).toContain('data-testid="business-order-whole-order-discount"');
 });
 
 test("日常收费编辑只保留每行本项折扣并清零旧整单折扣", () => {
@@ -120,7 +155,11 @@ test("收款和退款通过可关闭的浮窗填写", () => {
 
 test("收费编辑与保存占用同一个标题操作位置", () => {
   const source = detail();
-  expect(source).toMatch(/type=\{chargeEditing \? "submit" : "button"\}/);
+  expect(source).toMatch(/key="edit-charges" type="button"/);
+  expect(source).toMatch(/key="save-charges" type="button"/);
+  expect(source).toContain("chargeSubmitAuthorizedRef.current = true");
+  expect(source).toContain("form.requestSubmit()");
+  expect(source).toContain("if (!chargeSubmitAuthorizedRef.current) return");
   expect(source).toMatch(/Save charges/);
   expect(source).toMatch(/保存收费项目/);
   expect(source).toMatch(/Edit charges/);
@@ -165,14 +204,16 @@ test("退款先落账再打印纸质签收单并可选回传签字件", () => {
   expect(source).toMatch(/appendFormalRefundSignedAcknowledgement/);
 });
 
-test("维修中同时提供独立检查结果入口和纸质回单入口", () => {
+test("独立检查入口与维修中纸质回单入口均保留", () => {
   const source = detail();
-  expect(source).toMatch(/新建检查结果/);
+  expect(source).toContain("<BusinessOrderInspections");
+  const inspections = component("orders/business-order-inspections.tsx");
+  expect(inspections).toContain("新建检查结果");
   expect(source).toMatch(/收到纸质回单/);
   expect(source).toMatch(/sourceBusinessOrderId/);
   expect(source).toMatch(/inspectionCreateOpen/);
   expect(source).toMatch(/paperReturnOpen/);
-  expect(source).toMatch(/相关检查结果/);
+  expect(inspections).toContain("相关检查结果");
   expect(source).not.toMatch(/orders\/inspections\?create=1/);
 });
 
@@ -185,12 +226,28 @@ test("纸质回单表单默认不占用详情页，只在点击入口后显示�
   expect(source).toMatch(/一次确认完成正式交单/);
 });
 
-test("误触开始的空白售后轮次可以撤销回上一轮已交单状态", () => {
+test("售后维修轮次通过删除预览清理关联记录并恢复上一轮", () => {
   const source = detail();
-  expect(source).toMatch(/cancel_after_sales/);
-  expect(source).toMatch(/撤销本轮/);
-  expect(source).toMatch(/尚未产生任何实际记录/);
+  expect(source).toMatch(/delete_invalid_after_sales/);
+  expect(source).toMatch(/删除本轮/);
+  expect(source).toMatch(/本次一并清理/);
+  expect(source).toMatch(/删除原因/);
+  expect(source).toMatch(/输入轮次编号确认/);
+  expect(source).toMatch(/选择其他原因时必填/);
+  expect(source).toMatch(/afterSalesDeletionReason !== "other" \|\| afterSalesDeletionNote\.trim\(\) !== ""/);
+  expect(source).toMatch(/ActionDialog/);
+  expect(source).toMatch(/ChoiceCards/);
+  expect(source).toMatch(/blocker\.recordNos/);
+  expect(source).toMatch(/previewFingerprint/);
+  expect(source).toMatch(/afterSalesDeletionRequestIdRef/);
+  expect(source).toMatch(/crypto\.randomUUID\(\)/);
+  expect(source).toMatch(/requestId/);
   expect(source).toMatch(/repairRoundVersion: rounds\.current\.version/);
+  expect(source).toMatch(/rounds\.current\.source === "after_sales"/);
+  expect(source).not.toMatch(/rounds\.current\.status === "waiting_assignment" && rounds\.current\.source === "after_sales"/);
+  expect(source).not.toMatch(/action: "cancel_after_sales"/);
+  expect(source).not.toMatch(/const cancelAccidentalAfterSalesRound = \(\) => \{[\s\S]*window\.confirm/);
+  expect(source).not.toMatch(/误建售后|invalid after-sales/i);
 });
 
 test("交单后显示完成事实并把售后入口收成按钮", () => {

@@ -103,3 +103,40 @@ test("formal charge AI rejects a partially invalid response so the UI can use th
     globalThis.fetch = previousFetch;
   }
 });
+
+for (const category of ["labor", "parts"] as const) {
+  test(`formal AI preserves missing ${category} pricing separately from explicit free pricing`, async () => {
+    const previousFetch = globalThis.fetch;
+    const base = { descZh: "检查项目", descEn: "Inspection item", category, quantity: 1, discountJmd: 0 };
+    globalThis.fetch = async () => new Response(JSON.stringify({ content: JSON.stringify({ items: [
+      { ...base, unitPriceJmd: null, pendingQuote: true },
+      { ...base, unitPriceJmd: 0, pendingQuote: false },
+      { ...base, unitPriceJmd: 0 },
+      { ...base, unitPriceJmd: 800, pendingQuote: false },
+    ], notes: [] }) }), { status: 200 });
+    try {
+      const result = await aiParseFormalChargeEntry("人工核对价格的测试原文");
+      expect(result?.items.map(item => [item.unitPriceJmd, item.pendingQuote])).toEqual([[0, true], [0, false], [0, true], [800, false]]);
+    } finally { globalThis.fetch = previousFetch; }
+  });
+}
+
+for (const quantity of [1.25, 0, -1, Number.MAX_SAFE_INTEGER + 1]) {
+  test(`formal AI rejects invalid whole quantity ${quantity} without rounding`, async () => {
+    const previousFetch = globalThis.fetch;
+    globalThis.fetch = async () => new Response(JSON.stringify({ content: JSON.stringify({ items: [
+      { descZh: "清洗剂", descEn: "Cleaner", category: "parts", quantity, unitPriceJmd: 800, pendingQuote: false },
+    ], notes: [] }) }), { status: 200 });
+    try { expect(await aiParseFormalChargeEntry("清洗剂数量待核对")).toBeNull(); }
+    finally { globalThis.fetch = previousFetch; }
+  });
+}
+
+test("formal AI does not silently discard a nonzero price when the response also claims pending", async () => {
+  const previousFetch = globalThis.fetch;
+  globalThis.fetch = async () => new Response(JSON.stringify({ content: JSON.stringify({ items: [
+    { descZh: "清洗剂", descEn: "Cleaner", category: "parts", quantity: 1, unitPriceJmd: 800, pendingQuote: true },
+  ], notes: [] }) }), { status: 200 });
+  try { expect(await aiParseFormalChargeEntry("清洗剂800")).toBeNull(); }
+  finally { globalThis.fetch = previousFetch; }
+});

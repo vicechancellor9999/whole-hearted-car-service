@@ -1,0 +1,83 @@
+.controls {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  margin-top: 16px;
+}
+
+.controls button {
+  min-height: 44px;
+  padding: 0 14px;
+  border: 1px solid var(--color-line, #cbd5e1);
+  border-radius: 8px;
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.controls button[aria-pressed="true"] {
+  color: var(--color-primary, #2563eb);
+  border-color: currentColor;
+  background: var(--color-accent-subtle, #eff6ff);
+}
+
+.hint {
+  flex-basis: 100%;
+  font-size: 12px;
+  color: var(--color-ink-soft, #64748b);
+}
+
+.viewport {
+  overflow: auto;
+  max-height: 72dvh;
+  min-height: 280px;
+  margin-top: 12px;
+  border: 1px solid var(--color-line, #cbd5e1);
+  border-radius: 12px;
+  background: var(--color-layer-2, #e2e8f0);
+  overscroll-behavior-x: contain;
+}
+
+.viewport:focus-visible {
+  outline: 2px solid var(--color-primary, #2563eb);
+  outline-offset: 2px;
+}
+
+.sheet {
+  width: 210mm;
+  max-width: none;
+  min-height: 297mm;
+  margin: 0 auto;
+  flex-shrink: 0;
+}
+
+.sheet td:nth-child(n + 3), .sheet strong:not(th strong) {
+  font-variant-numeric: tabular-nums;
+}
+
+.sheet td:nth-child(n + 3), .sheet [data-money] {
+  white-space: nowrap;
+}
+
+.sheet td:nth-child(-n + 2) {
+  overflow-wrap: anywhere;
+}
+
+@media print {
+  .controls {
+    display: none !important;
+  }
+
+  .viewport {
+    display: contents !important;
+    overflow: visible !important;
+    max-height: none !important;
+    border: 0 !important;
+  }
+
+  .sheet {
+    zoom: 1 !important;
+    width: 210mm !important;
+    max-width: none !important;
+  }
+}

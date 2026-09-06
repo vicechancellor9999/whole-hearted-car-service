@@ -80,6 +80,7 @@ const round = {
   roundNo: 1,
   source: "initial" as const,
   afterSalesIssue: null,
+  performanceDraftMinor: null,
   status: "waiting_assignment" as const,
   assignedTeamId: null,
   intakeMileageKm: null,
@@ -211,6 +212,7 @@ describe("Business Order PC pages", () => {
           roundNo: 1,
           source: "initial",
           afterSalesIssue: null,
+          performanceDraftMinor: null,
           status: "formally_handed_off",
           assignedTeamId: 81,
           createdAt: new Date("2026-08-24T14:00:00Z"),
@@ -225,6 +227,8 @@ describe("Business Order PC pages", () => {
             jamaicaMonth: "2026-08",
             handedOffAt: new Date("2026-08-24T15:00:00Z"),
             cancelledAt: null,
+            performanceAdjustmentAllowed: true,
+            performanceAdjustmentUnavailableReason: null,
           }],
         }]}
         teams={[{ id: 81, name: "维修一组" }]}

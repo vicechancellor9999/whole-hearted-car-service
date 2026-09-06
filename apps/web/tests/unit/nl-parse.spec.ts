@@ -99,3 +99,25 @@ test("配件清单+工时费拆成 1 工时 + N 配件（8/18）", () => {
   expect(parts.map((item) => item.descZh)).toEqual(["后左右刹车片", "后左右刹车片传感器", "后左右刹车盘"]);
   expect(parts.every((item) => item.pendingQuote)).toBe(true);
 });
+
+test("正式收费本地回退保留短金额和小数，但不把数量或车型年份当价格", () => {
+  const result = parseChargeEntryInput("诊断工时 800\n清洗剂2瓶 单价12.50\n清洗剂5000瓶\n2017款车辆检查工时待报价");
+  expect(result.items.map(item => [item.unitPriceJmd, item.quantity, item.pendingQuote])).toEqual([
+    [800, 1, false], [12.5, 2, false], [0, 5000, true], [0, 1, true],
+  ]);
+});
+
+test("正式收费工时免费不等于清洗剂免费，明确免费配件仍是0元", () => {
+  const result = parseChargeEntryInput("清洗剂八瓶 工时免费\n检查工时免费\n机油滤芯1件 免费\n清洗剂1瓶 0元");
+  expect(result.items.map(item => [item.category, item.pendingQuote, item.unitPriceJmd])).toEqual([
+    ["parts", true, 0], ["labor", false, 0], ["parts", false, 0], ["parts", false, 0],
+  ]);
+  expect(result.items[0].remarkZh).toContain("工时免费");
+});
+
+test("正式收费不把总价或多项混合报价当作某个项目单价", () => {
+  const result = parseChargeEntryInput("清洗剂2瓶 合计800元\n诊断工时800元 配件1200元");
+  expect(result.items.every(item => item.pendingQuote)).toBe(true);
+  expect(JSON.stringify(result)).toContain("800");
+  expect(JSON.stringify(result)).toContain("1200");
+});

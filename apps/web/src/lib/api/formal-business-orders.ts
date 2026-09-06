@@ -1,4 +1,5 @@
 import { notifyFormalDataChanged } from "../formal-data-changes";
+import { withRequestDeadline } from "./request-deadline";
 
 export type FormalBusinessOrderStatus =
   | "waiting_assignment"
@@ -6,6 +7,9 @@ export type FormalBusinessOrderStatus =
   | "in_repair"
   | "return_pending_review"
   | "formally_handed_off";
+
+export type FormalBusinessOrderBaseCategory = "maintenance" | "repair" | "inspection";
+export type FormalBusinessOrderCategory = FormalBusinessOrderBaseCategory | "rework";
 
 export type FormalBusinessOrder = {
   id: number;
@@ -25,6 +29,14 @@ export type FormalBusinessOrder = {
   voided: boolean;
   voidReason: string | null;
   version: number;
+  categories: FormalBusinessOrderCategory[];
+};
+
+export type FormalBusinessOrderListItem = FormalBusinessOrder & {
+  serviceSummary: string | null;
+  totalDueMinor: number;
+  pendingQuoteCount?: number;
+  assignedTeam: { id: number; name: string } | null;
 };
 
 export type FormalChargeSnapshot = {
@@ -53,6 +65,7 @@ export type FormalChargeSnapshot = {
     unitItemId: number;
     quantity: string;
     unitPriceMinor: number;
+    pendingQuote?: boolean;
     itemDiscountMinor: number;
     subtotalMinor: number;
     sortOrder: number;
@@ -90,6 +103,32 @@ export function formalGroupedChargeDiscounts(charges: {
     laborDiscountMinor: itemDiscounts.labor + charges.totals.laborDiscountMinor,
     partDiscountMinor: itemDiscounts.part + charges.totals.partDiscountMinor,
     otherDiscountMinor: itemDiscounts.other + charges.totals.otherDiscountMinor,
+  };
+}
+
+export function formalGroupedChargeNetTotals(charges: {
+  items: ReadonlyArray<{
+    kind: "labor" | "part" | "other";
+    subtotalMinor: number;
+  }>;
+  totals: {
+    laborDiscountMinor: number;
+    partDiscountMinor: number;
+    otherDiscountMinor: number;
+  };
+}) {
+  const itemSubtotals = charges.items.reduce(
+    (totals, item) => {
+      totals[item.kind] += item.subtotalMinor;
+      return totals;
+    },
+    { labor: 0, part: 0, other: 0 },
+  );
+
+  return {
+    laborTotalMinor: itemSubtotals.labor - charges.totals.laborDiscountMinor,
+    partTotalMinor: itemSubtotals.part - charges.totals.partDiscountMinor,
+    otherTotalMinor: itemSubtotals.other - charges.totals.otherDiscountMinor,
   };
 }
 
@@ -221,6 +260,7 @@ export type FormalBusinessOrderDocument = {
   repairRoundNo: number | null;
   generatedAt: string;
   generatedBy: number;
+  generationError?: string;
   snapshot: FormalCustomerCopySnapshot | FormalOfficeArchiveSnapshot | FormalMechanicWorkSnapshot;
 };
 
@@ -291,7 +331,7 @@ export type FormalMechanicWorkSnapshot = {
   kind: "mechanic_work";
   businessOrder: { id: number; orderNo: string };
   vehicle: { plate: string; description: string; vin: string | null };
-  repairRound: { id: number; roundNo: number; teamName: string | null };
+  repairRound: { id: number; roundNo: number; teamName: string | null; performanceMinor?: number | null; performanceSource?: "draft" | "handoff" | "unrecorded" };
   workItems: Array<{
     kind: "labor" | "part" | "other";
     nameZh: string;
@@ -310,7 +350,7 @@ export type FormalMechanicWorkSnapshot = {
 };
 
 export type FormalBusinessOrderList = {
-  items: FormalBusinessOrder[];
+  items: FormalBusinessOrderListItem[];
   page: number;
   pageSize: number;
   pageCount: number;
@@ -397,6 +437,7 @@ export type FormalChargeVersionInput = {
     unitItemId: number;
     quantity: string;
     unitPrice: string;
+    pendingQuote?: boolean;
     itemDiscount: string;
   }>;
   notes: Array<{
@@ -412,6 +453,7 @@ export type FormalRepairRound = {
   roundNo: number;
   source: "initial" | "after_sales";
   afterSalesIssue: string | null;
+  performanceDraftMinor: number | null;
   status: FormalBusinessOrderStatus;
   assignedTeamId: number | null;
   intakeMileageKm: number | null;
@@ -420,6 +462,44 @@ export type FormalRepairRound = {
   approvedWorkReturnId: number | null;
   latestWorkReturn: FormalWorkReturn | null;
   version: number;
+};
+
+export type FormalAfterSalesRoundDeletionPreview = {
+  eligible: boolean;
+  recordNo: string;
+  repairRoundId: number;
+  roundNo: number;
+  repairRoundVersion: number;
+  performanceDraftMinor: number | null;
+  previewFingerprint: string;
+  counts: {
+    events: number;
+    workReturns: number;
+    workReturnAttachments: number;
+    mileageRecords: number;
+    intakePhotos: number;
+    formalHandoffs: number;
+    formalHandoffCancellations: number;
+    problemVersions: number;
+    inspectionReports: number;
+    documentSnapshots: number;
+  };
+  blockers: Array<{
+    code: string;
+    label: string;
+    recordNos?: string[];
+  }>;
+};
+
+export type FormalDeleteInvalidAfterSalesRoundAction = {
+  action: "delete_invalid_after_sales";
+  repairRoundVersion: number;
+  version?: number;
+  previewFingerprint: string;
+  reasonCode: "duplicate" | "input_error" | "test_data" | "other";
+  reasonNote: string;
+  confirmationRecordNo: string;
+  requestId?: string;
 };
 
 export type FormalWorkReturnItemResult = {
@@ -484,6 +564,7 @@ export type FormalMechanicWorkOrder = FormalMechanicWorkOrderSummary & {
 
 export type FormalRepairRoundWorkspace = {
   current: FormalRepairRound;
+  afterSalesRoundDeletion: FormalAfterSalesRoundDeletionPreview | null;
   auditTrail: Array<{
     id: number;
     occurredAt: string;
@@ -510,7 +591,16 @@ export type FormalRepairRoundWorkspace = {
       actorAccountId: number;
       occurredAt: string;
     }>;
-    formalHandoffs: Array<{ id: number; handoffNo: number; performanceMinor: number; jamaicaMonth: string; handedOffAt: string; cancelledAt: string | null }>;
+    formalHandoffs: Array<{
+      id: number;
+      handoffNo: number;
+      performanceMinor: number;
+      jamaicaMonth: string;
+      handedOffAt: string;
+      cancelledAt: string | null;
+      performanceAdjustmentAllowed: boolean;
+      performanceAdjustmentUnavailableReason: "cancelled" | "closed_month" | null;
+    }>;
   }>;
 };
 
@@ -532,6 +622,17 @@ const STATUS_LABELS_EN: Record<FormalBusinessOrderStatus, string> = {
 
 export function formalBusinessOrderStatusLabel(status: FormalBusinessOrderStatus, language: "zh" | "en" = "zh"): string {
   return language === "en" ? STATUS_LABELS_EN[status] : STATUS_LABELS[status];
+}
+
+const CATEGORY_LABELS: Record<FormalBusinessOrderCategory, string> = {
+  maintenance: "保养",
+  repair: "维修",
+  inspection: "检查",
+  rework: "返修",
+};
+
+export function formalBusinessOrderCategoryLabel(category: FormalBusinessOrderCategory): string {
+  return CATEGORY_LABELS[category];
 }
 
 export function formalDocumentKindLabel(kind: FormalBusinessOrderDocument["kind"], language: "zh" | "en" = "zh"): string {
@@ -565,6 +666,7 @@ export function formalRefundHasSignedAcknowledgement(
 async function formalJson<ResponseBody>(input: RequestInfo | URL, init?: RequestInit): Promise<ResponseBody> {
   const response = await fetch(input, { ...init, cache: "no-store" });
   const payload = await response.json().catch(() => ({})) as { error?: unknown } & ResponseBody;
+  init?.signal?.throwIfAborted();
   if (!response.ok) {
     throw new Error(typeof payload.error === "string" ? payload.error : "正式数据读取失败");
   }
@@ -575,12 +677,14 @@ async function formalJson<ResponseBody>(input: RequestInfo | URL, init?: Request
 export function fetchFormalBusinessOrders(input: {
   search?: string;
   status?: FormalBusinessOrderStatus;
+  category?: FormalBusinessOrderCategory;
   page?: number;
   pageSize?: number;
 } = {}): Promise<FormalBusinessOrderList> {
   const query = new URLSearchParams();
   if (input.search) query.set("search", input.search);
   if (input.status) query.set("status", input.status);
+  if (input.category) query.set("category", input.category);
   query.set("page", String(input.page ?? 1));
   query.set("pageSize", String(input.pageSize ?? 20));
   return formalJson(`/api/formal/business-orders?${query.toString()}`);
@@ -591,6 +695,7 @@ export function createFormalBusinessOrder(input: {
   companyContactId?: number | null;
   problemDescriptionZh?: string | null;
   problemDescriptionEn?: string | null;
+  categories?: FormalBusinessOrderBaseCategory[];
 }): Promise<FormalBusinessOrder> {
   const payload = {
     ...input,
@@ -633,15 +738,32 @@ export function fetchFormalBusinessOrder(id: number): Promise<FormalBusinessOrde
 }
 
 export function fetchFormalRepairRounds(id: number): Promise<FormalRepairRoundWorkspace> {
-  return formalJson(`/api/formal/business-orders/${id}/rounds`);
+  return withRequestDeadline(
+    signal => formalJson(`/api/formal/business-orders/${id}/rounds`, { signal }),
+    15_000,
+    "维修记录读取超时，请重试核对。",
+  );
 }
 
 export function runFormalRepairRoundAction(id: number, input: Record<string, unknown>): Promise<FormalRepairRoundWorkspace & { result: unknown }> {
-  return formalJson(`/api/formal/business-orders/${id}/rounds`, {
+  const { requestId, ...payload } = input;
+  const normalizedRequestId = typeof requestId === "string" ? requestId.trim() : "";
+  const request = (signal?: AbortSignal) => formalJson<FormalRepairRoundWorkspace & { result: unknown }>(`/api/formal/business-orders/${id}/rounds`, {
+    signal,
     method: "POST",
-    headers: { "content-type": "application/json" },
-    body: JSON.stringify(input),
+    headers: {
+      "content-type": "application/json",
+      ...(normalizedRequestId ? { "x-request-id": normalizedRequestId } : {}),
+    },
+    body: JSON.stringify(payload),
   });
+  if (payload.action === "set_performance_draft" || payload.action === "adjust_formal_handoff_performance") {
+    return withRequestDeadline(request, 30_000, "绩效保存等待超时，结果尚未确认；请先核对最新绩效记录，再决定是否重试。");
+  }
+  if (payload.action === "delete_invalid_after_sales") {
+    return withRequestDeadline(request, 30_000, "本轮删除等待超时，结果尚未确认。可在此窗口沿用原请求重试，或关闭后核对业务单；超时不代表服务器已取消删除。");
+  }
+  return request();
 }
 
 export function fetchFormalMechanicWorkOrders(): Promise<{ items: FormalMechanicWorkOrderSummary[] }> {
@@ -726,15 +848,32 @@ export function fetchFormalDocument(
   return formalJson(`/api/formal/business-orders/${businessOrderId}/documents/${documentId}`);
 }
 
-export function generateFormalDocument(
+const pendingDocumentRequests = new Map<string, string>();
+
+export async function generateFormalDocument(
   businessOrderId: number,
   kind: FormalBusinessOrderDocument["kind"],
 ): Promise<FormalBusinessOrderDocument> {
-  return formalJson(`/api/formal/business-orders/${businessOrderId}/documents`, {
+  const key = `wh.document-request:${businessOrderId}:${kind}`;
+  let requestId = pendingDocumentRequests.get(key);
+  try { requestId ??= sessionStorage.getItem(key) ?? undefined; } catch { /* Storage can be unavailable in private mode. */ }
+  requestId ??= crypto.randomUUID();
+  pendingDocumentRequests.set(key, requestId);
+  try { sessionStorage.setItem(key, requestId); } catch { /* The in-memory identity still protects retries. */ }
+  const document = await formalJson<FormalBusinessOrderDocument>(`/api/formal/business-orders/${businessOrderId}/documents`, {
     method: "POST",
-    headers: { "content-type": "application/json" },
+    headers: { "content-type": "application/json", "x-request-id": requestId },
     body: JSON.stringify({ kind }),
   });
+  if (!document || !Number.isSafeInteger(document.id) || document.id <= 0
+    || document.businessOrderId !== businessOrderId || document.kind !== kind
+    || typeof document.documentNo !== "string" || !document.documentNo) {
+    throw new Error("单据生成结果未确认，请重试核对已保存的结果。");
+  }
+  // Only a confirmed response finishes this intent; an uncertain result keeps its identity.
+  if (pendingDocumentRequests.get(key) === requestId) pendingDocumentRequests.delete(key);
+  try { if (sessionStorage.getItem(key) === requestId) sessionStorage.removeItem(key); } catch { /* No persistent storage to clear. */ }
+  return document;
 }
 
 export function fetchFormalDocumentDetail(

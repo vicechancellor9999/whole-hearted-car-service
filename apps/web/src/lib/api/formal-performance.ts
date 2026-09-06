@@ -28,6 +28,14 @@ export type FormalMonthlyPerformance = {
     targetPerformanceMinor: number | null;
     completionRate: number | null;
     targetMissingReasons: string[];
+    payrollTotalCnyMinor: number | null;
+    members: Array<{
+      memberId: number;
+      memberName: string;
+      salaryCnyMinor: number | null;
+      targetPerformanceMinor: number | null;
+      payableSalaryCnyMinor: number | null;
+    }>;
   }>;
   handoffs: FormalPerformanceHandoff[];
 };
@@ -39,4 +47,10 @@ export async function fetchFormalPerformance(month: string): Promise<FormalMonth
     throw new Error(typeof payload.error === "string" ? payload.error : "绩效统计读取失败");
   }
   return payload;
+}
+
+export function performanceMonthHref(month: string, teamId: number | null): string {
+  const params = new URLSearchParams({ month });
+  if (teamId !== null) params.set("team", String(teamId));
+  return `/performance?${params.toString()}`;
 }

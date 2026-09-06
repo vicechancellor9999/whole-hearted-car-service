@@ -76,6 +76,49 @@ async function seedFixture(sequence: number) {
   };
 }
 
+async function seedDraftInspectionWithWorkspace(sequence: number) {
+  const fixture = await seedFixture(sequence);
+  const team = await database.query<{ id: number }>(
+    `insert into repair_teams
+      (team_no, name, normalized_name, created_by)
+     values ($1, $2, $2, $3)
+     returning id`,
+    [
+      `TEAM-202608-${String(sequence).padStart(4, "0")}`,
+      `待删除检查组 ${sequence}`,
+      frontDeskId,
+    ],
+  );
+  const reportNo = `IR-20260827-${String(sequence).padStart(4, "0")}`;
+  const report = await database.query<{ id: number }>(
+    `insert into inspection_reports
+      (report_no, vehicle_id, summary_zh, inspection_team_id, created_by)
+     values ($1, $2, '误建检查结果', $3, $4)
+     returning id`,
+    [reportNo, fixture.vehicleId, Number(team.rows[0]?.id), frontDeskId],
+  );
+  const inspectionReportId = Number(report.rows[0]?.id);
+  await database.query(
+    `insert into inspection_report_workspace_versions
+      (inspection_report_id, version_no, organized_content, quotation,
+       source, change_reason, created_by)
+     values ($1, 1, $2::jsonb, $3::jsonb, 'ai', 'AI 整理后待确认', $4)`,
+    [
+      inspectionReportId,
+      JSON.stringify({ summaryZh: "误建检查结果", summaryEn: null, findings: [] }),
+      JSON.stringify({ status: "pending", noteZh: "价格待补", noteEn: null, lines: [] }),
+      frontDeskId,
+    ],
+  );
+  await database.query(
+    `update inspection_reports
+     set current_workspace_version_no = 1, version = 2
+     where id = $1`,
+    [inspectionReportId],
+  );
+  return { ...fixture, inspectionReportId, reportNo };
+}
+
 describe("RecordDeletionService execute", () => {
   beforeAll(async () => {
     database = new PGlite();
@@ -162,6 +205,56 @@ describe("RecordDeletionService execute", () => {
     expect(audit.rows[0]?.serialized.toLowerCase()).not.toMatch(
       /full_name|phone|trn|plate|vin|address|待删除客户|del101|123456789|876 555 0199|private99/,
     );
+  });
+
+  it("deletes a draft inspection together with its authorized workspace versions", async () => {
+    const fixture = await seedDraftInspectionWithWorkspace(9);
+    const root = { kind: "inspection_report" as const, recordNo: fixture.reportNo };
+
+    await expect(database.query(
+      `delete from inspection_report_workspace_versions
+       where inspection_report_id = $1`,
+      [fixture.inspectionReportId],
+    )).rejects.toThrow(/append-only/);
+
+    const preview = await service.preview({
+      actorAccountId: frontDeskId,
+      root,
+      selectedRecords: [root],
+    });
+    expect(preview).toMatchObject({
+      eligible: true,
+      dependentCounts: { inspection_report_workspace_versions: 1 },
+    });
+
+    const result = await service.execute({
+      actorAccountId: frontDeskId,
+      root,
+      selectedRecords: [root],
+      reasonCode: "duplicate",
+      reasonNote: null,
+      confirmationRecordNo: fixture.reportNo,
+      previewFingerprint: preview.previewFingerprint,
+      requestId: "delete-inspection-workspace-9",
+    });
+    expect(result.dependentCounts).toMatchObject({
+      inspection_report_workspace_versions: 1,
+    });
+
+    const remaining = await database.query<{
+      reports: number;
+      workspaces: number;
+      receipts: number;
+    }>(
+      `select
+         (select count(*)::int from inspection_reports where id = $1) as reports,
+         (select count(*)::int from inspection_report_workspace_versions
+          where inspection_report_id = $1) as workspaces,
+         (select count(*)::int from record_deletion_receipts
+          where request_id = 'delete-inspection-workspace-9') as receipts`,
+      [fixture.inspectionReportId],
+    );
+    expect(remaining.rows[0]).toEqual({ reports: 0, workspaces: 0, receipts: 1 });
   });
 
   it("rejects a stale preview without deleting anything", async () => {

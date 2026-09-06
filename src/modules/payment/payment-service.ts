@@ -833,13 +833,14 @@ async function buildReceiptSnapshot(
       unit_label_en: string | null;
       quantity: string;
       unit_price_minor: number;
+      pending_quote: boolean;
       item_discount_minor: number;
       subtotal_minor: number;
     }>(
       `select item.kind, item.name_zh, item.name_en,
               item.description_zh, item.description_en,
               unit.label_zh as unit_label_zh, unit.label_en as unit_label_en,
-              item.quantity::text as quantity, item.unit_price_minor,
+              item.quantity::text as quantity, item.unit_price_minor, item.pending_quote,
               item.item_discount_minor, item.subtotal_minor
        from business_order_charge_items as item
        join dictionary_items as unit on unit.id = item.unit_item_id
@@ -906,6 +907,7 @@ async function buildReceiptSnapshot(
         unitLabelEn: item.unit_label_en,
         quantity: item.quantity,
         unitPriceMinor: Number(item.unit_price_minor),
+        pendingQuote: item.pending_quote,
         itemDiscountMinor: Number(item.item_discount_minor),
         subtotalMinor: Number(item.subtotal_minor),
       })),

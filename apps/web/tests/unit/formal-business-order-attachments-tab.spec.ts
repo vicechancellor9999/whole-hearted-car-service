@@ -24,3 +24,14 @@ test("document preview no longer duplicates the attachment center", () => {
   expect(attachments).toContain("onDrop");
   expect(attachments).toContain("onPaste");
 });
+
+test("Business Order attachments expose a standard camera and document-camera capture entry", () => {
+  const attachments = component("orders/formal-business-order-attachments-workspace.tsx");
+  expect(attachments).toContain("documentCameraConstraints");
+  expect(attachments).toContain("captureVehicleDocumentFrame");
+  expect(attachments).toContain("navigator.mediaDevices?.getUserMedia");
+  expect(attachments).toContain('data-testid="business-order-camera-open"');
+  expect(attachments).toContain('data-testid="business-order-camera-preview"');
+  expect(attachments).toContain('data-testid="business-order-camera-capture"');
+  expect(attachments).toContain('data-testid="business-order-camera-close"');
+});

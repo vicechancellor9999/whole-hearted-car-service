@@ -36,7 +36,17 @@ const migrationPaths = [
   "0019_repair_assignment_withdrawal.sql",
   "0021_optional_work_return_details.sql",
   "0020_repair_assignment_withdrawal_projection.sql",
+  "0027_record_deletion_runtime.sql",
+  "0028_record_deletion_authorization.sql",
+  "0029_record_deletion_primary_guard.sql",
   "0040_business_order_problem_descriptions.sql",
+  "0041_problem_description_record_deletion.sql",
+  "0043_repair_round_performance_draft.sql",
+  "0044_invalid_repair_round_deletion.sql",
+  "0046_repair_round_performance_guard.sql",
+  "0047_formal_handoff_performance_corrections.sql",
+  "0049_business_order_categories.sql",
+  "0051_business_order_pending_quotes.sql",
 ].map((name) => resolve(process.cwd(), "drizzle", name));
 const attachmentMigrationPath = resolve(process.cwd(), "drizzle/0032_business_order_attachments.sql");
 const workReturnClosureMigrationPath = resolve(process.cwd(), "drizzle/0038_work_return_review_closure.sql");
@@ -188,6 +198,13 @@ async function createApprovedOrder() {
     workReturnId: workReturn.id,
     context: context(frontDeskId, "approve", "2026-08-24T14:05:00Z"),
   });
+  await repairRounds.setPerformanceDraft({
+    businessOrderId: order.id,
+    expectedRepairRoundId: (await repairRounds.getCurrentRound({ businessOrderId: order.id, viewerAccountId: adminId })).id,
+    expectedRepairRoundVersion: await roundVersion(order.id),
+    performanceValue: "20000",
+    context: context(frontDeskId, "set-performance-draft", "2026-08-24T14:05:30Z"),
+  });
   return { order, charges };
 }
 
@@ -270,6 +287,26 @@ describe("FormalHandoffService", () => {
 
   afterEach(async () => database.close());
 
+  it("allows handoff with pending prices while freezing their explicit status", async () => {
+    const { order } = await createApprovedOrder();
+    const current = await businessOrders.getBusinessOrder({ businessOrderId: order.id, viewerAccountId: frontDeskId });
+    await businessOrders.replaceChargeVersion({
+      businessOrderId: order.id, expectedBusinessOrderVersion: current.version,
+      reason: "记录待报价", laborDiscount: "0", partDiscount: "0", otherDiscount: "0", wholeOrderDiscount: "0", notes: [],
+      items: [
+        { kind: "labor", nameZh: "诊断", unitItemId: hourUnitId, quantity: "1", unitPrice: "20000", itemDiscount: "0" },
+        { kind: "part", nameZh: "待报价配件", unitItemId: hourUnitId, quantity: "1", unitPrice: "", itemDiscount: "0", pendingQuote: true },
+      ], context: context(frontDeskId, "pending-handoff-charge", "2026-08-24T15:00:00Z"),
+    });
+    const handoff = await formalHandoffs.formallyHandOffRound({
+      businessOrderId: order.id, expectedRepairRoundVersion: await roundVersion(order.id), performanceValue: "20000",
+      context: context(frontDeskId, "pending-handoff", "2026-08-24T15:30:00Z"),
+    });
+    expect(handoff.chargeSnapshot.items[0]).not.toHaveProperty("pendingQuote");
+    expect(handoff.chargeSnapshot.items[1]).toMatchObject({ pendingQuote: true, unitPriceMinor: 0 });
+    expect(handoff.performanceMinor).toBe(2000000);
+  });
+
   it("freezes the approved round, team, performance and current charge snapshot", async () => {
     const { order, charges } = await createApprovedOrder();
     const handoff = await formalHandoffs.formallyHandOffRound({
@@ -347,6 +384,13 @@ describe("FormalHandoffService", () => {
 
   it("cancels only an active handoff in the same Jamaica month and keeps both facts", async () => {
     const { order } = await createApprovedOrder();
+    await repairRounds.setPerformanceDraft({
+      businessOrderId: order.id,
+      expectedRepairRoundId: (await repairRounds.getCurrentRound({ businessOrderId: order.id, viewerAccountId: adminId })).id,
+      expectedRepairRoundVersion: await roundVersion(order.id),
+      performanceValue: "-20000",
+      context: context(adminId, "set-negative-performance", "2026-09-01T15:29:00Z"),
+    });
     const handoff = await formalHandoffs.formallyHandOffRound({
       businessOrderId: order.id,
       expectedRepairRoundVersion: await roundVersion(order.id),
@@ -529,6 +573,13 @@ describe("FormalHandoffService", () => {
       reason: "需要重新确认绩效值",
       context: context(frontDeskId, "cancel-first", "2026-09-02T15:00:00Z"),
     });
+    await repairRounds.setPerformanceDraft({
+      businessOrderId: order.id,
+      expectedRepairRoundId: (await repairRounds.getCurrentRound({ businessOrderId: order.id, viewerAccountId: adminId })).id,
+      expectedRepairRoundVersion: await roundVersion(order.id),
+      performanceValue: "18000",
+      context: context(frontDeskId, "set-second-performance", "2026-09-03T14:59:00Z"),
+    });
     const second = await formalHandoffs.formallyHandOffRound({
       businessOrderId: order.id,
       expectedRepairRoundVersion: await roundVersion(order.id),
@@ -567,6 +618,7 @@ describe("FormalHandoffService", () => {
       roundNo: 2,
       source: "after_sales",
       afterSalesIssue: "客户反馈维修后异响仍然存在",
+      performanceDraftMinor: 0,
       status: "waiting_assignment",
       assignedTeamId: null,
     });
@@ -590,12 +642,304 @@ describe("FormalHandoffService", () => {
       roundNo: 2,
       source: "after_sales",
       afterSalesIssue: "客户反馈维修后异响仍然存在",
+      performanceDraftMinor: 0,
       formalHandoffs: [],
     });
     await expect(formalHandoffs.listFormalHandoffs({
       businessOrderId: order.id,
       viewerAccountId: ownerId,
     })).resolves.toEqual([expect.objectContaining({ id: firstHandoff.id })]);
+  });
+
+  it("rejects a later-round handoff when an old client resubmits the whole-order labor value", async () => {
+    const { order } = await createApprovedOrder();
+    await formalHandoffs.formallyHandOffRound({
+      businessOrderId: order.id,
+      expectedRepairRoundVersion: await roundVersion(order.id),
+      performanceValue: "20000",
+      context: context(frontDeskId, "first-round-before-mismatch", "2026-08-24T15:30:00Z"),
+    });
+    const handedOffOrder = await businessOrders.getBusinessOrder({
+      businessOrderId: order.id,
+      viewerAccountId: adminId,
+    });
+    await repairRounds.startAfterSalesRound({
+      businessOrderId: order.id,
+      expectedBusinessOrderVersion: handedOffOrder.version,
+      issue: "售后复查",
+      context: context(frontDeskId, "start-later-round-mismatch", "2026-08-25T15:00:00Z"),
+    });
+    await repairRounds.assignRound({
+      businessOrderId: order.id,
+      expectedBusinessOrderVersion: (await businessOrders.getBusinessOrder({
+        businessOrderId: order.id,
+        viewerAccountId: adminId,
+      })).version,
+      teamId,
+      customerConfirmedWithoutPayment: true,
+      context: context(frontDeskId, "assign-later-round-mismatch", "2026-08-25T15:01:00Z"),
+    });
+    await repairRounds.acceptRound({
+      businessOrderId: order.id,
+      expectedRepairRoundVersion: await roundVersion(order.id),
+      context: context(mechanicAccountId, "accept-later-round-mismatch", "2026-08-25T15:02:00Z"),
+    });
+    await repairRounds.recordPaperWorkReturn({
+      businessOrderId: order.id,
+      expectedRepairRoundVersion: await roundVersion(order.id),
+      actualStaffMemberId: mechanicStaffId,
+      attachmentIds: [],
+      workSummary: "售后复查完成",
+      context: context(frontDeskId, "return-later-round-mismatch", "2026-08-25T15:03:00Z"),
+    });
+
+    await expect(formalHandoffs.formallyHandOffRound({
+      businessOrderId: order.id,
+      expectedRepairRoundVersion: await roundVersion(order.id),
+      performanceValue: "20000",
+      context: context(frontDeskId, "handoff-later-round-mismatch", "2026-08-25T15:05:00Z"),
+    })).rejects.toThrow(/本轮绩效/);
+
+    const active = await database.query<{ count: number }>(
+      `select count(*)::int as count
+       from formal_handoffs as handoff
+       left join formal_handoff_cancellations as cancellation
+         on cancellation.formal_handoff_id = handoff.id
+       where handoff.business_order_id = $1 and cancellation.id is null`,
+      [order.id],
+    );
+    expect(active.rows).toEqual([{ count: 1 }]);
+  });
+
+  it("rejects a mismatched performance fact inserted outside the service", async () => {
+    const { order } = await createApprovedOrder();
+    const first = await formalHandoffs.formallyHandOffRound({
+      businessOrderId: order.id,
+      expectedRepairRoundVersion: await roundVersion(order.id),
+      performanceValue: "20000",
+      context: context(frontDeskId, "handoff-before-direct-bypass", "2026-08-24T15:30:00Z"),
+    });
+    await formalHandoffs.cancelFormalHandoffInSameMonth({
+      businessOrderId: order.id,
+      formalHandoffId: first.id,
+      reason: "测试数据库绩效约束",
+      context: context(frontDeskId, "cancel-before-direct-bypass", "2026-08-25T15:30:00Z"),
+    });
+
+    await expect(database.query(
+      `insert into formal_handoffs
+        (business_order_id, handoff_no, repair_round_id, repair_round_no,
+         team_id, performance_minor, jamaica_month, charge_version_id,
+         charge_version_no, gross_minor, line_discount_minor,
+         labor_discount_minor, part_discount_minor, other_discount_minor,
+         category_discount_minor, whole_order_discount_minor, total_due_minor,
+         included_gct_minor, charge_snapshot, handed_off_at, handed_off_by)
+       select business_order_id, handoff_no + 1, repair_round_id, repair_round_no,
+              team_id, 999, jamaica_month, charge_version_id,
+              charge_version_no, gross_minor, line_discount_minor,
+              labor_discount_minor, part_discount_minor, other_discount_minor,
+              category_discount_minor, whole_order_discount_minor, total_due_minor,
+              included_gct_minor, charge_snapshot, $2, handed_off_by
+       from formal_handoffs
+       where id = $1`,
+      [first.id, new Date("2026-08-26T15:30:00Z")],
+    )).rejects.toThrow(/performance does not match repair round/);
+  });
+
+  it("adjusts a handed-off round in the same month by preserving the old fact and creating a replacement", async () => {
+    const { order } = await createApprovedOrder();
+    const first = await formalHandoffs.formallyHandOffRound({
+      businessOrderId: order.id,
+      expectedRepairRoundVersion: await roundVersion(order.id),
+      performanceValue: "20000",
+      context: context(frontDeskId, "handoff-before-performance-adjustment", "2026-08-24T15:30:00Z"),
+    });
+
+    const replacement = await formalHandoffs.adjustFormalHandoffPerformanceInSameMonth({
+      businessOrderId: order.id,
+      formalHandoffId: first.id,
+      expectedRepairRoundVersion: await roundVersion(order.id),
+      performanceValue: "18000",
+      reason: "本轮绩效录入错误",
+      context: context(frontDeskId, "adjust-handed-off-performance", "2026-08-25T15:30:00Z"),
+    });
+
+    expect(replacement).toMatchObject({
+      handoffNo: 2,
+      repairRoundId: first.repairRoundId,
+      repairRoundNo: first.repairRoundNo,
+      performanceMinor: 1_800_000,
+      cancellation: null,
+    });
+    const facts = await formalHandoffs.listFormalHandoffs({
+      businessOrderId: order.id,
+      viewerAccountId: ownerId,
+    });
+    expect(facts).toEqual([
+      expect.objectContaining({
+        id: first.id,
+        performanceMinor: 2_000_000,
+        cancellation: expect.objectContaining({ reason: "绩效调整:本轮绩效录入错误" }),
+      }),
+      expect.objectContaining({
+        id: replacement.id,
+        performanceMinor: 1_800_000,
+        cancellation: null,
+      }),
+    ]);
+    await expect(repairRounds.getCurrentRound({
+      businessOrderId: order.id,
+      viewerAccountId: ownerId,
+    })).resolves.toMatchObject({
+      status: "formally_handed_off",
+      performanceDraftMinor: 1_800_000,
+    });
+    const audits = await database.query<{
+      event_type: string;
+      before_state: { performanceMinor: number } | null;
+      after_state: { performanceMinor: number } | null;
+      reason: string | null;
+    }>(
+      `select event_type, before_state, after_state, reason
+       from audit_events
+       where request_id = 'adjust-handed-off-performance'
+       order by id`,
+    );
+    expect(audits.rows).toEqual(expect.arrayContaining([
+      expect.objectContaining({ event_type: "business_order.formal_handoff_cancelled" }),
+      expect.objectContaining({
+        event_type: "business_order.performance_adjusted",
+        before_state: expect.objectContaining({ performanceMinor: 2_000_000 }),
+        after_state: expect.objectContaining({ performanceMinor: 1_800_000 }),
+        reason: "本轮绩效录入错误",
+      }),
+      expect.objectContaining({ event_type: "business_order.formally_handed_off" }),
+    ]));
+  });
+
+  it("adjusts an earlier round without changing its frozen charges or the current round workflow", async () => {
+    const { order, charges } = await createApprovedOrder();
+    const first = await formalHandoffs.formallyHandOffRound({
+      businessOrderId: order.id,
+      expectedRepairRoundVersion: await roundVersion(order.id),
+      performanceValue: "20000",
+      context: context(frontDeskId, "handoff-r1-before-historical-adjustment", "2026-08-24T15:30:00Z"),
+    });
+
+    const handedOffOrder = await businessOrders.getBusinessOrder({
+      businessOrderId: order.id,
+      viewerAccountId: adminId,
+    });
+    const changedCharges = await businessOrders.replaceChargeVersion({
+      businessOrderId: order.id,
+      expectedBusinessOrderVersion: handedOffOrder.version,
+      reason: "第二轮开始前调整整单收费",
+      laborDiscount: "0",
+      partDiscount: "0",
+      otherDiscount: "0",
+      wholeOrderDiscount: "0",
+      items: [{
+        kind: "labor",
+        nameZh: "售后复查",
+        nameEn: "After-sales inspection",
+        unitItemId: hourUnitId,
+        quantity: "1",
+        unitPrice: "30000",
+        itemDiscount: "0",
+      }],
+      notes: [{
+        kind: "work_instruction",
+        contentZh: "这是第二轮使用的新收费说明。",
+        contentEn: "This charge note belongs to the second round.",
+      }],
+      context: context(frontDeskId, "change-charges-before-r2", "2026-08-25T15:00:00Z"),
+    });
+    expect(changedCharges.versionNo).not.toBe(charges.versionNo);
+
+    const secondRound = await repairRounds.startAfterSalesRound({
+      businessOrderId: order.id,
+      expectedBusinessOrderVersion: changedCharges.businessOrderVersion,
+      issue: "客户反馈需要复查",
+      context: context(frontDeskId, "start-r2-before-r1-adjustment", "2026-08-26T15:00:00Z"),
+    });
+    const roundsBefore = await repairRounds.listRepairRounds({
+      businessOrderId: order.id,
+      viewerAccountId: adminId,
+      now: new Date("2026-08-27T15:00:00Z"),
+    });
+    const firstRoundBefore = roundsBefore.find((round) => round.roundNo === 1);
+    if (!firstRoundBefore) throw new Error("第一轮维修不存在");
+    expect(firstRoundBefore.formalHandoffs.find((handoff) => !handoff.cancelledAt)).toMatchObject({
+      id: first.id,
+      performanceAdjustmentAllowed: true,
+      performanceAdjustmentUnavailableReason: null,
+    });
+    const closedMonthHistory = await repairRounds.listRepairRounds({
+      businessOrderId: order.id,
+      viewerAccountId: adminId,
+      now: new Date("2026-09-01T05:00:00Z"),
+    });
+    expect(closedMonthHistory.find((round) => round.roundNo === 1)?.formalHandoffs.find((handoff) => !handoff.cancelledAt)).toMatchObject({
+      id: first.id,
+      performanceAdjustmentAllowed: false,
+      performanceAdjustmentUnavailableReason: "closed_month",
+    });
+    const currentRoundBefore = await repairRounds.getCurrentRound({
+      businessOrderId: order.id,
+      viewerAccountId: adminId,
+    });
+
+    const replacement = await formalHandoffs.adjustFormalHandoffPerformanceInSameMonth({
+      businessOrderId: order.id,
+      formalHandoffId: first.id,
+      expectedRepairRoundVersion: firstRoundBefore.version,
+      performanceValue: "18000",
+      reason: "第一轮绩效录入错误",
+      context: context(frontDeskId, "adjust-r1-after-r2-started", "2026-08-27T15:00:00Z"),
+    });
+
+    expect(replacement).toMatchObject({
+      repairRoundId: first.repairRoundId,
+      repairRoundNo: 1,
+      performanceMinor: 1_800_000,
+      chargeVersionId: first.chargeVersionId,
+      chargeVersionNo: first.chargeVersionNo,
+      chargeSnapshot: first.chargeSnapshot,
+    });
+    const frozenAmounts = await database.query<Record<string, number>>(
+      `select gross_minor, line_discount_minor, labor_discount_minor,
+              part_discount_minor, other_discount_minor,
+              category_discount_minor, whole_order_discount_minor,
+              total_due_minor, included_gct_minor
+       from formal_handoffs
+       where id in ($1, $2)
+       order by id`,
+      [first.id, replacement.id],
+    );
+    expect(frozenAmounts.rows).toHaveLength(2);
+    expect(frozenAmounts.rows[1]).toEqual(frozenAmounts.rows[0]);
+
+    await expect(repairRounds.getCurrentRound({
+      businessOrderId: order.id,
+      viewerAccountId: adminId,
+    })).resolves.toMatchObject({
+      id: secondRound.id,
+      roundNo: 2,
+      status: currentRoundBefore.status,
+      version: currentRoundBefore.version,
+      performanceDraftMinor: currentRoundBefore.performanceDraftMinor,
+    });
+    const activePerformance = await database.query<{ total: number; count: number }>(
+      `select coalesce(sum(handoff.performance_minor), 0)::int as total,
+              count(*)::int as count
+       from formal_handoffs as handoff
+       left join formal_handoff_cancellations as cancellation
+         on cancellation.formal_handoff_id = handoff.id
+       where handoff.business_order_id = $1
+         and cancellation.id is null`,
+      [order.id],
+    );
+    expect(activePerformance.rows).toEqual([{ total: 1_800_000, count: 1 }]);
   });
 
   it("cancels an empty after-sales round created by mistake and restores the handed-off round", async () => {
@@ -671,6 +1015,138 @@ describe("FormalHandoffService", () => {
       expectedRepairRoundVersion: secondRound.version + 1,
       context: context(frontDeskId, "cancel-assigned-after-sales", "2026-08-25T15:02:00Z"),
     })).rejects.toBeInstanceOf(RepairRoundValidationError);
+  });
+
+  it("previews and permanently deletes a fully-invalidated after-sales chain, then restores the prior round", async () => {
+    const { order } = await createApprovedOrder();
+    await formalHandoffs.formallyHandOffRound({
+      businessOrderId: order.id,
+      expectedRepairRoundVersion: await roundVersion(order.id),
+      performanceValue: "20000",
+      context: context(frontDeskId, "handoff-before-invalid-chain", "2026-08-24T15:30:00Z"),
+    });
+    const handedOffOrder = await businessOrders.getBusinessOrder({
+      businessOrderId: order.id,
+      viewerAccountId: adminId,
+    });
+    await repairRounds.startAfterSalesRound({
+      businessOrderId: order.id,
+      expectedBusinessOrderVersion: handedOffOrder.version,
+      issue: "误建测试轮次",
+      context: context(frontDeskId, "start-invalid-chain", "2026-08-25T15:00:00Z"),
+    });
+    await repairRounds.assignRound({
+      businessOrderId: order.id,
+      expectedBusinessOrderVersion: (await businessOrders.getBusinessOrder({
+        businessOrderId: order.id,
+        viewerAccountId: adminId,
+      })).version,
+      teamId,
+      customerConfirmedWithoutPayment: true,
+      context: context(frontDeskId, "assign-invalid-chain", "2026-08-25T15:01:00Z"),
+    });
+    await repairRounds.acceptRound({
+      businessOrderId: order.id,
+      expectedRepairRoundVersion: await roundVersion(order.id),
+      context: context(mechanicAccountId, "accept-invalid-chain", "2026-08-25T15:02:00Z"),
+    });
+    await repairRounds.recordPaperWorkReturn({
+      businessOrderId: order.id,
+      expectedRepairRoundVersion: await roundVersion(order.id),
+      actualStaffMemberId: mechanicStaffId,
+      attachmentIds: [],
+      workSummary: "测试回单",
+      context: context(frontDeskId, "return-invalid-chain", "2026-08-25T15:03:00Z"),
+    });
+    await repairRounds.setPerformanceDraft({
+      businessOrderId: order.id,
+      expectedRepairRoundId: (await repairRounds.getCurrentRound({ businessOrderId: order.id, viewerAccountId: adminId })).id,
+      expectedRepairRoundVersion: await roundVersion(order.id),
+      performanceValue: "54400",
+      context: context(frontDeskId, "set-invalid-chain-performance", "2026-08-25T15:04:00Z"),
+    });
+    const invalidHandoff = await formalHandoffs.formallyHandOffRound({
+      businessOrderId: order.id,
+      expectedRepairRoundVersion: await roundVersion(order.id),
+      performanceValue: "54400",
+      context: context(frontDeskId, "handoff-invalid-chain", "2026-08-25T15:05:00Z"),
+    });
+    await formalHandoffs.cancelFormalHandoffInSameMonth({
+      businessOrderId: order.id,
+      formalHandoffId: invalidHandoff.id,
+      reason: "整轮测试数据无效",
+      context: context(frontDeskId, "cancel-invalid-chain-handoff", "2026-08-25T15:06:00Z"),
+    });
+    const preview = await repairRounds.getAfterSalesRoundDeletionPreview({
+      businessOrderId: order.id,
+      viewerAccountId: frontDeskId,
+    });
+    if (!preview) throw new Error("售后轮次删除预览不存在");
+    expect(preview).toMatchObject({
+      eligible: true,
+      recordNo: `${handedOffOrder.orderNo}/R2`,
+      roundNo: 2,
+      counts: {
+        workReturns: 1,
+        formalHandoffs: 1,
+        formalHandoffCancellations: 1,
+      },
+      blockers: [],
+    });
+    expect(preview.counts.events).toBeGreaterThanOrEqual(6);
+
+    await expect(repairRounds.deleteInvalidAfterSalesRound({
+      businessOrderId: order.id,
+      expectedRepairRoundVersion: preview.repairRoundVersion,
+      previewFingerprint: preview.previewFingerprint,
+      reasonCode: "test_data",
+      reasonNote: "误建后完成的整条测试链路",
+      confirmationRecordNo: preview.recordNo,
+      context: context(frontDeskId, "delete-invalid-after-sales-chain", "2026-08-25T15:08:00Z"),
+    })).resolves.toMatchObject({ cancelled: true, deletedRoundNo: 2, restoredRoundNo: 1 });
+
+    await expect(repairRounds.getCurrentRound({
+      businessOrderId: order.id,
+      viewerAccountId: adminId,
+    })).resolves.toMatchObject({ roundNo: 1, status: "formally_handed_off" });
+    const counts = await database.query<Record<string, number>>(
+      `select
+         (select count(*)::int from repair_rounds where business_order_id = $1 and round_no = 2) as rounds,
+         (select count(*)::int from repair_round_events where repair_round_id = $2) as events,
+         (select count(*)::int from repair_round_work_returns where repair_round_id = $2) as returns,
+         (select count(*)::int from formal_handoffs where repair_round_id = $2) as handoffs`,
+      [order.id, invalidHandoff.repairRoundId],
+    );
+    expect(counts.rows[0]).toMatchObject({ rounds: 0, events: 0, returns: 0, handoffs: 0 });
+    const retainedPerformance = await database.query<{
+      handoff_count: number;
+      performance_minor: number;
+    }>(
+      `select count(*)::int as handoff_count,
+              coalesce(sum(performance_minor), 0)::int as performance_minor
+       from formal_handoffs where business_order_id = $1`,
+      [order.id],
+    );
+    expect(retainedPerformance.rows).toEqual([{
+      handoff_count: 1,
+      performance_minor: 2_000_000,
+    }]);
+    const receipt = await database.query<{ root_kind: string; root_record_no: string }>(
+      `select root_kind, root_record_no from record_deletion_receipts
+       where request_id = 'delete-invalid-after-sales-chain'`,
+    );
+    expect(receipt.rows).toEqual([{
+      root_kind: "repair_round",
+      root_record_no: `${handedOffOrder.orderNo}/R2`,
+    }]);
+    const auditReason = await database.query<{ reason: string | null }>(
+      `select reason from audit_events
+       where request_id = 'delete-invalid-after-sales-chain'
+         and event_type = 'business_order.invalid_after_sales_round_deleted'`,
+    );
+    expect(auditReason.rows).toEqual([{
+      reason: "test_data: 误建后完成的整条测试链路",
+    }]);
   });
 
   it("requires an active formal handoff and a nonempty issue before starting after-sales", async () => {

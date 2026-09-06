@@ -32,6 +32,10 @@ const migrationPaths = [
   "0021_optional_work_return_details.sql",
   "0020_repair_assignment_withdrawal_projection.sql",
   "0040_business_order_problem_descriptions.sql",
+  "0043_repair_round_performance_draft.sql",
+  "0046_repair_round_performance_guard.sql",
+  "0049_business_order_categories.sql",
+  "0051_business_order_pending_quotes.sql",
 ].map((name) => resolve(process.cwd(), "drizzle", name));
 const attachmentMigrationPath = resolve(process.cwd(), "drizzle/0032_business_order_attachments.sql");
 const workReturnClosureMigrationPath = resolve(process.cwd(), "drizzle/0038_work_return_review_closure.sql");
@@ -216,6 +220,7 @@ describe("RepairRoundService", () => {
       roundNo: 1,
       status: "waiting_assignment",
       assignedTeamId: null,
+      performanceDraftMinor: null,
     });
     await expect(repairRounds.assignRound({
       businessOrderId: order.id,
@@ -234,6 +239,84 @@ describe("RepairRoundService", () => {
       "select id from audit_events where request_id = 'req-return-without-confirmation'",
     );
     expect(audits.rows).toEqual([]);
+  });
+
+  it("updates the current round performance draft with signed JMD money and records the change", async () => {
+    const order = await businessOrders.createBusinessOrder({
+      vehicleId,
+      context: context(frontDeskId, "req-create-performance-draft", 0),
+    });
+    const service = repairRounds as RepairRoundService & {
+      setPerformanceDraft(input: {
+        businessOrderId: number;
+        expectedRepairRoundId: number;
+        expectedRepairRoundVersion: number;
+        performanceValue: string;
+        context: ReturnType<typeof context>;
+      }): Promise<Record<string, unknown>>;
+    };
+    const initial = await repairRounds.getCurrentRound({
+      businessOrderId: order.id,
+      viewerAccountId: adminId,
+    });
+
+    await expect(service.setPerformanceDraft({
+      businessOrderId: order.id,
+      expectedRepairRoundId: (await repairRounds.getCurrentRound({ businessOrderId: order.id, viewerAccountId: adminId })).id,
+      expectedRepairRoundVersion: initial.version,
+      performanceValue: "0",
+      context: context(frontDeskId, "req-set-performance-draft-zero", 1),
+    })).resolves.toMatchObject({ performanceDraftMinor: 0 });
+
+    const zeroDraft = await repairRounds.getCurrentRound({
+      businessOrderId: order.id,
+      viewerAccountId: adminId,
+    });
+    await expect(service.setPerformanceDraft({
+      businessOrderId: order.id,
+      expectedRepairRoundId: (await repairRounds.getCurrentRound({ businessOrderId: order.id, viewerAccountId: adminId })).id,
+      expectedRepairRoundVersion: zeroDraft.version,
+      performanceValue: "-12.34",
+      context: context(frontDeskId, "req-set-performance-draft-negative", 2),
+    })).resolves.toMatchObject({ performanceDraftMinor: -1_234 });
+
+    const current = await repairRounds.getCurrentRound({
+      businessOrderId: order.id,
+      viewerAccountId: adminId,
+    });
+    expect(current).toMatchObject({ performanceDraftMinor: -1_234 });
+    await expect(service.setPerformanceDraft({
+      businessOrderId: order.id,
+      expectedRepairRoundId: (await repairRounds.getCurrentRound({ businessOrderId: order.id, viewerAccountId: adminId })).id,
+      expectedRepairRoundVersion: zeroDraft.version,
+      performanceValue: "5",
+      context: context(frontDeskId, "req-set-performance-draft-stale", 3),
+    })).rejects.toBeInstanceOf(RepairRoundValidationError);
+
+    await expect(repairRounds.listRepairRounds({
+      businessOrderId: order.id,
+      viewerAccountId: adminId,
+    })).resolves.toEqual([expect.objectContaining({ performanceDraftMinor: -1_234 })]);
+    await expect(repairRounds.listAuditTrail({
+      businessOrderId: order.id,
+      viewerAccountId: adminId,
+    })).resolves.toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        eventType: "business_order.performance_draft_set",
+        before: expect.objectContaining({ performanceDraftMinor: 0 }),
+        after: expect.objectContaining({ performanceDraftMinor: -1_234 }),
+      }),
+    ]));
+  });
+
+  it("rejects a different round identity even when its expected version matches, without changing facts", async () => {
+    const order = await businessOrders.createBusinessOrder({ vehicleId, context: context(frontDeskId, "round-identity-create") });
+    const original = await repairRounds.getCurrentRound({ businessOrderId: order.id, viewerAccountId: adminId });
+    const auditBefore = await repairRounds.listAuditTrail({ businessOrderId: order.id, viewerAccountId: adminId });
+    const input = { businessOrderId: order.id, expectedRepairRoundId: original.id + 1, expectedRepairRoundVersion: original.version, performanceValue: "1250", context: context(frontDeskId, "round-identity-stale") };
+    await expect(repairRounds.setPerformanceDraft(input)).rejects.toThrow("维修轮次已变化");
+    expect(await repairRounds.getCurrentRound({ businessOrderId: order.id, viewerAccountId: adminId })).toEqual(original);
+    expect(await repairRounds.listAuditTrail({ businessOrderId: order.id, viewerAccountId: adminId })).toEqual(auditBefore);
   });
 
   it("rejects intake records until the assigned team has accepted the round", async () => {
@@ -850,6 +933,14 @@ describe("RepairRoundService", () => {
       }): Promise<{ id: number }>;
     };
 
+    await repairRounds.setPerformanceDraft({
+      businessOrderId: order.id,
+      expectedRepairRoundId: (await repairRounds.getCurrentRound({ businessOrderId: order.id, viewerAccountId: adminId })).id,
+      expectedRepairRoundVersion: await currentRoundVersion(order.id),
+      performanceValue: "19900",
+      context: context(frontDeskId, "req-paper-performance", 4),
+    });
+
     await expect(service.recordPaperWorkReturnAndFormallyHandOff({
       businessOrderId: order.id,
       expectedRepairRoundVersion: await currentRoundVersion(order.id),
@@ -910,6 +1001,14 @@ describe("RepairRoundService", () => {
         context: ReturnType<typeof context>;
       }): Promise<{ id: number }>;
     };
+
+    await repairRounds.setPerformanceDraft({
+      businessOrderId: order.id,
+      expectedRepairRoundId: (await repairRounds.getCurrentRound({ businessOrderId: order.id, viewerAccountId: adminId })).id,
+      expectedRepairRoundVersion: await currentRoundVersion(order.id),
+      performanceValue: "19900",
+      context: context(frontDeskId, "req-combined-performance", 5),
+    });
 
     await expect(service.approveAndFormallyHandOff({
       businessOrderId: order.id,

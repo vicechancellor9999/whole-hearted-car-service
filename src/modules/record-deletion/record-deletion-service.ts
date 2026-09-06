@@ -4,6 +4,7 @@ import type {
   AuthSqlExecutor,
 } from "@formal/modules/auth/session-repository";
 import { writeAuditEvent } from "@formal/modules/audit/audit-service";
+import { parseDeletionRequestId } from "@formal/modules/record-deletion/record-deletion-types";
 import {
   deletionPreviewStale,
   deletionRequestConflict,
@@ -79,6 +80,18 @@ type InspectionRow = {
 
 export class RecordDeletionService {
   constructor(private readonly database: AuthSqlDatabase) {}
+
+  async readResult(input: { requestId: string; actorAccountId: number }): Promise<RecordDeletionResult | null> {
+    const requestId = parseDeletionRequestId(input.requestId);
+    await requireRecordDeletePermission(this.database, input.actorAccountId);
+    // The primary-key lookup only observes committed receipts; no receipt is
+    // an unknown result, not evidence that the deletion failed or was cancelled.
+    const rows = await this.database.query<{ result: RecordDeletionResult | string }>(
+      `select result from record_deletion_receipts where request_id = $1 and actor_account_id = $2`,
+      [requestId, input.actorAccountId],
+    );
+    return rows[0] ? parseDeletionResult(rows[0].result) : null;
+  }
 
   async preview(input: PreviewDeletionInput): Promise<RecordDeletionPreview> {
     await requireRecordDeletePermission(this.database, input.actorAccountId);
@@ -654,6 +667,7 @@ async function loadInspectionFact(
   const counts = await executor.query<Record<string, number>>(
     `select
        (select count(*)::int from inspection_report_findings where inspection_report_id = $1) as finding_count,
+       (select count(*)::int from inspection_report_workspace_versions where inspection_report_id = $1) as workspace_version_count,
        (select count(*)::int from inspection_report_communications where inspection_report_id = $1) as communication_count,
        (select count(*)::int from inspection_reports where correction_of_report_id = $1) +
        (select count(*)::int from inspection_reports where id = $1 and correction_of_report_id is not null) as correction_count`,
@@ -666,6 +680,7 @@ async function loadInspectionFact(
     linkedPrimaryRecords: [],
     dependentCounts: {
       inspection_report_findings: numberAt(count, "finding_count"),
+      inspection_report_workspace_versions: numberAt(count, "workspace_version_count"),
       inspection_paper_photo_files: rows[0]?.paper_photo_file_id ? 1 : 0,
     },
     releasedIdentityKinds: [],
@@ -751,6 +766,19 @@ async function deleteSelectedGraph(
       [inspectionIds],
     );
     paperFiles.forEach((row) => candidateFileIds.add(Number(row.file_id)));
+    await authorizeRowsFromQuery(
+      transaction,
+      requestId,
+      "inspection_report_workspace_versions",
+      `select id::text from inspection_report_workspace_versions
+       where inspection_report_id = any($2::bigint[])`,
+      [inspectionIds],
+    );
+    await transaction.query(
+      `delete from inspection_report_workspace_versions
+       where inspection_report_id = any($1::bigint[])`,
+      [inspectionIds],
+    );
     await authorizeRowsFromQuery(
       transaction,
       requestId,

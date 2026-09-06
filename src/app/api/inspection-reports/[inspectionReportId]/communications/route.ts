@@ -14,7 +14,7 @@ export async function POST(request: Request, context: RouteContext): Promise<Res
   if (!session) return NextResponse.json({ error: "unauthorized" }, { status: 401 });
   const inspectionReportId = positiveRouteId((await context.params).inspectionReportId);
   if (!inspectionReportId) return NextResponse.json({ error: "Inspection Report 编号无效" }, { status: 400 });
-  const body = await request.json().catch(() => null) as { channel?: unknown; targetContact?: unknown; noteOrReply?: unknown } | null;
+  const body = await request.json().catch(() => null) as { channel?: unknown; targetContact?: unknown; noteOrReply?: unknown; status?: unknown; eventKind?: unknown } | null;
   if (!body || typeof body.channel !== "string" || typeof body.targetContact !== "string") {
     return NextResponse.json({ error: "通知内容无效" }, { status: 400 });
   }
@@ -25,6 +25,8 @@ export async function POST(request: Request, context: RouteContext): Promise<Res
       channel: body.channel as "sms" | "email" | "whatsapp",
       targetContact: body.targetContact,
       noteOrReply: typeof body.noteOrReply === "string" ? body.noteOrReply : null,
+      status: body.status === "confirmed" || body.status === "not_delivered" ? body.status : "initiated",
+      eventKind: body.eventKind === "reply" || body.eventKind === "status_correction" ? body.eventKind : "notification",
       context: {
         actorAccountId: session.account.id,
         requestId: request.headers.get("x-request-id") ?? crypto.randomUUID(),

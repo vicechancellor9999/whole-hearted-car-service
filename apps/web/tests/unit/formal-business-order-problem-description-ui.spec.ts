@@ -34,7 +34,7 @@ test("problem description append keeps Business Order and repair-round saves exp
   });
 });
 
-test("detail component presents current context, distinct round context and history without exposing edits to read-only users", async () => {
+test("detail component presents compact current context, distinct round context and version history", async () => {
   const source = await readFile(path.join(
     process.cwd(),
     "src/components/orders/formal-business-order-problem-description.tsx",
@@ -42,6 +42,7 @@ test("detail component presents current context, distinct round context and hist
 
   expect(source).toContain('data-testid="business-order-problem-context"');
   expect(source).toContain('data-testid="business-order-current-problem"');
+  expect(source).toContain('data-testid="business-order-problem-empty"');
   expect(source).toContain('data-testid="repair-round-current-problem"');
   expect(source).toContain("descriptionsDiffer");
   expect(source).toContain("businessOrderHistory");
@@ -49,6 +50,7 @@ test("detail component presents current context, distinct round context and hist
   expect(source).toContain("canWrite");
   expect(source).toContain('scope === "business_order"');
   expect(source).toContain('scope === "repair_round"');
-  expect(source).toContain("Problem description");
+  expect(source).toContain("Edit Business Order problem description");
   expect(source).toContain("Original description");
+  expect(source).not.toContain("创建业务单时未填写问题描述。");
 });

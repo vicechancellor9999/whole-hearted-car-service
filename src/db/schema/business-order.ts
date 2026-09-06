@@ -1,6 +1,7 @@
 import { sql } from "drizzle-orm";
 import {
   bigint,
+  boolean,
   check,
   index,
   integer,
@@ -27,6 +28,12 @@ export const businessOrderStatus = pgEnum("business_order_status", [
   "in_repair",
   "return_pending_review",
   "formally_handed_off",
+]);
+
+export const businessOrderCategory = pgEnum("business_order_category", [
+  "maintenance",
+  "repair",
+  "inspection",
 ]);
 
 export const chargeItemKind = pgEnum("charge_item_kind", [
@@ -78,6 +85,10 @@ export const businessOrders = pgTable(
     )
       .notNull()
       .default(0),
+    categories: businessOrderCategory("categories")
+      .array()
+      .notNull()
+      .default(sql`'{}'::business_order_category[]`),
     createdAt: timestamp("created_at", { withTimezone: true })
       .notNull()
       .defaultNow(),
@@ -248,6 +259,7 @@ export const businessOrderChargeItems = pgTable(
       .references(() => dictionaryItems.id, { onDelete: "restrict" }),
     quantity: numeric("quantity", { precision: 14, scale: 3 }).notNull(),
     unitPriceMinor: bigint("unit_price_minor", { mode: "number" }).notNull(),
+    pendingQuote: boolean("pending_quote").notNull().default(false),
     itemDiscountMinor: bigint("item_discount_minor", { mode: "number" })
       .notNull()
       .default(0),
@@ -280,6 +292,10 @@ export const businessOrderChargeItems = pgTable(
     check(
       "business_order_charge_items_amount_conservation",
       sql`${table.subtotalMinor} = round(${table.quantity} * ${table.unitPriceMinor}) - ${table.itemDiscountMinor}`,
+    ),
+    check(
+      "business_order_charge_items_pending_amounts_zero",
+      sql`not ${table.pendingQuote} or (${table.unitPriceMinor} = 0 and ${table.itemDiscountMinor} = 0 and ${table.subtotalMinor} = 0)`,
     ),
     check(
       "business_order_charge_items_sort_nonnegative",

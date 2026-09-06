@@ -56,6 +56,10 @@ const migrationPaths = [
   "0037_staff_account_ui_language.sql",
   "0038_work_return_review_closure.sql",
   "0040_business_order_problem_descriptions.sql",
+  "0043_repair_round_performance_draft.sql",
+  "0046_repair_round_performance_guard.sql",
+  "0049_business_order_categories.sql",
+  "0051_business_order_pending_quotes.sql",
 ].map((name) => resolve(process.cwd(), "drizzle", name));
 
 let database: PGlite;
@@ -172,6 +176,7 @@ async function createApprovedRound(input: {
   mechanicStaffId: number;
   requestPrefix: string;
   createdAt: string;
+  performanceValue?: string;
 }) {
   const order = await businessOrders.createBusinessOrder({
     vehicleId,
@@ -227,6 +232,15 @@ async function createApprovedRound(input: {
     workReturnId: workReturn.id,
     context: context(frontDeskId, `${input.requestPrefix}-approve`, input.createdAt),
   });
+  if (input.performanceValue != null) {
+    await repairRounds.setPerformanceDraft({
+      businessOrderId: order.id,
+      expectedRepairRoundId: (await repairRounds.getCurrentRound({ businessOrderId: order.id, viewerAccountId: adminId })).id,
+      expectedRepairRoundVersion: await currentRoundVersion(order.id),
+      performanceValue: input.performanceValue,
+      context: context(frontDeskId, `${input.requestPrefix}-performance`, input.createdAt),
+    });
+  }
   return order;
 }
 
@@ -237,6 +251,7 @@ async function approveCurrentAfterSalesRound(input: {
   mechanicStaffId: number;
   requestPrefix: string;
   at: string;
+  performanceValue?: string;
 }) {
   const order = await businessOrders.getBusinessOrder({
     businessOrderId: input.businessOrderId,
@@ -283,6 +298,15 @@ async function approveCurrentAfterSalesRound(input: {
     workReturnId: workReturn.id,
     context: context(frontDeskId, `${input.requestPrefix}-approve`, input.at),
   });
+  if (input.performanceValue != null) {
+    await repairRounds.setPerformanceDraft({
+      businessOrderId: input.businessOrderId,
+      expectedRepairRoundId: (await repairRounds.getCurrentRound({ businessOrderId: input.businessOrderId, viewerAccountId: adminId })).id,
+      expectedRepairRoundVersion: await currentRoundVersion(input.businessOrderId),
+      performanceValue: input.performanceValue,
+      context: context(frontDeskId, `${input.requestPrefix}-performance`, input.at),
+    });
+  }
 }
 
 describe("PerformanceService", () => {
@@ -377,6 +401,7 @@ describe("PerformanceService", () => {
       mechanicStaffId: mechanicTwoStaffId,
       requestPrefix: "round-two",
       at: "2026-09-02T15:00:00Z",
+      performanceValue: "-20000",
     });
     const septemberHandoff = await formalHandoffs.formallyHandOffRound({
       businessOrderId: order.id,
@@ -391,6 +416,7 @@ describe("PerformanceService", () => {
       mechanicStaffId: mechanicOneStaffId,
       requestPrefix: "cancelled-round",
       createdAt: "2026-09-04T15:00:00Z",
+      performanceValue: "5000",
     });
     const cancelledHandoff = await formalHandoffs.formallyHandOffRound({
       businessOrderId: cancelledOrder.id,
@@ -536,6 +562,63 @@ describe("PerformanceService", () => {
         targetMissingReasons: [],
       })]),
     });
+  });
+
+  it("recalculates each team member payable salary from the selected month's salary and completion rate", async () => {
+    await database.query(
+      `insert into staff_team_assignment_versions
+        (staff_member_id, effective_month, team_id, set_by)
+       values ($1, date '2026-08-01', $3, $5),
+              ($2, date '2026-08-01', $4, $5)`,
+      [mechanicOneStaffId, mechanicTwoStaffId, teamOneId, teamTwoId, adminId],
+    );
+    await database.query(
+      `insert into employee_salary_versions
+        (staff_member_id, effective_month, base_salary_cny_minor, set_by)
+       values ($1, date '2026-08-01', 200000, $3),
+              ($2, date '2026-08-01', 100000, $3)`,
+      [mechanicOneStaffId, mechanicTwoStaffId, adminId],
+    );
+    await database.query(
+      `insert into payroll_parameter_versions
+        (effective_month, commission_rate, cny_to_jmd_rate, set_by)
+       values (date '2026-08-01', 0.25, 22, $1)`,
+      [adminId],
+    );
+    const order = await createApprovedRound({
+      teamId: teamOneId,
+      mechanicAccountId: mechanicOneAccountId,
+      mechanicStaffId: mechanicOneStaffId,
+      requestPrefix: "payroll-round",
+      createdAt: "2026-08-24T15:00:00Z",
+      performanceValue: "88000",
+    });
+    await formalHandoffs.formallyHandOffRound({
+      businessOrderId: order.id,
+      expectedRepairRoundVersion: await currentRoundVersion(order.id),
+      performanceValue: "88000",
+      context: context(frontDeskId, "payroll-handoff", "2026-08-31T15:00:00Z"),
+    });
+
+    const august = await performance.getMonthlyPerformance({
+      month: "2026-08",
+      viewerAccountId: ownerId,
+    });
+
+    expect(august.teams).toEqual(expect.arrayContaining([expect.objectContaining({
+      teamId: teamOneId,
+      performanceMinor: 8_800_000,
+      targetPerformanceMinor: 17_600_000,
+      completionRate: 50,
+      payrollTotalCnyMinor: 100_000,
+      members: [{
+        memberId: mechanicOneStaffId,
+        memberName: "维修一组成员",
+        salaryCnyMinor: 200_000,
+        targetPerformanceMinor: 17_600_000,
+        payableSalaryCnyMinor: 100_000,
+      }],
+    })]));
   });
 
   it("uses a team special rate until a later version restores the whole-shop default", async () => {

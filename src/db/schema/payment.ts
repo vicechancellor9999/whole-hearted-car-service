@@ -55,6 +55,8 @@ export type ReceiptRenderSnapshot = {
       unitLabelEn: string | null;
       quantity: string;
       unitPriceMinor: number;
+      /** Absent in historical snapshots; only true denotes an unknown price. */
+      pendingQuote?: boolean;
       itemDiscountMinor: number;
       subtotalMinor: number;
     }>;

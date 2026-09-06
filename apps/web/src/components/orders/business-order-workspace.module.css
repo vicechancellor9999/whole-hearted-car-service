@@ -1,0 +1,66 @@
+.page {
+  height: 100%;
+  min-height: 0;
+  overflow: hidden;
+  padding: 8px 12px;
+}
+.layout {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  height: 100%;
+  min-height: 0;
+  max-width: 1720px;
+  margin: auto;
+}
+.body {
+  flex: 1;
+  min-height: 0;
+  min-width: 0;
+  overflow: auto;
+  overscroll-behavior: contain;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+.body > [hidden] { display: none; }
+.body > [role="tabpanel"], .rail { flex-shrink: 0; min-width: 0; }
+.operations { order: 1; }
+.rail { order: 2; }
+.body[data-workspace="documents"] { overflow: hidden; }
+.body > .documents { height: 100%; min-height: 0; padding: 8px; overflow: hidden; }
+.identity { margin-bottom: 20px; padding-bottom: 16px; border-bottom: 1px solid var(--wh-border-subtle); }
+.identityGrid { display: grid; gap: 16px; margin-top: 12px; }
+.chargeEditor { container-type: inline-size; }
+.chargeEditorRow { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
+.chargeEditorRow > label { min-width: 0; }
+.chargeEditorRow > label:nth-child(-n+2) { grid-column: 1 / -1; }
+.chargeEditorRow input, .chargeEditorRow select { min-height: 44px; font-size: 14px; }
+@container (min-width: 640px) {
+  .chargeEditorRow { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+  .chargeEditorRow > label:nth-child(-n+2) { grid-column: span 2; }
+  .chargeEditorRow > button:nth-child(7) { grid-column: 3; }
+}
+
+@media (min-width: 640px) {
+  .page { padding: 12px 20px; }
+  .identityGrid { grid-template-columns: 1fr 1fr; }
+  .body > .documents { padding: 12px; }
+}
+@media (min-width: 1200px) {
+  .body { display: grid; grid-template-columns: minmax(0, 2fr) minmax(340px, 1fr); grid-template-rows: minmax(0, 1fr); overflow: hidden; }
+  .body > [role="tabpanel"] { grid-area: 1 / 1 / 2 / 3; height: 100%; min-height: 0; overflow-y: auto; }
+  .body > .operations { grid-area: 1 / 1 / 2 / 2; }
+  .body > .rail { grid-area: 1 / 2 / 2 / 3; height: 100%; min-height: 0; overflow-y: auto; }
+  .body > .documents { overflow: hidden; }
+}
+@media (max-width: 1199px) {
+  .page button:not([role="switch"]), .page select, .page input:not([type="checkbox"]):not([type="radio"]), .page summary {
+    min-height: 44px;
+  }
+  .page input:not([type="checkbox"]):not([type="radio"]), .page select, .page textarea { font-size: 16px; }
+}
+@media (max-width: 479px) {
+  .operations { padding: 12px; }
+  .operations :global(.whitespace-nowrap) { white-space: normal; }
+}

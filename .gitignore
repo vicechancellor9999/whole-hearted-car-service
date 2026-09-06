@@ -16,3 +16,6 @@ test-results/
 apps/qa/playwright-results/
 .superpowers/
 eng.traineddata
+
+# Next.js outputs from isolated verification runs
+.next-*/

@@ -1,5 +1,6 @@
 import { sql } from "drizzle-orm";
 import {
+  type AnyPgColumn,
   bigint,
   check,
   date,
@@ -41,6 +42,7 @@ export type FormalHandoffChargeSnapshot = {
     unitItemId: number;
     quantity: string;
     unitPriceMinor: number;
+    pendingQuote?: boolean;
     itemDiscountMinor: number;
     subtotalMinor: number;
     sortOrder: number;
@@ -88,6 +90,8 @@ export const formalHandoffs = pgTable(
     handedOffBy: bigint("handed_off_by", { mode: "number" })
       .notNull()
       .references(() => staffAccounts.id, { onDelete: "restrict" }),
+    correctsFormalHandoffId: bigint("corrects_formal_handoff_id", { mode: "number" })
+      .references((): AnyPgColumn => formalHandoffs.id, { onDelete: "restrict" }),
   },
   (table) => [
     uniqueIndex("formal_handoffs_order_no_uq").on(
@@ -101,6 +105,9 @@ export const formalHandoffs = pgTable(
     index("formal_handoffs_month_team_idx").on(
       table.jamaicaMonth,
       table.teamId,
+    ),
+    uniqueIndex("formal_handoffs_correction_source_uq").on(
+      table.correctsFormalHandoffId,
     ),
     check("formal_handoffs_no_positive", sql`${table.handoffNo} >= 1`),
     check("formal_handoffs_round_no_positive", sql`${table.repairRoundNo} >= 1`),

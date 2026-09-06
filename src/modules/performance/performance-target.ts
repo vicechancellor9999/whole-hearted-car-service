@@ -10,12 +10,17 @@ export type PerformanceTargetMember = {
   salaryCnyMinor: number | null;
 };
 
+export type PerformanceTargetCalculatedMember = PerformanceTargetMember & {
+  targetPerformanceMinor: number | null;
+};
+
 export type TeamPerformanceTarget = {
   teamId: number;
   teamName: string;
   targetStatus: PerformanceTargetStatus;
   targetPerformanceMinor: number | null;
   targetMissingReasons: string[];
+  members: PerformanceTargetCalculatedMember[];
 };
 
 export type PerformanceTargetResult = {
@@ -153,6 +158,10 @@ export function calculatePerformanceTargets(input: {
           targetStatus: "not_configured" as const,
           targetPerformanceMinor: null,
           targetMissingReasons: [parameterReason],
+          members: members.map((member) => ({
+            ...member,
+            targetPerformanceMinor: null,
+          })),
         };
       }
       const missingReasons = members
@@ -165,17 +174,31 @@ export function calculatePerformanceTargets(input: {
           targetStatus: "not_configured" as const,
           targetPerformanceMinor: null,
           targetMissingReasons: missingReasons,
+          members: members.map((member) => ({
+            ...member,
+            targetPerformanceMinor: member.salaryCnyMinor === null
+              ? null
+              : calculateMemberTarget(member.salaryCnyMinor, input.teamCommissionRates?.[teamId]
+                ?? input.commissionRate!, input.cnyToJmdRate!, teamName, member.memberName),
+          })),
         };
       }
-      const targetPerformanceMinor = members.reduce((sum, member) => {
-        const salary = member.salaryCnyMinor!;
-        const commissionRate = input.teamCommissionRates?.[teamId]
-          ?? input.commissionRate!;
-        if (!Number.isSafeInteger(salary) || salary < 0) {
-          throw new RangeError(`${teamName}：${member.memberName}月标准工资无效`);
-        }
-        return sum + Math.round(salary / commissionRate * input.cnyToJmdRate!);
-      }, 0);
+      const commissionRate = input.teamCommissionRates?.[teamId]
+        ?? input.commissionRate!;
+      const calculatedMembers = members.map((member) => ({
+        ...member,
+        targetPerformanceMinor: calculateMemberTarget(
+          member.salaryCnyMinor!,
+          commissionRate,
+          input.cnyToJmdRate!,
+          teamName,
+          member.memberName,
+        ),
+      }));
+      const targetPerformanceMinor = calculatedMembers.reduce(
+        (sum, member) => sum + member.targetPerformanceMinor,
+        0,
+      );
       if (!Number.isSafeInteger(targetPerformanceMinor)) {
         throw new RangeError(`${teamName}绩效目标超出安全范围`);
       }
@@ -185,6 +208,7 @@ export function calculatePerformanceTargets(input: {
         targetStatus: "configured" as const,
         targetPerformanceMinor,
         targetMissingReasons: [],
+        members: calculatedMembers,
       };
     })
     .sort((left, right) => left.teamId - right.teamId);
@@ -203,4 +227,21 @@ export function calculatePerformanceTargets(input: {
       : targetMissingReasons,
     teams,
   };
+}
+
+function calculateMemberTarget(
+  salaryCnyMinor: number,
+  commissionRate: number,
+  cnyToJmdRate: number,
+  teamName: string,
+  memberName: string,
+): number {
+  if (!Number.isSafeInteger(salaryCnyMinor) || salaryCnyMinor < 0) {
+    throw new RangeError(`${teamName}：${memberName}月标准工资无效`);
+  }
+  const result = Math.round(salaryCnyMinor / commissionRate * cnyToJmdRate);
+  if (!Number.isSafeInteger(result)) {
+    throw new RangeError(`${teamName}：${memberName}绩效目标超出安全范围`);
+  }
+  return result;
 }

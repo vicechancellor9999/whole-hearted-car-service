@@ -60,6 +60,8 @@ export function Dialog({
     const host = document.createElement("div");
     host.dataset.dialogPortal = "true";
     document.body.appendChild(host);
+    // Publish the newly attached DOM portal host only after mount; it is unavailable during SSR.
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     setPortalHost(host);
 
     const siblings = Array.from(document.body.children).filter((node) => node !== host);
@@ -86,14 +88,23 @@ export function Dialog({
       window.requestAnimationFrame(() => {
         window.requestAnimationFrame(() => {
           const original = returnFocusRef.current;
-          if (!original) return;
-          const testId = original.dataset.testid;
-          const target = original.isConnected
+          const testId = original?.dataset.testid;
+          const target = original?.isConnected && original !== document.body
             ? original
             : testId
               ? document.querySelector<HTMLElement>(`[data-testid="${CSS.escape(testId)}"]`)
               : null;
-          target?.focus();
+          if (target && !target.closest('[inert], [aria-hidden="true"]')) {
+            target.focus();
+            if (document.activeElement === target) return;
+          }
+          // Async launch controls may lose focus before a child opens. Keep
+          // keyboard navigation inside the surviving modal in that case.
+          const parentPanel = Array.from(document.querySelectorAll<HTMLElement>('[role="dialog"]'))
+            .filter((panel) => !panel.closest('[inert], [aria-hidden="true"]'))
+            .at(-1);
+          const fallback = parentPanel?.querySelector<HTMLElement>(focusableSelector) ?? parentPanel;
+          fallback?.focus();
         });
       });
     };
@@ -171,7 +182,7 @@ export function Dialog({
             data-testid={closeTestId}
             onClick={onClose}
             aria-label={closeLabel ?? `关闭${title}`}
-            className="grid h-9 w-9 shrink-0 place-items-center rounded-full border border-line bg-layer-2 text-ink-soft transition-colors hover:border-line-strong hover:text-accent focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent"
+            className="grid h-11 w-11 shrink-0 place-items-center rounded-full border border-line bg-layer-2 text-ink-soft transition-colors hover:border-line-strong hover:text-accent focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent"
           >
             <X size={17} aria-hidden />
           </button>

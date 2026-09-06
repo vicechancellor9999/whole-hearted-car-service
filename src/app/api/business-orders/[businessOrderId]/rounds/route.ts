@@ -6,28 +6,48 @@ import type { WorkReturnItemResult } from "@formal/modules/business-order/repair
 
 type Session = { account: { id: number } };
 type Context = ReturnType<typeof apiActionContext>;
+type AfterSalesRoundDeletionReasonCode = "duplicate" | "input_error" | "test_data" | "other";
 
 type Dependencies = {
   readSession(): Promise<Session | null>;
   getCurrentRound(input: { businessOrderId: number; viewerAccountId: number }): Promise<unknown>;
   listRepairRounds(input: { businessOrderId: number; viewerAccountId: number }): Promise<unknown>;
   listAuditTrail?(input: { businessOrderId: number; viewerAccountId: number }): Promise<unknown>;
+  getAfterSalesRoundDeletionPreview?(input: { businessOrderId: number; viewerAccountId: number }): Promise<unknown>;
   assignRound(input: { businessOrderId: number; expectedBusinessOrderVersion: number; teamId: number; customerConfirmedWithoutPayment: boolean; context: Context }): Promise<unknown>;
   withdrawAssignment(input: { businessOrderId: number; expectedRepairRoundVersion: number; context: Context }): Promise<unknown>;
   cancelAfterSalesRound(input: { businessOrderId: number; expectedRepairRoundVersion: number; context: Context }): Promise<unknown>;
+  deleteInvalidAfterSalesRound?(input: {
+    businessOrderId: number;
+    expectedRepairRoundVersion: number;
+    previewFingerprint: string;
+    reasonCode: AfterSalesRoundDeletionReasonCode;
+    reasonNote: string;
+    confirmationRecordNo: string;
+    context: Context;
+  }): Promise<unknown>;
+  setPerformanceDraft?(input: { businessOrderId: number; expectedRepairRoundId: number; expectedRepairRoundVersion: number; performanceValue: string; context: Context }): Promise<unknown>;
   recordAcceptanceOnBehalf(input: { businessOrderId: number; expectedRepairRoundVersion: number; actualStaffMemberId: number; context: Context }): Promise<unknown>;
   acceptRound?(input: { businessOrderId: number; expectedRepairRoundVersion: number; context: Context }): Promise<unknown>;
   startAfterSalesRound(input: { businessOrderId: number; expectedBusinessOrderVersion: number; issue: string; context: Context }): Promise<unknown>;
   recordIntakeMileage(input: { businessOrderId: number; expectedRepairRoundVersion: number; odometerKm: number; context: Context }): Promise<unknown>;
   attachIntakePhoto?(input: { businessOrderId: number; expectedRepairRoundVersion: number; fileId: number; context: Context }): Promise<unknown>;
   submitWorkReturn(input: { businessOrderId: number; expectedRepairRoundVersion: number; workSummary?: string; exceptionSummary?: string; itemResults?: WorkReturnItemResult[]; attachmentIds?: number[]; actualStaffMemberId?: number; context: Context }): Promise<unknown>;
-  recordPaperWorkReturn?(input: { businessOrderId: number; expectedRepairRoundVersion: number; workSummary?: string; exceptionSummary?: string; itemResults?: WorkReturnItemResult[]; attachmentIds: number[]; actualStaffMemberId: number; context: Context }): Promise<unknown>;
-  recordPaperWorkReturnAndFormallyHandOff?(input: { businessOrderId: number; expectedRepairRoundVersion: number; workSummary?: string; exceptionSummary?: string; itemResults?: WorkReturnItemResult[]; attachmentIds: number[]; actualStaffMemberId: number; performanceValue: string; context: Context }): Promise<unknown>;
+  recordPaperWorkReturn?(input: { businessOrderId: number; expectedRepairRoundVersion: number; workSummary?: string; exceptionSummary?: string; itemResults?: WorkReturnItemResult[]; attachmentIds: number[]; actualStaffMemberId?: number; context: Context }): Promise<unknown>;
+  recordPaperWorkReturnAndFormallyHandOff?(input: { businessOrderId: number; expectedRepairRoundVersion: number; workSummary?: string; exceptionSummary?: string; itemResults?: WorkReturnItemResult[]; attachmentIds: number[]; actualStaffMemberId?: number; performanceValue: string; context: Context }): Promise<unknown>;
   approveWorkReturn(input: { businessOrderId: number; expectedRepairRoundVersion: number; workReturnId: number; context: Context }): Promise<unknown>;
   approveAndFormallyHandOff?(input: { businessOrderId: number; expectedRepairRoundVersion: number; workReturnId: number; performanceValue: string; context: Context }): Promise<unknown>;
   returnWorkReturn(input: { businessOrderId: number; expectedRepairRoundVersion: number; workReturnId: number; reason: string; context: Context }): Promise<unknown>;
   formallyHandOffRound(input: { businessOrderId: number; expectedRepairRoundVersion: number; performanceValue: string; context: Context }): Promise<unknown>;
   cancelFormalHandoffInSameMonth(input: { businessOrderId: number; formalHandoffId: number; reason: string; context: Context }): Promise<unknown>;
+  adjustFormalHandoffPerformanceInSameMonth?(input: {
+    businessOrderId: number;
+    formalHandoffId: number;
+    expectedRepairRoundVersion: number;
+    performanceValue: string;
+    reason: string;
+    context: Context;
+  }): Promise<unknown>;
 };
 
 type ActionBody = Record<string, unknown> & { action?: unknown };
@@ -39,12 +59,13 @@ export function createBusinessOrderRoundsApiHandler(dependencies: Dependencies) 
     const businessOrderId = Number(params.businessOrderId);
     try {
       if (request.method === "GET") {
-        const [current, history, auditTrail] = await Promise.all([
+        const [current, history, auditTrail, afterSalesRoundDeletion] = await Promise.all([
           dependencies.getCurrentRound({ businessOrderId, viewerAccountId: session.account.id }),
           dependencies.listRepairRounds({ businessOrderId, viewerAccountId: session.account.id }),
           dependencies.listAuditTrail?.({ businessOrderId, viewerAccountId: session.account.id }) ?? Promise.resolve([]),
+          dependencies.getAfterSalesRoundDeletionPreview?.({ businessOrderId, viewerAccountId: session.account.id }) ?? Promise.resolve(null),
         ]);
-        return NextResponse.json({ current, history, auditTrail });
+        return NextResponse.json({ current, history, auditTrail, afterSalesRoundDeletion });
       }
       const body = await request.json() as ActionBody;
       const context = apiActionContext(request, session.account.id);
@@ -53,6 +74,35 @@ export function createBusinessOrderRoundsApiHandler(dependencies: Dependencies) 
         case "assign": result = await dependencies.assignRound({ businessOrderId, expectedBusinessOrderVersion: Number(body.businessOrderVersion), teamId: Number(body.teamId), customerConfirmedWithoutPayment: body.customerConfirmed === true, context }); break;
         case "withdraw_assignment": result = await dependencies.withdrawAssignment({ businessOrderId, expectedRepairRoundVersion: Number(body.repairRoundVersion), context }); break;
         case "cancel_after_sales": result = await dependencies.cancelAfterSalesRound({ businessOrderId, expectedRepairRoundVersion: Number(body.repairRoundVersion), context }); break;
+        case "delete_invalid_after_sales": {
+          if (!dependencies.deleteInvalidAfterSalesRound) {
+            return NextResponse.json({ error: "售后维修轮次删除功能不可用" }, { status: 503 });
+          }
+          result = await dependencies.deleteInvalidAfterSalesRound({
+            businessOrderId,
+            expectedRepairRoundVersion: Number(body.repairRoundVersion ?? body.version),
+            previewFingerprint: String(body.previewFingerprint ?? ""),
+            reasonCode: String(body.reasonCode ?? "") as AfterSalesRoundDeletionReasonCode,
+            reasonNote: String(body.reasonNote ?? ""),
+            confirmationRecordNo: String(body.confirmationRecordNo ?? ""),
+            context,
+          });
+          break;
+        }
+        case "set_performance_draft": {
+          if (!dependencies.setPerformanceDraft) return NextResponse.json({ error: "绩效草稿功能不可用" }, { status: 503 });
+          if (typeof body.repairRoundId !== "number" || !Number.isSafeInteger(body.repairRoundId) || body.repairRoundId <= 0) {
+            return NextResponse.json({ error: "绩效草稿缺少有效的目标维修轮次，请刷新后重新核对。" }, { status: 400 });
+          }
+          result = await dependencies.setPerformanceDraft({
+            businessOrderId,
+            expectedRepairRoundId: body.repairRoundId,
+            expectedRepairRoundVersion: Number(body.repairRoundVersion),
+            performanceValue: String(body.performanceValue ?? ""),
+            context,
+          });
+          break;
+        }
         case "record_paper_acceptance": result = await dependencies.recordAcceptanceOnBehalf({ businessOrderId, expectedRepairRoundVersion: Number(body.repairRoundVersion), actualStaffMemberId: Number(body.actualStaffMemberId), context }); break;
         case "accept": {
           if (!dependencies.acceptRound) return NextResponse.json({ error: "接车功能不可用" }, { status: 503 });
@@ -91,20 +141,18 @@ export function createBusinessOrderRoundsApiHandler(dependencies: Dependencies) 
         case "record_paper_return": {
           if (!dependencies.recordPaperWorkReturn) return NextResponse.json({ error: "纸质回单功能不可用" }, { status: 503 });
           const parsedStaffMemberId = Number(body.actualStaffMemberId);
-          if (!Number.isSafeInteger(parsedStaffMemberId) || parsedStaffMemberId < 1) {
-            return NextResponse.json({ error: "实际维修工无效" }, { status: 400 });
-          }
+          const actualStaffMemberId = Number.isSafeInteger(parsedStaffMemberId) && parsedStaffMemberId > 0
+            ? parsedStaffMemberId
+            : undefined;
           const parsed = parseReturnDetails(body);
-          if (!parsed.ok || parsed.attachmentIds.length === 0) {
-            return NextResponse.json({ error: parsed.ok ? "纸质回单必须上传清晰照片或 PDF" : parsed.error }, { status: 400 });
-          }
+          if (!parsed.ok) return NextResponse.json({ error: parsed.error }, { status: 400 });
           const workSummary = typeof body.workSummary === "string" && body.workSummary.trim()
             ? body.workSummary.trim()
             : undefined;
           result = await dependencies.recordPaperWorkReturn({
             businessOrderId,
             expectedRepairRoundVersion: Number(body.repairRoundVersion),
-            actualStaffMemberId: parsedStaffMemberId,
+            actualStaffMemberId,
             attachmentIds: parsed.attachmentIds,
             workSummary,
             exceptionSummary: parsed.exceptionSummary,
@@ -118,17 +166,15 @@ export function createBusinessOrderRoundsApiHandler(dependencies: Dependencies) 
             return NextResponse.json({ error: "纸质回单交单功能不可用" }, { status: 503 });
           }
           const parsedStaffMemberId = Number(body.actualStaffMemberId);
-          if (!Number.isSafeInteger(parsedStaffMemberId) || parsedStaffMemberId < 1) {
-            return NextResponse.json({ error: "实际维修工无效" }, { status: 400 });
-          }
+          const actualStaffMemberId = Number.isSafeInteger(parsedStaffMemberId) && parsedStaffMemberId > 0
+            ? parsedStaffMemberId
+            : undefined;
           const parsed = parseReturnDetails(body);
-          if (!parsed.ok || parsed.attachmentIds.length === 0) {
-            return NextResponse.json({ error: parsed.ok ? "纸质回单必须上传清晰照片或 PDF" : parsed.error }, { status: 400 });
-          }
+          if (!parsed.ok) return NextResponse.json({ error: parsed.error }, { status: 400 });
           result = await dependencies.recordPaperWorkReturnAndFormallyHandOff({
             businessOrderId,
             expectedRepairRoundVersion: Number(body.repairRoundVersion),
-            actualStaffMemberId: parsedStaffMemberId,
+            actualStaffMemberId,
             attachmentIds: parsed.attachmentIds,
             workSummary: typeof body.workSummary === "string" && body.workSummary.trim() ? body.workSummary.trim() : undefined,
             exceptionSummary: parsed.exceptionSummary,
@@ -168,14 +214,45 @@ export function createBusinessOrderRoundsApiHandler(dependencies: Dependencies) 
           });
           break;
         }
+        case "adjust_formal_handoff_performance": {
+          if (!dependencies.adjustFormalHandoffPerformanceInSameMonth) {
+            return NextResponse.json({ error: "正式交单绩效调整功能不可用" }, { status: 503 });
+          }
+          const formalHandoffId = body.formalHandoffId;
+          const repairRoundVersion = body.repairRoundVersion;
+          const performanceValue = typeof body.performanceValue === "string" ? body.performanceValue.trim() : "";
+          const reason = typeof body.reason === "string" ? body.reason.trim() : "";
+          if (
+            typeof formalHandoffId !== "number"
+            || !Number.isSafeInteger(formalHandoffId)
+            || formalHandoffId < 1
+            || typeof repairRoundVersion !== "number"
+            || !Number.isSafeInteger(repairRoundVersion)
+            || repairRoundVersion < 1
+            || !performanceValue
+            || !reason
+          ) {
+            return NextResponse.json({ error: "绩效调整内容无效" }, { status: 400 });
+          }
+          result = await dependencies.adjustFormalHandoffPerformanceInSameMonth({
+            businessOrderId,
+            formalHandoffId,
+            expectedRepairRoundVersion: repairRoundVersion,
+            performanceValue,
+            reason,
+            context,
+          });
+          break;
+        }
         default: return NextResponse.json({ error: "不支持的维修轮次操作" }, { status: 400 });
       }
-      const [current, history, auditTrail] = await Promise.all([
+      const [current, history, auditTrail, afterSalesRoundDeletion] = await Promise.all([
         dependencies.getCurrentRound({ businessOrderId, viewerAccountId: session.account.id }),
         dependencies.listRepairRounds({ businessOrderId, viewerAccountId: session.account.id }),
         dependencies.listAuditTrail?.({ businessOrderId, viewerAccountId: session.account.id }) ?? Promise.resolve([]),
+        dependencies.getAfterSalesRoundDeletionPreview?.({ businessOrderId, viewerAccountId: session.account.id }) ?? Promise.resolve(null),
       ]);
-      return NextResponse.json({ result, current, history, auditTrail });
+      return NextResponse.json({ result, current, history, auditTrail, afterSalesRoundDeletion });
     } catch (error) {
       return businessApiError(error, "维修轮次操作失败");
     }
@@ -191,9 +268,12 @@ async function run(request: Request, params: Promise<{ businessOrderId: string }
       getCurrentRound: (input) => runtime.repairRounds.getCurrentRound(input),
       listRepairRounds: (input) => runtime.repairRounds.listRepairRounds(input),
       listAuditTrail: (input) => runtime.repairRounds.listAuditTrail(input),
+      getAfterSalesRoundDeletionPreview: (input) => runtime.repairRounds.getAfterSalesRoundDeletionPreview(input),
       assignRound: (input) => runtime.repairRounds.assignRound(input),
       withdrawAssignment: (input) => runtime.repairRounds.withdrawAssignment(input),
       cancelAfterSalesRound: (input) => runtime.repairRounds.cancelAfterSalesRound(input),
+      deleteInvalidAfterSalesRound: (input) => runtime.repairRounds.deleteInvalidAfterSalesRound(input),
+      setPerformanceDraft: (input) => runtime.repairRounds.setPerformanceDraft(input),
       recordAcceptanceOnBehalf: (input) => runtime.repairRounds.recordAcceptanceOnBehalf(input),
       acceptRound: (input) => runtime.repairRounds.acceptRound(input),
       startAfterSalesRound: (input) => runtime.repairRounds.startAfterSalesRound(input),
@@ -207,6 +287,7 @@ async function run(request: Request, params: Promise<{ businessOrderId: string }
       returnWorkReturn: (input) => runtime.repairRounds.returnWorkReturn(input),
       formallyHandOffRound: (input) => runtime.formalHandoffs.formallyHandOffRound(input),
       cancelFormalHandoffInSameMonth: (input) => runtime.formalHandoffs.cancelFormalHandoffInSameMonth(input),
+      adjustFormalHandoffPerformanceInSameMonth: (input) => runtime.formalHandoffs.adjustFormalHandoffPerformanceInSameMonth(input),
     })(request, { businessOrderId: Number(businessOrderId) });
   } finally { await runtime.close(); }
 }

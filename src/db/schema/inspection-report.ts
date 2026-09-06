@@ -5,6 +5,7 @@ import {
   check,
   index,
   integer,
+  jsonb,
   pgEnum,
   pgTable,
   text,
@@ -70,6 +71,7 @@ export const inspectionReports = pgTable(
     submittedBy: bigint("submitted_by", { mode: "number" })
       .references(() => staffAccounts.id, { onDelete: "restrict" }),
     version: integer("version").notNull().default(1),
+    currentWorkspaceVersionNo: integer("current_workspace_version_no").notNull().default(0),
   },
   (table) => [
     uniqueIndex("inspection_reports_report_no_uq").on(table.reportNo),
@@ -113,6 +115,35 @@ export const inspectionReports = pgTable(
             and ${table.submittedBy} is not null)`,
     ),
     check("inspection_reports_version_positive", sql`${table.version} >= 1`),
+    check("inspection_reports_workspace_version_nonnegative", sql`${table.currentWorkspaceVersionNo} >= 0`),
+  ],
+);
+
+export const inspectionReportWorkspaceVersions = pgTable(
+  "inspection_report_workspace_versions",
+  {
+    id: identityPrimaryKey(),
+    inspectionReportId: bigint("inspection_report_id", { mode: "number" })
+      .notNull()
+      .references(() => inspectionReports.id, { onDelete: "restrict" }),
+    versionNo: integer("version_no").notNull(),
+    organizedContent: jsonb("organized_content").notNull(),
+    quotation: jsonb("quotation").notNull(),
+    source: text("source").notNull(),
+    changeReason: text("change_reason").notNull(),
+    createdBy: bigint("created_by", { mode: "number" })
+      .notNull()
+      .references(() => staffAccounts.id, { onDelete: "restrict" }),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    uniqueIndex("inspection_report_workspace_versions_report_version_uq")
+      .on(table.inspectionReportId, table.versionNo),
+    index("inspection_report_workspace_versions_report_created_idx")
+      .on(table.inspectionReportId, table.createdAt),
+    check("inspection_report_workspace_version_positive", sql`${table.versionNo} >= 1`),
+    check("inspection_report_workspace_source", sql`${table.source} in ('manual', 'ai')`),
+    check("inspection_report_workspace_reason_nonempty", sql`length(btrim(${table.changeReason})) > 0`),
   ],
 );
 

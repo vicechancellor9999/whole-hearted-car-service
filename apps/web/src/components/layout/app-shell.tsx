@@ -4,6 +4,7 @@ import { useCallback, useRef, useState } from "react";
 import { usePathname } from "next/navigation";
 import { Sidebar } from "./sidebar";
 import { MobileNavDrawer, MobileTopBar } from "./mobile-nav";
+import { DeletionRecoveryPanel } from "@/components/shared/deletion-recovery-panel";
 
 export function AppShell({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
@@ -24,14 +25,15 @@ export function AppShell({ children }: { children: React.ReactNode }) {
 
   return (
     <div
-      className="flex h-screen overflow-hidden bg-page text-ink"
+      className="flex h-dvh overflow-hidden bg-page text-ink"
       data-shell-path={pathname}
       data-testid="app-shell"
     >
       <Sidebar />
-      <div className="flex flex-1 flex-col overflow-hidden">
+      <div className="flex min-w-0 flex-1 flex-col overflow-hidden">
         <MobileTopBar onOpenNav={openNav} />
-        <main className="flex-1 overflow-y-auto bg-page">{children}</main>
+        <DeletionRecoveryPanel />
+        <main className="min-h-0 min-w-0 flex-1 overflow-y-auto bg-page">{children}</main>
       </div>
       {navOpen ? <MobileNavDrawer onClose={closeNav} /> : null}
     </div>

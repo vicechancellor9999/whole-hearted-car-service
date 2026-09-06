@@ -10,6 +10,7 @@ import { BusinessOrderService } from "@formal/modules/business-order/business-or
 import {
   InspectionReportService,
   InspectionReportValidationError,
+  type InspectionReportQuotation,
 } from "@formal/modules/inspection-report/inspection-report-service";
 
 const migrationPaths = [
@@ -28,8 +29,12 @@ const migrationPaths = [
   "0012_inspection_reports.sql",
   "0016_vehicle_profile_fields.sql",
   "0018_business_order_number_format.sql",
+  "0022_glamorous_wild_child.sql",
   "0039_inspection_team_intake.sql",
   "0040_business_order_problem_descriptions.sql",
+  "0042_inspection_report_workspaces.sql",
+  "0049_business_order_categories.sql",
+  "0051_business_order_pending_quotes.sql",
 ].map((name) => resolve(process.cwd(), "drizzle", name));
 
 let database: PGlite;
@@ -218,6 +223,272 @@ describe("InspectionReportService", () => {
       report: { id: submitted.id, inspectionTeamId: teamId },
       teamName: "维修一组",
       inspectorName: null,
+    });
+  });
+
+  it("derives reviewable V0 quotation lines from explicit JMD amounts without persisting a workspace version", async () => {
+    const original = await inspectionReports.createInspectionReport({
+      vehicleId,
+      inspectionTeamId: teamId,
+      summaryZh: [
+        "1 Clean the throttle body first, then carry out further inspection — Labor: 15,000 JMD(先清洗节气门,再进一步检查)",
+        "2 Cleaning agent ×1 bottle — 800 JMD(清洗剂1瓶)",
+      ].join("\n"),
+      findings: [],
+      context: context(frontDeskId, "req-ir-v0-explicit-quotation", 0),
+    });
+
+    const detail = await inspectionReports.getInspectionReport({
+      inspectionReportId: original.id,
+      viewerAccountId: frontDeskId,
+    });
+
+    expect(detail.workspace).toMatchObject({
+      versionNo: 0,
+      source: "original",
+      quotation: {
+        status: "entered",
+        lines: [
+          { kind: "labor", quantity: "1", subtotalMinor: 1_500_000 },
+          { kind: "part", quantity: "1", subtotalMinor: 80_000 },
+        ],
+      },
+    });
+    const storedVersions = await database.query<{ total: number }>(
+      "select count(*)::integer as total from inspection_report_workspace_versions where inspection_report_id = $1",
+      [original.id],
+    );
+    expect(Number(storedVersions.rows[0]?.total ?? -1)).toBe(0);
+  });
+
+  it("derives V0 quotation lines from priced findings and recommendations, not only the summary", async () => {
+    const original = await inspectionReports.createInspectionReport({
+      vehicleId,
+      inspectionTeamId: teamId,
+      summaryZh: "检查发现节气门需要处理。",
+      summaryEn: "The throttle body needs attention.",
+      specialCaseNotesZh: "材料：清洗剂 800 JMD",
+      findings: [{
+        findingZh: "节气门积碳",
+        findingEn: "Carbon buildup in the throttle body",
+        recommendationZh: "工时：清洗节气门 15,000 JMD",
+        recommendationEn: "Labor: throttle body cleaning 15,000 JMD",
+      }],
+      context: context(frontDeskId, "req-ir-v0-all-original-fields", 0),
+    });
+
+    const detail = await inspectionReports.getInspectionReport({
+      inspectionReportId: original.id,
+      viewerAccountId: frontDeskId,
+    });
+
+    expect(detail.workspace.quotation).toMatchObject({
+      status: "entered",
+      lines: [
+        { kind: "part", subtotalMinor: 80_000 },
+        { kind: "labor", subtotalMinor: 1_500_000 },
+      ],
+    });
+    expect(detail.workspace.quotation.lines).toHaveLength(2);
+  });
+
+  it("keeps an explicitly priced but unclassified V0 item in other", async () => {
+    const original = await inspectionReports.createInspectionReport({
+      vehicleId,
+      inspectionTeamId: teamId,
+      summaryZh: "1 Further treatment — 2,000 JMD(进一步处理)",
+      findings: [],
+      context: context(frontDeskId, "req-ir-v0-unclassified-quotation", 0),
+    });
+
+    const detail = await inspectionReports.getInspectionReport({
+      inspectionReportId: original.id,
+      viewerAccountId: frontDeskId,
+    });
+
+    expect(detail.workspace.quotation).toMatchObject({
+      status: "entered",
+      lines: [{
+        kind: "other",
+        nameZh: "待确认项目",
+        subtotalMinor: 200_000,
+      }],
+    });
+  });
+
+  it("returns localized vehicle descriptions and the same customer follow-up stage in list and detail", async () => {
+    await database.query(
+      "update vehicles set make_zh = '本田', model_zh = 'CR-V 锐·混动' where id = $1",
+      [vehicleId],
+    );
+    const original = await inspectionReports.createInspectionReport({
+      vehicleId,
+      inspectionTeamId: teamId,
+      summaryZh: "发动机需进一步检查",
+      findings: [],
+      context: context(frontDeskId, "req-ir-followup-stage", 0),
+    });
+    await inspectionReports.recordInspectionReportCommunication({
+      inspectionReportId: original.id,
+      channel: "whatsapp",
+      targetContact: "+18765550101",
+      noteOrReply: "已发送客户，等待回复",
+      context: context(frontDeskId, "req-ir-followup-stage-sent", 1),
+    });
+
+    const detail = await inspectionReports.getInspectionReport({
+      inspectionReportId: original.id,
+      viewerAccountId: frontDeskId,
+    });
+    const list = await inspectionReports.listInspectionReports({ viewerAccountId: frontDeskId });
+
+    expect(detail.vehicle).toMatchObject({
+      descriptionZh: "本田 CR-V 锐·混动",
+      descriptionEn: "Honda CR-V",
+    });
+    expect(detail.followupStage).toBe(2);
+    expect(list.items[0]).toMatchObject({
+      report: { id: original.id, status: "draft" },
+      followupStage: 2,
+      vehicle: {
+        descriptionZh: "本田 CR-V 锐·混动",
+        descriptionEn: "Honda CR-V",
+      },
+    });
+  });
+
+  it("appends an organized report and optional quotation without changing the original return", async () => {
+    const original = await inspectionReports.createInspectionReport({
+      vehicleId,
+      inspectionTeamId: teamId,
+      summaryZh: "左前轮异响，拆开看，客户问多少钱",
+      findings: [{ findingZh: "刹车片薄", recommendationZh: "换" }],
+      context: context(frontDeskId, "req-ir-workspace-original", 0),
+    });
+
+    const detail = await inspectionReports.updateInspectionReportWorkspace({
+      inspectionReportId: original.id,
+      expectedVersion: original.version,
+      organized: {
+        summaryZh: "检查发现左前轮制动系统异响。",
+        summaryEn: "Noise was found in the left-front brake system.",
+        specialCaseNotesZh: null,
+        findings: [{
+          findingZh: "左前刹车片磨损",
+          findingEn: "Left-front brake pad wear",
+          recommendationZh: "建议更换刹车片",
+          recommendationEn: "Brake-pad replacement is recommended",
+        }],
+      },
+      quotation: { status: "pending", noteZh: "价格待补", noteEn: "Price pending", lines: [] },
+      source: "ai",
+      changeReason: "AI 整理后由前台确认",
+      context: context(frontDeskId, "req-ir-workspace-save", 1),
+    });
+
+    expect(detail.report.summaryZh).toBe(original.summaryZh);
+    expect(detail.workspace).toMatchObject({
+      versionNo: 1,
+      source: "ai",
+      organized: { summaryZh: "检查发现左前轮制动系统异响。" },
+      quotation: { status: "pending", lines: [] },
+    });
+    await expect(inspectionReports.updateInspectionReportWorkspace({
+      inspectionReportId: original.id,
+      expectedVersion: original.version,
+      organized: detail.workspace.organized,
+      quotation: detail.workspace.quotation,
+      source: "manual",
+      changeReason: "过期页面保存",
+      context: context(frontDeskId, "req-ir-workspace-stale", 2),
+    })).rejects.toThrow("已被其他操作修改");
+  });
+
+  it("rejects an entered quotation whose line still has no subtotal", async () => {
+    const original = await inspectionReports.createInspectionReport({
+      vehicleId,
+      inspectionTeamId: teamId,
+      summaryZh: "发现需要进一步维修",
+      findings: [],
+      context: context(frontDeskId, "req-ir-incomplete-entered-quote", 0),
+    });
+
+    await expect(inspectionReports.updateInspectionReportWorkspace({
+      inspectionReportId: original.id,
+      expectedVersion: original.version,
+      organized: {
+        summaryZh: "发现需要进一步维修",
+        summaryEn: "Further repair is required.",
+        specialCaseNotesZh: null,
+        specialCaseNotesEn: null,
+        findings: [],
+      },
+      quotation: {
+        status: "entered",
+        noteZh: null,
+        noteEn: null,
+        lines: [{
+          kind: "other",
+          nameZh: "待确认项目",
+          nameEn: "Item pending confirmation",
+          descriptionZh: null,
+          descriptionEn: null,
+          quantity: "1",
+          unitPriceMinor: null,
+          subtotalMinor: null,
+        }],
+      },
+      source: "manual",
+      changeReason: "测试未完整报价",
+      context: context(frontDeskId, "req-ir-incomplete-entered-quote-save", 1),
+    })).rejects.toThrow("已报价项目必须填写小计");
+  });
+
+  it("preserves item and whole-order discounts in an append-only quotation version", async () => {
+    const original = await inspectionReports.createInspectionReport({
+      vehicleId,
+      inspectionTeamId: teamId,
+      summaryZh: "检查后提供维修报价",
+      findings: [],
+      context: context(frontDeskId, "req-ir-discount-original", 0),
+    });
+    const quotation = {
+      status: "entered",
+      noteZh: null,
+      noteEn: null,
+      wholeOrderDiscountMinor: 50_000,
+      lines: [{
+        kind: "labor",
+        nameZh: "检查工时",
+        nameEn: "Inspection labor",
+        descriptionZh: "进一步检查",
+        descriptionEn: "Further inspection",
+        quantity: "1",
+        unitPriceMinor: 1_500_000,
+        itemDiscountMinor: 100_000,
+        subtotalMinor: 1_400_000,
+      }],
+    } as unknown as InspectionReportQuotation;
+
+    const detail = await inspectionReports.updateInspectionReportWorkspace({
+      inspectionReportId: original.id,
+      expectedVersion: original.version,
+      organized: {
+        summaryZh: "检查后提供维修报价",
+        summaryEn: "A repair quotation was prepared after inspection.",
+        specialCaseNotesZh: null,
+        specialCaseNotesEn: null,
+        findings: [],
+      },
+      quotation,
+      source: "manual",
+      changeReason: "记录报价优惠",
+      context: context(frontDeskId, "req-ir-discount-save", 1),
+    });
+
+    expect(detail.workspace.quotation).toMatchObject({
+      wholeOrderDiscountMinor: 50_000,
+      lines: [{ itemDiscountMinor: 100_000, subtotalMinor: 1_400_000 }],
     });
   });
 

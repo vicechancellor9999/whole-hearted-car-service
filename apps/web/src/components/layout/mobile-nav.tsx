@@ -18,7 +18,7 @@ export function MobileTopBar({ onOpenNav }: { onOpenNav: () => void }) {
         data-testid="mobile-nav-open"
         onClick={onOpenNav}
         aria-label={t("nav.openMenu")}
-        className="inline-flex h-9 w-9 items-center justify-center rounded-lg border border-line text-ink hover:bg-layer-2"
+        className="inline-flex h-11 w-11 items-center justify-center rounded-lg border border-line text-ink hover:bg-layer-2"
       >
         <Menu size={18} />
       </button>

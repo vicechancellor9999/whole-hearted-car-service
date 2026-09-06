@@ -1,0 +1,14 @@
+.section { container-type: inline-size; margin-top: 20px; }
+.row { padding: 16px; border-top: 1px solid var(--wh-border-subtle); }
+.row:first-child { border-top: 0; }
+.identity { min-width: 0; overflow-wrap: anywhere; }
+.metrics { display: grid; grid-template-columns: repeat(2, minmax(max-content, 1fr)); gap: 12px 16px; margin: 14px 0 0; }
+.metrics dt { font-size: 11px; color: var(--wh-text-soft); margin-bottom: 4px; }
+.metrics dd { margin: 0; font-size: 13px; line-height: 20px; font-variant-numeric: tabular-nums; white-space: nowrap; }
+@container (min-width: 560px) {
+  .metrics { grid-template-columns: repeat(4, minmax(max-content, 1fr)); }
+}
+@container (min-width: 880px) {
+  .row { display: grid; grid-template-columns: minmax(180px, 1fr) auto; gap: 24px; align-items: start; }
+  .metrics { grid-template-columns: repeat(4, max-content); margin: 0; gap: 24px; text-align: right; }
+}

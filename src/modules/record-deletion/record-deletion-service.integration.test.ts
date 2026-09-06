@@ -102,6 +102,24 @@ describe("RecordDeletionService preview", () => {
 
   afterAll(async () => database.close());
 
+  it("reads only the initiating account's committed deletion receipt without changing records or audit", async () => {
+    const fixture = await seedCustomerAndVehicle(9);
+    const root = { kind: "vehicle", recordNo: fixture.vehicleNo };
+    const result = { requestId: "delete-read-receipt-1", root, deletedRecords: [root], dependentCounts: {}, releasedIdentityKinds: [], fileCleanupPending: 0 };
+    await database.query(`insert into record_deletion_receipts (request_id, actor_account_id, payload_hash, root_kind, root_record_no, reason_code, result, created_at) values ($1,$2,$3,'vehicle',$4,'test_data',$5::jsonb,now())`, [result.requestId, frontDeskId, "a".repeat(64), fixture.vehicleNo, JSON.stringify(result)]);
+    const before = await database.query("select count(*)::int as count from audit_events");
+    await expect(service.readResult({ requestId: result.requestId, actorAccountId: frontDeskId })).resolves.toEqual(result);
+    const another = await seedAccount("another-front", "front_desk");
+    await expect(service.readResult({ requestId: result.requestId, actorAccountId: another })).resolves.toBeNull();
+    await expect(service.readResult({ requestId: "delete-not-committed", actorAccountId: frontDeskId })).resolves.toBeNull();
+    expect((await database.query("select count(*)::int as count from audit_events")).rows).toEqual(before.rows);
+    expect((await database.query("select id from vehicles where id=$1", [fixture.vehicleId])).rows).toHaveLength(1);
+  });
+
+  it("denies receipt lookup without deletion permission", async () => {
+    await expect(service.readResult({ requestId: "delete-read-receipt-1", actorAccountId: ownerId })).rejects.toMatchObject({ status: 403 });
+  });
+
   it("previews an unused vehicle as eligible for front desk", async () => {
     const fixture = await seedCustomerAndVehicle(1);
 

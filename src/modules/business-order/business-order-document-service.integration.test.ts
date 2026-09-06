@@ -1,6 +1,7 @@
-import { mkdtemp, readFile, rm } from "node:fs/promises";
+import { mkdtemp, readFile, rm, writeFile, unlink } from "node:fs/promises";
 import { resolve } from "node:path";
 import { PGlite, type Transaction } from "@electric-sql/pglite";
+import { PDFDocument } from "pdf-lib";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import type {
   AuthSqlDatabase,
@@ -40,6 +41,9 @@ const migrationPaths = [
   "0035_business_order_document_revisions.sql",
   "0036_business_order_document_english_files.sql",
   "0040_business_order_problem_descriptions.sql",
+  "0043_repair_round_performance_draft.sql",
+  "0049_business_order_categories.sql",
+  "0051_business_order_pending_quotes.sql",
 ].map((name) => resolve(process.cwd(), "drizzle", name));
 
 let database: PGlite;
@@ -154,6 +158,42 @@ async function createChargedOrder() {
 }
 
 describe("BusinessOrderDocumentService", () => {
+  it("coalesces concurrent retries while preserving explicit new generation and copy kinds", async () => {
+    const { order } = await createChargedOrder();
+    const input = { businessOrderId: order.id, context: context(frontDeskId, "concurrent-document", "2026-08-24T14:10:00Z") };
+    const [first, replay] = await Promise.all([documents.generateCustomerCopy(input), documents.generateCustomerCopy(input)]);
+    expect(replay.id).toBe(first.id);
+    expect(first.generationError).toBeUndefined();
+    expect(replay.generationError).toBeUndefined();
+    const detail = await documents.getDocumentDetail({ documentId: first.id, viewerAccountId: frontDeskId });
+    expect(detail.revisions).toHaveLength(1);
+    for (const language of ["zh", "en"] as const) {
+      const file = await documents.getRevisionFile({ documentId: first.id, revisionId: detail.revisions[0].id, viewerAccountId: frontDeskId, language });
+      expect((await PDFDocument.load(file.bytes)).getPageCount()).toBe(2);
+    }
+    const office = await documents.generateOfficeArchive(input);
+    expect(office.id).not.toBe(first.id);
+    const deliberate = await documents.generateCustomerCopy({ ...input, context: { ...input.context, requestId: "new-document-intent" } });
+    expect(deliberate.id).not.toBe(first.id);
+    await expect(documents.generateCustomerCopy({ ...input, context: { ...input.context, actorAccountId: ownerId } })).rejects.toBeInstanceOf(BusinessOrderDocumentWriteDeniedError);
+  });
+  it("retains a recoverable snapshot after storage failure and reuses it when the same request is retried", async () => {
+    const { order } = await createChargedOrder();
+    const blockedDirectory = resolve(storageRoot, "business-order-documents");
+    await writeFile(blockedDirectory, "storage fault fixture");
+    const input = { businessOrderId: order.id, context: context(frontDeskId, "retry-same-request", "2026-08-24T14:10:00Z") };
+    const pending = await documents.generateCustomerCopy(input);
+    expect(pending.generationError).toBeTruthy();
+    expect((await documents.getDocumentDetail({ documentId: pending.id, viewerAccountId: frontDeskId })).revisions).toHaveLength(0);
+    await unlink(blockedDirectory);
+    const recovered = await documents.generateCustomerCopy(input);
+    expect(recovered.id).toBe(pending.id);
+    expect(recovered.generationError).toBeUndefined();
+    const replay = await documents.generateCustomerCopy(input);
+    expect(replay.id).toBe(pending.id);
+    expect((await documents.listForBusinessOrder({ businessOrderId: order.id, viewerAccountId: frontDeskId }))).toHaveLength(1);
+    expect((await documents.getDocumentDetail({ documentId: pending.id, viewerAccountId: frontDeskId })).revisions).toHaveLength(1);
+  });
   beforeEach(async () => {
     storageRoot = await mkdtemp("/Volumes/公司文件/.wh-business-document-test-");
     database = new PGlite();
@@ -248,6 +288,24 @@ describe("BusinessOrderDocumentService", () => {
     })).rejects.toMatchObject({ status: 409, code: "business_order_document_revision_conflict" });
   });
 
+  it("retains pending pricing in the document snapshot separately from explicit free work", async () => {
+    const { order, charges } = await createChargedOrder();
+    await businessOrders.replaceChargeVersion({
+      businessOrderId: order.id, expectedBusinessOrderVersion: charges.businessOrderVersion,
+      reason: "待报价检查", laborDiscount: "0", partDiscount: "0", otherDiscount: "0", wholeOrderDiscount: "0", notes: [],
+      items: [
+        { kind: "part", nameZh: "清洗剂", nameEn: "Cleaning agent", unitItemId: pieceUnitId, quantity: "1", unitPrice: "", itemDiscount: "0", pendingQuote: true },
+        { kind: "labor", nameZh: "免费复查", nameEn: "Free recheck", unitItemId: hourUnitId, quantity: "1", unitPrice: "0", itemDiscount: "0" },
+      ],
+      context: context(frontDeskId, "pending-document-charges", "2026-08-24T14:00:00Z"),
+    });
+    const generated = await documents.generateCustomerCopy({ businessOrderId: order.id, context: context(frontDeskId, "pending-document", "2026-08-24T14:05:00Z") });
+    expect(generated.snapshot).toHaveProperty("charges.items.0.pendingQuote", true);
+    expect(generated.snapshot).toHaveProperty("charges.items.1.pendingQuote", false);
+    const reread = await documents.getDocument({ documentId: generated.id, viewerAccountId: ownerId });
+    expect(reread.snapshot).toEqual(generated.snapshot);
+  });
+
   it("freezes the office archive before later charges and payments change", async () => {
     const { order, charges } = await createChargedOrder();
     await payments.recordPayment({
@@ -296,7 +354,6 @@ describe("BusinessOrderDocumentService", () => {
     expect(reprinted.snapshot).toMatchObject({
       version: 2,
       kind: "office_archive",
-      presentation: "office_english_primary_v1",
       charges: { versionNo: 2 },
       totals: { totalPaidMinor: 300_000 },
       problemDescription: {
@@ -363,7 +420,15 @@ describe("BusinessOrderDocumentService", () => {
     expect(serialized).not.toContain("performance");
   });
 
-  it("builds a Chinese mechanic copy without customer, money, payment or performance data", async () => {
+  it("uses the same fee and responsibility facts for customer and office copies", async () => {
+    const { order } = await createChargedOrder();
+    const input = { businessOrderId: order.id, context: context(frontDeskId, "same-copies", "2026-08-24T14:10:00Z") };
+    const customer = await documents.generateCustomerCopy(input);
+    const office = await documents.generateOfficeArchive(input);
+    expect({ ...office.snapshot, kind: "customer_copy" }).toEqual(customer.snapshot);
+  });
+
+  it("includes this round performance without customer payment or selling prices", async () => {
     const { order } = await createChargedOrder();
     const generated = await documents.generateMechanicWorkCopy({
       businessOrderId: order.id,
@@ -386,10 +451,21 @@ describe("BusinessOrderDocumentService", () => {
     const serialized = JSON.stringify(generated.snapshot);
     for (const forbidden of [
       "张伟", "+18765550101", "123456789", "payer", "unitPriceMinor",
-      "discount", "transactions", "balance", "performance", "内部审批备注",
+      "discount", "transactions", "balance", "内部审批备注",
     ]) {
       expect(serialized).not.toContain(forbidden);
     }
+    expect(generated.snapshot).toHaveProperty("repairRound.performanceMinor", null);
+    for (const amount of [0, -50000, 12345]) {
+      await database.transaction(async (transaction) => {
+        await transaction.query("select set_config('whole_hearted.repair_event_projection', 'on', true)");
+        await transaction.query("update repair_rounds set performance_draft_minor = $1 where business_order_id = $2", [amount, order.id]);
+      });
+      const next = await documents.generateMechanicWorkCopy({ businessOrderId: order.id, context: context(frontDeskId, `performance-${amount}`, "2026-08-24T14:11:00Z") });
+      expect(next.snapshot).toHaveProperty("repairRound.performanceMinor", amount);
+      expect(next.snapshot).toHaveProperty("repairRound.performanceSource", "draft");
+    }
+    expect((await documents.getDocument({ documentId: generated.id, viewerAccountId: ownerId })).snapshot).toHaveProperty("repairRound.performanceMinor", null);
   });
 
   it("lets the owner list and reprint documents but not generate them", async () => {

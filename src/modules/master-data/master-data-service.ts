@@ -797,30 +797,53 @@ export class MasterDataService {
     const effectiveMonth = `${monthKeySchema.parse(input.effectiveMonth)}-01`;
     const amount = nonnegativeMinorAmountSchema.parse(input.baseSalaryCnyMinor);
     const now = input.context.now ?? new Date();
-    try {
-      await this.database.transaction(async (transaction) => {
-        await requireSuperAdmin(transaction, input.context.actorAccountId);
-        const members = await transaction.query<{ id: number }>(
-          "select id from staff_members where id = $1 for update",
-          [input.staffMemberId],
-        );
-        if (!members[0]) throw new MasterDataNotFoundError("员工不存在");
+    await this.database.transaction(async (transaction) => {
+      await requireSuperAdmin(transaction, input.context.actorAccountId);
+      const members = await transaction.query<{ id: number }>(
+        "select id from staff_members where id = $1 for update",
+        [input.staffMemberId],
+      );
+      if (!members[0]) throw new MasterDataNotFoundError("员工不存在");
+      const currentRows = await transaction.query<{ base_salary_cny_minor: number }>(
+        `select base_salary_cny_minor
+         from employee_salary_versions
+         where staff_member_id = $1 and effective_month = $2::date
+         for update`,
+        [input.staffMemberId, effectiveMonth],
+      );
+      const current = currentRows[0];
+      if (current) {
         await transaction.query(
-          `insert into employee_salary_versions
-            (staff_member_id, effective_month, base_salary_cny_minor, set_by, created_at)
-           values ($1, $2::date, $3, $4, $5)`,
-          [input.staffMemberId, effectiveMonth, amount, input.context.actorAccountId, now],
+          `update employee_salary_versions
+           set base_salary_cny_minor = $3, set_by = $4
+           where staff_member_id = $1 and effective_month = $2::date`,
+          [input.staffMemberId, effectiveMonth, amount, input.context.actorAccountId],
         );
         await writeContextAudit(transaction, input.context, now, {
-          eventType: "staff.salary_version_created",
+          eventType: "staff.salary_version_revised",
           objectType: "staff_member",
           objectId: String(input.staffMemberId),
+          before: {
+            effectiveMonth: input.effectiveMonth,
+            baseSalaryCnyMinor: Number(current.base_salary_cny_minor),
+          },
           after: { effectiveMonth: input.effectiveMonth, baseSalaryCnyMinor: amount },
         });
+        return;
+      }
+      await transaction.query(
+        `insert into employee_salary_versions
+          (staff_member_id, effective_month, base_salary_cny_minor, set_by, created_at)
+         values ($1, $2::date, $3, $4, $5)`,
+        [input.staffMemberId, effectiveMonth, amount, input.context.actorAccountId, now],
+      );
+      await writeContextAudit(transaction, input.context, now, {
+        eventType: "staff.salary_version_created",
+        objectType: "staff_member",
+        objectId: String(input.staffMemberId),
+        after: { effectiveMonth: input.effectiveMonth, baseSalaryCnyMinor: amount },
       });
-    } catch (error) {
-      rethrowConflict(error, "该员工在这个月份已经有工资版本");
-    }
+    });
   }
 
   async setPayrollParameters(input: {

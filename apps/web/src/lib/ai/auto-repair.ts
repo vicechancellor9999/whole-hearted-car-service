@@ -2,6 +2,40 @@ import { deepseekChat } from "./deepseek";
 import type { ParsedInspectionItem } from "../orders/ir-nl-parse";
 import type { ParsedChargeEntry, ParsedChargeNote, ParsedQuickItem } from "../orders/nl-parse";
 
+export type AiBusinessOrderCategory = "maintenance" | "repair" | "inspection";
+
+const BUSINESS_ORDER_CATEGORY_SYSTEM = `你是 Whole Hearted Car Service 的 Business Order 分类助手。
+根据前台输入的自然描述判断业务分类，可同时选择多类：
+- maintenance：保养、换油、滤清器等定期养护；
+- repair：维修、更换损坏部件、排除故障；
+- inspection：检查、检测、诊断、排查。
+不得输出其他分类，不得猜测描述中没有的业务。只输出 JSON：{"categories":["maintenance|repair|inspection"]}`;
+
+export async function aiClassifyFormalBusinessOrder(
+  rawDescription: string,
+): Promise<AiBusinessOrderCategory[] | null> {
+  if (!rawDescription.trim()) return [];
+  try {
+    const content = await deepseekChat({
+      json: true,
+      messages: [
+        { role: "system", content: BUSINESS_ORDER_CATEGORY_SYSTEM },
+        { role: "user", content: rawDescription.trim() },
+      ],
+    });
+    const parsed = JSON.parse(content) as { categories?: unknown };
+    if (!Array.isArray(parsed.categories)) return null;
+    const allowed = new Set<AiBusinessOrderCategory>(["maintenance", "repair", "inspection"]);
+    if (parsed.categories.some((category) => typeof category !== "string" || !allowed.has(category as AiBusinessOrderCategory))) {
+      return null;
+    }
+    const values = new Set(parsed.categories as AiBusinessOrderCategory[]);
+    return (["maintenance", "repair", "inspection"] as const).filter((category) => values.has(category));
+  } catch {
+    return null;
+  }
+}
+
 /**
  * 牙买加汽修场景 AI（DeepSeek）：拆单 + 翻译。
  * 每个函数失败时返回 null，调用方回退本地规则器。
@@ -80,12 +114,12 @@ export async function aiParseQuickOrder(rawInput: string): Promise<AiParsedQuick
 const FORMAL_CHARGE_PARSE_SYSTEM = `你是牙买加 Kingston 汽修厂（Whole Hearted Car Service）的收费录入助手。
 把前台的一段中文口述同时整理成收费项目和随收费版本保存的备注。术语对照：${REPAIR_GLOSSARY}
 规则：
-1. 收费项目分为 labor（工时）或 parts（配件）。项目名称只写收费项目；description 写症状、施工内容或补充说明；
-2. descZh、descriptionZh 使用规范中文；descEn、descriptionEn 使用牙买加客户易懂的自然英文；
-3. unitPriceJmd 是客户看到的含 15% GCT 单价；没有金额填 0，不能编造；quantity 没写按 1；discountJmd 没写按 0；
+1. 收费项目分为 labor（工时）或 parts（配件）。descZh/descEn 只写简短项目名称；remarkZh/remarkEn 写症状、施工内容或补充说明；
+2. 中文使用规范表达，英文使用牙买加客户易懂的自然表达；工时单位是 JOB，数量是正整数；
+3. unitPriceJmd 是客户看到的含 15% GCT 单价。任何类别没有明确金额时 unitPriceJmd=null、pendingQuote=true；只有原文明示免费或0元才填0、pendingQuote=false。工时免费不代表配件免费，配件无价格仍待报价。明确非零单价时 pendingQuote=false。不得从总价臆造各项目单价；quantity 没写按1，discountJmd 没写按0；
 4. 备注单独放进 notes：客户反馈=customer_concern，施工说明=work_instruction，责任说明或提前告知=liability_notice；
 5. 备注的 contentZh 和 contentEn 必须表达同一事实；不得把备注混进收费项目，也不得把收费项目强制变成备注；
-6. 只输出 JSON，不要解释：{"items":[{"descZh":"","descEn":"","remarkZh":"","remarkEn":"","category":"labor|parts","unit":"工时|件|套|个|瓶","unitPriceJmd":0,"quantity":1,"discountJmd":0,"pendingQuote":false}],"notes":[{"kind":"customer_concern|work_instruction|liability_notice","contentZh":"","contentEn":""}]}`;
+6. 只输出 JSON，不要解释：{"items":[{"descZh":"","descEn":"","remarkZh":"","remarkEn":"","category":"labor|parts","unit":"JOB|件|套|个|瓶","unitPriceJmd":null,"quantity":1,"discountJmd":0,"pendingQuote":true}],"notes":[{"kind":"customer_concern|work_instruction|liability_notice","contentZh":"","contentEn":""}]}`;
 
 /**
  * 正式 Business Order 的自然语言收费入口。
@@ -111,13 +145,14 @@ export async function aiParseFormalChargeEntry(rawInput: string): Promise<Parsed
       const descZh = typeof record.descZh === "string" ? record.descZh.trim() : "";
       const descEn = typeof record.descEn === "string" ? record.descEn.trim() : "";
       if (!descZh || !descEn) return null;
-      const unitPriceJmd = typeof record.unitPriceJmd === "number"
+      const missingPrice = record.unitPriceJmd === null || record.unitPriceJmd === undefined;
+      const unitPriceJmd = missingPrice ? 0 : typeof record.unitPriceJmd === "number"
         && Number.isFinite(record.unitPriceJmd)
         && record.unitPriceJmd >= 0
         ? record.unitPriceJmd
         : null;
       const quantity = typeof record.quantity === "number"
-        && Number.isFinite(record.quantity)
+        && Number.isSafeInteger(record.quantity)
         && record.quantity > 0
         ? record.quantity
         : null;
@@ -129,6 +164,9 @@ export async function aiParseFormalChargeEntry(rawInput: string): Promise<Parsed
           ? record.discountJmd
           : null;
       if (unitPriceJmd === null || quantity === null || discountJmd === null) return null;
+      if (record.pendingQuote !== undefined && typeof record.pendingQuote !== "boolean") return null;
+      const pendingQuote = missingPrice || record.pendingQuote === true || (unitPriceJmd === 0 && record.pendingQuote !== false);
+      if (pendingQuote && (unitPriceJmd !== 0 || discountJmd !== 0)) return null;
       const remarkZh = typeof record.remarkZh === "string" ? record.remarkZh.trim() : "";
       const remarkEn = typeof record.remarkEn === "string" ? record.remarkEn.trim() : "";
       const unit = typeof record.unit === "string" && record.unit.trim() ? record.unit.trim() : undefined;
@@ -142,7 +180,7 @@ export async function aiParseFormalChargeEntry(rawInput: string): Promise<Parsed
         unitPriceJmd,
         quantity,
         discountJmd,
-        pendingQuote: record.category === "parts" && unitPriceJmd === 0,
+        pendingQuote,
       };
     });
 

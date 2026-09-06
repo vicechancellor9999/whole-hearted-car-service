@@ -1,15 +1,21 @@
 "use client";
 
 import { FormEvent, useEffect, useState } from "react";
+import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { AlertCircle, LoaderCircle, Plus, RefreshCw, Search, X } from "lucide-react";
-import { PageHeader } from "@/components/layout/page-header";
+import { BUSINESS_ORDER_STATUSES, businessOrderListHref, parseBusinessOrderListFilters } from "@/lib/orders/business-order-list-filters";
+import styles from "./business-order-list.module.css";
 import {
   fetchFormalBusinessOrders,
   createFormalBusinessOrder,
+  formatFormalMoney,
+  formalBusinessOrderCategoryLabel,
   formalBusinessOrderStatusLabel,
+  type FormalBusinessOrderCategory,
   type FormalBusinessOrderList,
 } from "@/lib/api/formal-business-orders";
+import { aiClassifyFormalBusinessOrder } from "@/lib/ai/auto-repair";
 import {
   fetchFormalCustomerVehicleWorkspace,
   selectFormalVehicleByPlate,
@@ -22,9 +28,7 @@ export function FormalBusinessOrdersWorkspace() {
   const { t } = useI18n();
   const router = useRouter();
   const searchParams = useSearchParams();
-  const activeSearch = searchParams.get("search") ?? "";
-  const activeStatus = (["waiting_assignment", "assigned", "in_repair", "return_pending_review", "formally_handed_off"] as const).find((status) => status === searchParams.get("status"));
-  const page = Math.max(1, Number(searchParams.get("page")) || 1);
+  const { search: activeSearch, status: activeStatus, category: activeCategory, page } = parseBusinessOrderListFilters(searchParams);
   const [search, setSearch] = useState(activeSearch);
   const [data, setData] = useState<FormalBusinessOrderList | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -46,14 +50,14 @@ export function FormalBusinessOrdersWorkspace() {
     const timer = window.setTimeout(() => {
       setData(null);
       setError(null);
-      void fetchFormalBusinessOrders({ search: activeSearch || undefined, status: activeStatus, page, pageSize: 20 })
+      void fetchFormalBusinessOrders({ search: activeSearch || undefined, status: activeStatus, category: activeCategory, page, pageSize: 20 })
         .then((result) => { if (active) setData(result); })
         .catch((caught) => {
           if (active) setError(caught instanceof Error ? caught.message : "Business Order 读取失败");
         });
     }, 0);
     return () => { active = false; window.clearTimeout(timer); };
-  }, [activeSearch, activeStatus, page, reloadKey]);
+  }, [activeSearch, activeStatus, activeCategory, page, reloadKey]);
 
   useEffect(() => {
     if (!createOpen || workspace) return;
@@ -62,12 +66,12 @@ export function FormalBusinessOrdersWorkspace() {
       .catch((caught) => setCreateError(caught instanceof Error ? caught.message : "车辆档案读取失败"));
   }, [createOpen, workspace]);
 
-  const navigate = (nextPage: number, nextSearch = activeSearch) => {
-    const query = new URLSearchParams();
-    if (nextSearch.trim()) query.set("search", nextSearch.trim());
-    if (activeStatus) query.set("status", activeStatus);
-    if (nextPage > 1) query.set("page", String(nextPage));
-    router.push(`/orders/business${query.size ? `?${query.toString()}` : ""}`);
+  const navigate = (
+    nextPage: number,
+    nextSearch = activeSearch,
+    nextCategory: FormalBusinessOrderCategory | null | undefined = activeCategory,
+  ) => {
+    router.push(businessOrderListHref(searchParams, { page: nextPage, search: nextSearch, category: nextCategory }));
   };
 
   const submitSearch = (event: FormEvent) => {
@@ -92,10 +96,12 @@ export function FormalBusinessOrdersWorkspace() {
     setCreating(true);
     setCreateError(null);
     try {
+      const categories = await aiClassifyFormalBusinessOrder(problemDescriptionZh);
       const created = await createFormalBusinessOrder({
         vehicleId: matchedVehicle.id,
         companyContactId: companyContactId ? Number(companyContactId) : null,
         problemDescriptionZh,
+        categories: categories ?? undefined,
       });
       router.push(`/orders/business/${created.id}`);
     } catch (caught) {
@@ -106,16 +112,23 @@ export function FormalBusinessOrdersWorkspace() {
   };
 
   return (
-    <div data-testid="formal-business-orders-workspace" className="px-3 py-3 sm:px-5">
-      <div className="mx-auto w-full max-w-[1720px]">
-        <PageHeader
-          breadcrumb="工单管理 · 正式数据"
-          title="Business Order"
-          description="这里读取正式后端保存的车辆、费用承担方、收费版本和维修状态；刷新页面后事实保持不变。"
-        />
+    <div data-testid="formal-business-orders-workspace" className={styles.page}>
+      <div className={styles.workspace}>
+        <header className={styles.header}>
+          <div><h1>业务单</h1><p>查看维修进度、收费与客户信息</p></div>
+          <button type="button" onClick={() => { setCreateOpen(true); setCreateError(null); }} className={styles.primary}><Plus size={16} />新建业务单</button>
+        </header>
 
-        <section className="mt-3 rounded-[22px] border border-line bg-white/80 p-3 shadow-card dark:border-slate-700 dark:bg-slate-900/50 sm:p-4">
-          {activeStatus ? <div className="mb-3 flex items-center justify-between rounded-xl border border-primary-200 bg-primary-50 px-3 py-2 text-xs font-semibold text-primary"><span>当前筛选：{formalBusinessOrderStatusLabel(activeStatus)}</span><button type="button" onClick={() => router.push("/orders/business")} className="rounded-lg border border-primary-300 bg-white px-3 py-1.5">清除筛选</button></div> : null}
+        <section className={styles.panel} aria-label="业务单工作区">
+          <div className={styles.toolbar}>
+          <div role="group" aria-label="按维修状态筛选" className={styles.statuses}>
+            {[undefined, ...BUSINESS_ORDER_STATUSES].map((status) => (
+              <button key={status ?? "all"} type="button" aria-pressed={activeStatus === status}
+                onClick={() => router.push(businessOrderListHref(searchParams, { status: status ?? null }))}>
+                {status ? formalBusinessOrderStatusLabel(status) : "全部状态"}
+              </button>
+            ))}
+          </div>
           <div className="flex min-w-0 gap-2">
           <form onSubmit={submitSearch} className="flex min-w-0 flex-1 gap-2">
             <label className="relative min-w-0 flex-1">
@@ -126,16 +139,42 @@ export function FormalBusinessOrdersWorkspace() {
                 value={search}
                 onChange={(event) => setSearch(event.target.value)}
                 placeholder="搜索编号、车牌或费用承担方"
-                className="min-h-10 w-full rounded-lg border border-line bg-white pl-9 pr-3 text-sm outline-none focus:border-primary dark:border-slate-700 dark:bg-slate-800"
+                className="min-h-10 w-full rounded-lg border border-line bg-layer-1 pl-9 pr-10 text-sm outline-none focus:border-primary"
               />
+              {search ? <button type="button" aria-label="清空搜索" onClick={() => { setSearch(""); navigate(1, ""); }} className="absolute right-1 top-1/2 grid h-9 w-9 -translate-y-1/2 place-items-center rounded-md text-ink-soft hover:text-ink"><X size={15} /></button> : null}
             </label>
             <button type="submit" className="min-h-10 rounded-lg bg-primary px-4 text-xs font-bold text-white">搜索</button>
           </form>
-          <button type="button" onClick={() => { setCreateOpen(true); setCreateError(null); }} className="inline-flex min-h-10 items-center gap-1 rounded-lg bg-primary px-4 text-xs font-bold text-white"><Plus size={14} />新建 Business Order</button>
+          <button type="button" aria-label="刷新业务单" onClick={() => setReloadKey((value) => value + 1)} className="grid h-10 w-10 shrink-0 place-items-center rounded-lg border border-line text-ink-soft hover:text-ink"><RefreshCw size={15} /></button>
+          </div>
+
+          <div role="group" aria-label="按业务分类筛选" className={styles.categories}>
+            <span className="shrink-0 text-xs text-ink-soft">业务分类</span>
+            {([
+              [null, "全部"],
+              ["maintenance", "保养"],
+              ["repair", "维修"],
+              ["inspection", "检查"],
+              ["rework", "返修"],
+            ] as const).map(([category, label]) => {
+              const selected = category === null ? activeCategory === undefined : activeCategory === category;
+              return (
+                <button
+                  key={category ?? "all"}
+                  type="button"
+                  aria-pressed={selected}
+                  onClick={() => navigate(1, activeSearch, category)}
+                  className={styles.category}
+                >
+                  {label}
+                </button>
+              );
+            })}
+          </div>
           </div>
 
           {createOpen ? (
-            <div className="mt-3 rounded-xl border border-primary-200 bg-primary-50/40 p-3 dark:border-primary-500/30 dark:bg-primary-500/5">
+            <div className={styles.createPanel}>
               <div className="flex items-center justify-between gap-3">
                 <div><h2 className="text-sm font-bold text-ink dark:text-slate-100">先查车牌，再创建 Business Order</h2><p className="mt-0.5 text-[11px] text-ink-soft">系统使用车辆档案中的登记对象作为费用承担方。</p></div>
                 <button type="button" aria-label="关闭创建面板" onClick={() => setCreateOpen(false)} className="grid h-8 w-8 place-items-center rounded-lg border border-line bg-white"><X size={14} /></button>
@@ -184,50 +223,56 @@ export function FormalBusinessOrdersWorkspace() {
             </div>
           ) : null}
 
-          {!data && !error ? <div role="status" className="mt-3 h-[360px] animate-pulse rounded-2xl bg-slate-100 dark:bg-slate-800" /> : null}
+          <div className={styles.results} aria-busy={!data && !error}>
+          {!data && !error ? <div role="status" className={styles.loading}><LoaderCircle size={20} className="motion-safe:animate-spin" /><span>正在读取业务单…</span></div> : null}
           {error ? (
             <div role="alert" className="mt-3 flex min-h-[260px] flex-col items-center justify-center rounded-2xl border border-rose-200 text-center dark:border-rose-500/30">
               <AlertCircle className="text-rose-600" />
-              <p className="mt-2 text-sm font-semibold">Business Order 读取失败</p>
+              <p className="mt-2 text-sm font-semibold">业务单读取失败</p>
               <p className="mt-1 text-xs text-ink-soft">{error}</p>
               <button type="button" onClick={() => setReloadKey((value) => value + 1)} className="mt-3 inline-flex min-h-10 items-center gap-2 rounded-lg border border-line px-4 text-sm"><RefreshCw size={14} />重试</button>
             </div>
           ) : null}
           {data ? (
             <>
-              <div className="mt-3 flex items-center justify-between text-xs text-ink-soft">
-                <span>共 {data.total} 张正式 Business Order</span>
-                <span>第 {data.page} / {data.pageCount} 页</span>
-              </div>
               {data.items.length === 0 ? (
-                <div className="mt-3 rounded-2xl border border-dashed border-line py-16 text-center text-sm text-ink-soft">没有符合条件的正式 Business Order。</div>
+                <div className={styles.empty}><Search size={24} /><h2>{activeSearch || activeCategory || activeStatus ? "没有符合条件的业务单" : "还没有业务单"}</h2><p>{activeSearch || activeCategory || activeStatus ? "试试其他车牌、客户或筛选条件。" : "从车辆开始，记录本次需要处理的问题。"}</p>{activeSearch || activeCategory || activeStatus ? <button type="button" onClick={() => { setSearch(""); router.push("/orders/business"); }} className={styles.secondary}>清除全部筛选</button> : <button type="button" onClick={() => setCreateOpen(true)} className={styles.primary}>新建业务单</button>}</div>
               ) : (
-                <div className="mt-2 overflow-hidden rounded-xl border border-line dark:border-slate-700">
-                  <div className="hidden grid-cols-[1.25fr_1.2fr_1fr_.65fr_.8fr] gap-3 border-b border-line bg-surface px-3 py-2 text-[10px] font-semibold text-ink-soft dark:border-slate-700 dark:bg-slate-800/60 lg:grid">
-                    <span>Business Order / 车辆</span><span>费用承担方</span><span>联系方式</span><span>状态</span><span>创建时间</span>
+                <div>
+                  <div className={styles.tableHead}>
+                    <span>车辆 / 业务单</span><span>客户 / 费用承担方</span><span>分类 / 维修内容</span><span className="text-right">收费金额</span><span>维修班组</span><span>状态</span>
                   </div>
                   {data.items.map((order) => (
-                    <button
+                    <Link
                       key={order.id}
-                      type="button"
-                      onClick={() => router.push(`/orders/business/${order.id}`)}
-                      className="grid w-full min-w-0 gap-2 border-b border-line/70 px-3 py-3 text-left text-xs last:border-0 hover:bg-primary-50/50 dark:border-slate-700 dark:hover:bg-slate-800/60 lg:grid-cols-[1.25fr_1.2fr_1fr_.65fr_.8fr] lg:items-center"
+                      href={`/orders/business/${order.id}`}
+                      className={styles.row}
                     >
-                      <span className="min-w-0"><strong className="block truncate font-mono text-ink dark:text-slate-100">{order.orderNo}</strong><small className="block truncate text-ink-soft">{order.vehicle.plate} · {order.vehicle.description}</small></span>
-                      <span className="min-w-0 truncate font-semibold text-ink dark:text-slate-100">{order.payer.displayName}{order.payer.contactName ? ` · ${order.payer.contactName}` : ""}</span>
-                      <span className="min-w-0 truncate text-ink-soft">{order.payer.phone ?? "未填写"}{order.payer.trn ? ` · TRN ${order.payer.trn}` : ""}</span>
-                      <span><em className={`inline-flex rounded-full px-2 py-1 text-[10px] font-semibold not-italic ${order.voided ? "bg-rose-100 text-rose-700" : "bg-primary-50 text-primary dark:bg-primary-500/10 dark:text-primary-300"}`}>{order.voided ? "已作废" : formalBusinessOrderStatusLabel(order.status)}</em></span>
-                      <span className="text-[11px] text-ink-soft">{formatDateTime(order.createdAt)}</span>
-                    </button>
+                      <span className={styles.vehicle}><strong>{order.vehicle.plate}</strong><span title={order.vehicle.description}>{order.vehicle.description}</span><small title={order.orderNo}>{order.orderNo}</small><small>{formatDateTime(order.createdAt)}</small></span>
+                      <span className={styles.customer}><strong title={order.payer.displayName}>{order.payer.displayName}</strong>{order.payer.contactName ? <span>{order.payer.contactName}</span> : null}<span>{order.payer.phone ?? "电话待补"}</span></span>
+                      <span className={styles.service}>
+                        <span className="flex flex-wrap gap-1">
+                          {order.categories.length > 0 ? order.categories.map((category) => <em key={category} className={`rounded-md px-1.5 py-0.5 text-[10px] font-bold not-italic ${category === "rework" ? "bg-rose-100 text-rose-700" : "bg-sky-50 text-sky-700 dark:bg-sky-500/10 dark:text-sky-300"}`}>{formalBusinessOrderCategoryLabel(category)}</em>) : <em className="rounded-md bg-slate-100 px-1.5 py-0.5 text-[10px] not-italic text-ink-soft">待分类</em>}
+                        </span>
+                        <span title={order.serviceSummary ?? undefined} className={styles.summary}>{order.serviceSummary ?? "维修内容待补"}</span>
+                      </span>
+                      <span className={styles.amount}><strong className="whitespace-nowrap">{formatFormalMoney(order.totalDueMinor)}</strong>{order.pendingQuoteCount ? <small className="mt-1 block text-xs font-normal text-state-warning-text">已报价部分 · {order.pendingQuoteCount} 项待报价</small> : null}</span>
+                      <span className={styles.team}>{order.assignedTeam?.name ?? "待派单"}</span>
+                      <span className={styles.state}><em className={styles.stateBadge} data-state={order.voided ? "voided" : order.status}>{order.voided ? "已作废" : formalBusinessOrderStatusLabel(order.status)}</em></span>
+                    </Link>
                   ))}
                 </div>
               )}
-              <div className="mt-3 flex justify-end gap-2">
-                <button type="button" disabled={data.page <= 1} onClick={() => navigate(data.page - 1)} className="min-h-9 rounded-lg border border-line px-3 text-xs font-semibold disabled:opacity-40">上一页</button>
-                <button type="button" disabled={data.page >= data.pageCount} onClick={() => navigate(data.page + 1)} className="min-h-9 rounded-lg border border-line px-3 text-xs font-semibold disabled:opacity-40">下一页</button>
-              </div>
             </>
           ) : null}
+          </div>
+          {data ? <footer className={styles.footer}>
+                <span>共 {data.total} 张业务单</span>
+                <div className="flex items-center gap-2"><span className="mr-2">第 {data.page} / {Math.max(1, data.pageCount)} 页</span>
+                <button type="button" disabled={data.page <= 1} onClick={() => navigate(data.page - 1)} className="min-h-9 rounded-lg border border-line px-3 text-xs font-semibold disabled:opacity-40">上一页</button>
+                <button type="button" disabled={data.page >= data.pageCount} onClick={() => navigate(data.page + 1)} className="min-h-9 rounded-lg border border-line px-3 text-xs font-semibold disabled:opacity-40">下一页</button>
+                </div>
+          </footer> : null}
         </section>
       </div>
     </div>

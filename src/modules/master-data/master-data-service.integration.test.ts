@@ -20,6 +20,7 @@ const migrationPaths = [
   resolve(process.cwd(), "drizzle/0003_master_data_facts_append_only.sql"),
   resolve(process.cwd(), "drizzle/0024_team_commission_rate_versions.sql"),
   resolve(process.cwd(), "drizzle/0034_repair_team_sort_order.sql"),
+  resolve(process.cwd(), "drizzle/0048_employee_salary_revision.sql"),
 ];
 
 let database: PGlite;
@@ -199,6 +200,63 @@ describe("MasterDataService", () => {
       "staff.created",
     ]);
     expect(JSON.stringify(audits.rows)).not.toContain("Mechanic formal 2026!");
+  });
+
+  it("revises an existing historical salary month and audits the before and after amounts", async () => {
+    const position = await service.createDictionaryItem({
+      category: "staff_position",
+      code: "mechanic",
+      labelZh: "维修工",
+      context: context("req-position"),
+    });
+    const team = await service.createRepairTeam({
+      name: "维修一组",
+      context: context("req-team"),
+    });
+    const member = await service.createMechanic({
+      fullName: "张真真",
+      phone: "+18765550101",
+      positionItemId: position.id,
+      teamId: team.id,
+      hiredOn: "2026-08-01",
+      effectiveMonth: "2026-08",
+      baseSalaryCnyMinor: 1_600_000,
+      username: "zhang.zhenzhen",
+      password: "Mechanic formal 2026!",
+      context: context("req-mechanic"),
+    });
+
+    await service.setEmployeeSalary({
+      staffMemberId: member.id,
+      effectiveMonth: "2026-08",
+      baseSalaryCnyMinor: 800_000,
+      context: context("req-salary-revision"),
+    });
+
+    const salaries = await database.query<{
+      base_salary_cny_minor: number;
+    }>(
+      `select base_salary_cny_minor
+       from employee_salary_versions
+       where staff_member_id = $1 and effective_month = date '2026-08-01'`,
+      [member.id],
+    );
+    expect(salaries.rows).toEqual([{ base_salary_cny_minor: 800_000 }]);
+
+    const audits = await database.query<{
+      event_type: string;
+      before_state: Record<string, unknown>;
+      after_state: Record<string, unknown>;
+    }>(
+      `select event_type, before_state, after_state
+       from audit_events
+       where request_id = 'req-salary-revision'`,
+    );
+    expect(audits.rows).toEqual([{
+      event_type: "staff.salary_version_revised",
+      before_state: { effectiveMonth: "2026-08", baseSalaryCnyMinor: 1_600_000 },
+      after_state: { effectiveMonth: "2026-08", baseSalaryCnyMinor: 800_000 },
+    }]);
   });
 
   it("requires an active replacement for a team that still has current members", async () => {

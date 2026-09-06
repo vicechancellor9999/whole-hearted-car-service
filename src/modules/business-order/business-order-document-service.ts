@@ -73,6 +73,8 @@ type SourceRow = {
   repair_round_id: number;
   repair_round_no: number;
   team_name: string | null;
+  performance_draft_minor: number | null;
+  handoff_performance_minor: number | null;
 };
 
 type ChargeItemRow = {
@@ -85,6 +87,7 @@ type ChargeItemRow = {
   unit_label_en: string | null;
   quantity: string;
   unit_price_minor: number;
+  pending_quote: boolean;
   item_discount_minor: number;
   subtotal_minor: number;
 };
@@ -131,6 +134,7 @@ export type BusinessOrderDocumentRecord = {
   snapshot: BusinessOrderDocumentRenderSnapshot;
   generatedAt: Date;
   generatedBy: number;
+  generationError?: string;
 };
 
 export type BusinessOrderDocumentRevisionRecord = {
@@ -362,7 +366,7 @@ export class BusinessOrderDocumentService {
             (document_snapshot_id, revision_no, field_overrides, renderer_version,
              file_id, content_sha256, english_file_id, english_content_sha256,
              created_at, created_by)
-           values ($1, $2, $3::jsonb, $4, $5, $6, $7, $8, $9, $10)
+           values ($1, $2, $3::text::jsonb, $4, $5, $6, $7, $8, $9, $10)
            returning id, document_snapshot_id, revision_no, field_overrides,
                      renderer_version, file_id, content_sha256,
                      english_file_id, english_content_sha256, created_at, created_by`,
@@ -439,6 +443,16 @@ export class BusinessOrderDocumentService {
         await transaction.query(
           "lock table business_order_document_snapshots in share row exclusive mode",
         );
+        const previous = await transaction.query<DocumentRow>(
+          `${documentSelect()} where business_order_id = $1
+           and kind = $2::business_order_document_kind and id::text in (
+             select object_id from audit_events where request_id = $3
+             and actor_account_id = $4 and object_type = 'business_order_document'
+             and event_type = 'business_order.document_generated'
+           )`,
+          [input.businessOrderId, kind, input.context.requestId, input.context.actorAccountId],
+        );
+        if (previous[0]) return mapDocument(previous[0]);
         const [items, notes, ledgerRows, problemDescription] = await Promise.all([
           loadChargeItems(transaction, source.charge_version_id),
           loadNotes(transaction, source.charge_version_id),
@@ -464,7 +478,7 @@ export class BusinessOrderDocumentService {
              charge_version_no, repair_round_id, repair_round_no,
              render_snapshot, generated_at, generated_by)
            values ($1, $2, $3::business_order_document_kind, $4, $5,
-                   $6, $7, $8::jsonb, $9, $10)
+                   $6, $7, $8::text::jsonb, $9, $10)
            returning id, document_no, business_order_id, kind,
                      charge_version_id, charge_version_no,
                      repair_round_id, repair_round_no, render_snapshot,
@@ -502,12 +516,26 @@ export class BusinessOrderDocumentService {
         });
         return document;
       });
-      await this.createRevision({
-        documentId: document.id,
-        expectedLatestRevisionNo: 0,
-        fieldOverrides: {},
-        context: input.context,
-      });
+      const existing = await this.getDocumentDetail({ documentId: document.id, viewerAccountId: input.context.actorAccountId });
+      if (existing.latestRevisionNo > 0) return document;
+      try {
+        await this.createRevision({
+          documentId: document.id,
+          expectedLatestRevisionNo: 0,
+          fieldOverrides: {},
+          context: input.context,
+        });
+      } catch (error) {
+        // Another retry may have committed while this request was rendering.
+        const latest = await this.getDocumentDetail({ documentId: document.id, viewerAccountId: input.context.actorAccountId });
+        if (latest.latestRevisionNo > 0) return document;
+        const code = error instanceof Error && "code" in error ? error.code : null;
+        const reason = error instanceof BusinessOrderDocumentConflictError ? error.message
+          : code === "ENOSPC" ? "文件存储空间不足，请管理员释放空间后重试。"
+            : code === "EACCES" || code === "EPERM" ? "文件存储没有写入权限，请管理员修复权限后重试。"
+              : "打印文件生成失败，请重试；若仍失败，请管理员检查文件存储和打印服务。";
+        return { ...document, generationError: reason };
+      }
       return document;
     } catch (error) {
       rethrow(error);
@@ -550,22 +578,9 @@ function buildOfficeSnapshot(
   ledgerRows: LedgerRow[],
   problemDescription: ProblemDescriptionDocumentRow,
 ): BusinessOrderDocumentRenderSnapshot {
-  const transactions = buildTransactions(ledgerRows);
-  const totals = buildFinancialTotals(source, ledgerRows);
-  return {
-    version: 2,
-    kind: "office_archive",
-    presentation: "office_english_primary_v1",
-    businessOrder: buildBusinessOrderSnapshot(source),
-    charges: buildCharges(source, items, notes),
-    transactions,
-    totals,
-    problemDescription: buildCustomerProblemDescription(problemDescription),
-    approval: {
-      statementZh: "客户签字表示已阅读并认可本联所列收费项目、金额、备注及提前告知内容。",
-      statementEn: "The customer's signature confirms review and acceptance of the charges, amounts, notes and advance notices shown on this copy.",
-    },
-  };
+  const customer = buildCustomerSnapshot(source, items, notes, ledgerRows, problemDescription);
+  if (customer.kind !== "customer_copy") throw new Error("Invalid customer snapshot");
+  return { ...customer, kind: "office_archive" };
 }
 
 function buildTransactions(ledgerRows: LedgerRow[]) {
@@ -644,6 +659,10 @@ function buildMechanicSnapshot(
       id: Number(source.repair_round_id),
       roundNo: source.repair_round_no,
       teamName: source.team_name,
+      performanceMinor: source.handoff_performance_minor == null
+        ? (source.performance_draft_minor == null ? null : Number(source.performance_draft_minor))
+        : Number(source.handoff_performance_minor),
+      performanceSource: source.handoff_performance_minor != null ? "handoff" : source.performance_draft_minor != null ? "draft" : "unrecorded",
     },
     problemDescription: {
       primary: round ?? {
@@ -660,7 +679,7 @@ function buildMechanicSnapshot(
       kind: item.kind,
       nameZh: item.name_zh,
       descriptionZh: item.description_zh,
-      unitLabelZh: item.unit_label_zh,
+      unitLabelZh: item.kind === "labor" ? "JOB" : item.unit_label_zh,
       quantity: item.quantity,
     })),
     notes: notes.flatMap((note) => {
@@ -719,10 +738,11 @@ function buildCharges(
       nameEn: item.name_en,
       descriptionZh: item.description_zh,
       descriptionEn: item.description_en,
-      unitLabelZh: item.unit_label_zh,
-      unitLabelEn: item.unit_label_en,
+      unitLabelZh: item.kind === "labor" ? "JOB" : item.unit_label_zh,
+      unitLabelEn: item.kind === "labor" ? "JOB" : item.unit_label_en,
       quantity: item.quantity,
       unitPriceMinor: Number(item.unit_price_minor),
+      pendingQuote: item.pending_quote,
       itemDiscountMinor: Number(item.item_discount_minor),
       subtotalMinor: Number(item.subtotal_minor),
     })),
@@ -757,7 +777,12 @@ async function loadSource(
             charge.included_gct_minor,
             repair_round.id as repair_round_id,
             repair_round.round_no as repair_round_no,
-            team.name as team_name
+            team.name as team_name,
+            repair_round.performance_draft_minor,
+            (select handoff.performance_minor from formal_handoffs as handoff
+             where handoff.repair_round_id = repair_round.id
+               and not exists (select 1 from formal_handoff_cancellations as cancellation where cancellation.formal_handoff_id = handoff.id)
+             order by handoff.handoff_no desc limit 1) as handoff_performance_minor
      from business_orders as business_order
      join business_order_charge_versions as charge
        on charge.business_order_id = business_order.id
@@ -783,7 +808,7 @@ async function loadChargeItems(executor: AuthSqlExecutor, chargeVersionId: numbe
     `select item.kind, item.name_zh, item.name_en,
             item.description_zh, item.description_en,
             unit.label_zh as unit_label_zh, unit.label_en as unit_label_en,
-            item.quantity::text as quantity, item.unit_price_minor,
+            item.quantity::text as quantity, item.unit_price_minor, item.pending_quote,
             item.item_discount_minor, item.subtotal_minor
      from business_order_charge_items as item
      join dictionary_items as unit on unit.id = item.unit_item_id

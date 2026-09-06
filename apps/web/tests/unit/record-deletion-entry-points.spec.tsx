@@ -17,7 +17,7 @@ test("formal detail views expose the shared delete action with the correct title
   expect(vehicle).toContain('returnTo="/vehicles"');
   expect(order).toContain('title={english ? "Delete Business Order" : "删除业务单"}');
   expect(order).toContain('returnTo="/orders/business"');
-  expect(inspection).toContain('title="删除检查单"');
+  expect(inspection).toContain('title={english ? "Delete Inspection Report" : "删除检查结果"}');
   expect(inspection).toContain('returnTo="/orders/inspections"');
 });
 

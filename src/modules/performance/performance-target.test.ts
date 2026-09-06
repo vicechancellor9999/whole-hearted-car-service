@@ -27,6 +27,14 @@ describe("calculatePerformanceTargets", () => {
         targetStatus: "configured",
         targetPerformanceMinor: 17_600_000,
         targetMissingReasons: [],
+        members: [{
+          teamId: 7,
+          teamName: "维修一组",
+          memberId: 3,
+          memberName: "张三",
+          salaryCnyMinor: 200_000,
+          targetPerformanceMinor: 17_600_000,
+        }],
       }],
     });
   });
@@ -131,12 +139,28 @@ describe("calculatePerformanceTargets", () => {
         targetStatus: "configured",
         targetPerformanceMinor: 7_166_738,
         targetMissingReasons: [],
+        members: [{
+          teamId: 7,
+          teamName: "维修一组",
+          memberId: 3,
+          memberName: "张三",
+          salaryCnyMinor: 100_001,
+          targetPerformanceMinor: 7_166_738,
+        }],
       }, {
         teamId: 8,
         teamName: "维修二组",
         targetStatus: "configured",
         targetPerformanceMinor: 14_333_477,
         targetMissingReasons: [],
+        members: [{
+          teamId: 8,
+          teamName: "维修二组",
+          memberId: 4,
+          memberName: "李四",
+          salaryCnyMinor: 200_002,
+          targetPerformanceMinor: 14_333_477,
+        }],
       }],
     });
   });

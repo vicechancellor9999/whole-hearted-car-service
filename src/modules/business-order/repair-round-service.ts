@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import type {
   AuthSqlDatabase,
   AuthSqlExecutor,
@@ -5,6 +6,7 @@ import type {
 import { writeAuditEvent } from "@formal/modules/audit/audit-service";
 import type { BusinessOrderActionContext } from "@formal/modules/business-order/business-order-service";
 import { formallyHandOffRoundInTransaction } from "@formal/modules/business-order/formal-handoff-service";
+import { toBusinessMonthKey } from "@formal/lib/time";
 
 type RepairRoundStatus =
   | "waiting_assignment"
@@ -94,6 +96,7 @@ type RepairRoundRow = {
   round_no: number;
   source: RepairRoundSource;
   after_sales_issue: string | null;
+  performance_draft_minor: number | null;
   status: RepairRoundStatus;
   assigned_team_id: number | null;
   vehicle_id: number;
@@ -111,6 +114,7 @@ export type CurrentRepairRound = {
   roundNo: number;
   source: RepairRoundSource;
   afterSalesIssue: string | null;
+  performanceDraftMinor: number | null;
   status: RepairRoundStatus;
   assignedTeamId: number | null;
   intakeMileageKm: number | null;
@@ -127,6 +131,7 @@ export type RepairRoundHistoryRecord = {
   roundNo: number;
   source: RepairRoundSource;
   afterSalesIssue: string | null;
+  performanceDraftMinor: number | null;
   status: RepairRoundStatus;
   assignedTeamId: number | null;
   createdAt: Date;
@@ -149,6 +154,8 @@ export type RepairRoundHistoryRecord = {
     jamaicaMonth: string;
     handedOffAt: Date;
     cancelledAt: Date | null;
+    performanceAdjustmentAllowed: boolean;
+    performanceAdjustmentUnavailableReason: "cancelled" | "closed_month" | null;
   }>;
 };
 
@@ -164,6 +171,47 @@ export type BusinessOrderAuditTrailRecord = {
   reason: string | null;
   before: Record<string, unknown> | null;
   after: Record<string, unknown> | null;
+};
+
+export type AfterSalesRoundDeletionBlocker = {
+  code:
+    | "BUSINESS_ORDER_VOIDED"
+    | "PREVIOUS_ROUND_NOT_FORMALLY_HANDED_OFF"
+    | "PREVIOUS_ROUND_HAS_NO_ACTIVE_HANDOFF"
+    | "ACTIVE_FORMAL_HANDOFF_EXISTS"
+    | "INSPECTION_REPORTS_EXIST"
+    | "DOCUMENT_SNAPSHOTS_EXIST";
+  label: string;
+  recordNos?: string[];
+};
+
+export type AfterSalesRoundDeletionPreview = {
+  eligible: boolean;
+  recordNo: string;
+  repairRoundId: number;
+  roundNo: number;
+  repairRoundVersion: number;
+  performanceDraftMinor: number | null;
+  counts: {
+    events: number;
+    workReturns: number;
+    workReturnAttachments: number;
+    mileageRecords: number;
+    intakePhotos: number;
+    formalHandoffs: number;
+    formalHandoffCancellations: number;
+    inspectionReports: number;
+    documentSnapshots: number;
+    problemVersions: number;
+  };
+  blockers: AfterSalesRoundDeletionBlocker[];
+  previewFingerprint: string;
+};
+
+export type DeleteInvalidAfterSalesRoundResult = {
+  cancelled: true;
+  deletedRoundNo: number;
+  restoredRoundNo: number;
 };
 
 export class RepairRoundValidationError extends Error {
@@ -329,6 +377,7 @@ export class RepairRoundService {
       roundNo: round.round_no,
       source: round.source,
       afterSalesIssue: round.after_sales_issue,
+      performanceDraftMinor: nullableNumber(round.performance_draft_minor),
       status: round.status,
       assignedTeamId: nullableNumber(round.assigned_team_id),
       intakeMileageKm: mileage[0] ? Number(mileage[0].odometer_km) : null,
@@ -546,9 +595,10 @@ export class RepairRoundService {
       await transaction.query(
         `insert into repair_rounds
           (business_order_id, round_no, source, after_sales_issue, status,
-           assigned_team_id, created_at, created_by, updated_at, version)
+           assigned_team_id, performance_draft_minor,
+           created_at, created_by, updated_at, version)
          values ($1, $2, 'after_sales', $3, 'waiting_assignment',
-                 null, $4, $5, $4, 1)`,
+                 null, 0, $4, $5, $4, 1)`,
         [businessOrderId, nextRoundNo, issue, now, input.context.actorAccountId],
       );
       await transaction.query(
@@ -587,61 +637,153 @@ export class RepairRoundService {
     expectedRepairRoundVersion: number;
     context: BusinessOrderActionContext;
   }): Promise<{ cancelled: true }> {
+    const result = await this.deleteAfterSalesRound({
+      businessOrderId: input.businessOrderId,
+      expectedRepairRoundVersion: input.expectedRepairRoundVersion,
+      context: input.context,
+      requireEmptyRound: true,
+      reasonCode: "input_error",
+      auditEventType: "business_order.after_sales_round_cancelled",
+    });
+    return { cancelled: result.cancelled };
+  }
+
+  async getAfterSalesRoundDeletionPreview(input: {
+    businessOrderId: number;
+    viewerAccountId: number;
+  }): Promise<AfterSalesRoundDeletionPreview | null> {
+    const businessOrderId = positiveId(input.businessOrderId, "Business Order");
+    const current = (await selectCurrentRound(this.database, businessOrderId))[0];
+    if (!current) throw new RepairRoundNotFoundError();
+    await requireRoundReader(this.database, input.viewerAccountId, current);
+    if (current.source !== "after_sales" || current.round_no <= 1) return null;
+    return loadAfterSalesRoundDeletionPreview(this.database, businessOrderId, current);
+  }
+
+  async deleteInvalidAfterSalesRound(input: {
+    businessOrderId: number;
+    expectedRepairRoundVersion: number;
+    previewFingerprint: string;
+    reasonCode: "duplicate" | "input_error" | "test_data" | "other";
+    reasonNote: string;
+    confirmationRecordNo: string;
+    context: BusinessOrderActionContext;
+  }): Promise<DeleteInvalidAfterSalesRoundResult> {
+    const previewFingerprint = nonempty(input.previewFingerprint, "删除预览指纹");
+    const confirmationRecordNo = nonempty(input.confirmationRecordNo, "确认记录号").toUpperCase();
+    const reasonNote = input.reasonNote.normalize("NFKC").trim() || null;
+    const reasonCode = validAfterSalesRoundDeletionReasonCode(input.reasonCode);
+    if (reasonCode === "other" && !reasonNote) {
+      throw new RepairRoundValidationError("请选择其他原因时填写删除原因说明");
+    }
+    if (!/^[a-f0-9]{64}$/.test(previewFingerprint)) {
+      throw new RepairRoundValidationError("删除预览指纹无效");
+    }
+    return this.deleteAfterSalesRound({
+      businessOrderId: input.businessOrderId,
+      expectedRepairRoundVersion: input.expectedRepairRoundVersion,
+      context: input.context,
+      requireEmptyRound: false,
+      previewFingerprint,
+      confirmationRecordNo,
+      reasonCode,
+      reasonNote: reasonNote ?? undefined,
+      auditEventType: "business_order.invalid_after_sales_round_deleted",
+    });
+  }
+
+  private async deleteAfterSalesRound(input: {
+    businessOrderId: number;
+    expectedRepairRoundVersion: number;
+    context: BusinessOrderActionContext;
+    requireEmptyRound: boolean;
+    previewFingerprint?: string;
+    confirmationRecordNo?: string;
+    reasonCode: "duplicate" | "input_error" | "test_data" | "other";
+    reasonNote?: string;
+    auditEventType: string;
+  }): Promise<DeleteInvalidAfterSalesRoundResult> {
     const businessOrderId = positiveId(input.businessOrderId, "Business Order");
     const expectedVersion = positiveId(input.expectedRepairRoundVersion, "维修轮次版本");
+    const requestId = nonempty(input.context.requestId, "删除请求编号");
     const now = input.context.now ?? new Date();
+    const payloadHash = afterSalesRoundDeletionPayloadHash({
+      businessOrderId,
+      expectedVersion,
+      actorAccountId: input.context.actorAccountId,
+      requireEmptyRound: input.requireEmptyRound,
+      previewFingerprint: input.previewFingerprint ?? null,
+      confirmationRecordNo: input.confirmationRecordNo ?? null,
+      reasonCode: input.reasonCode,
+      reasonNote: input.reasonNote ?? null,
+    });
 
     return this.database.transaction(async (transaction) => {
       await requirePcWriter(transaction, input.context.actorAccountId);
+      await transaction.query("select pg_advisory_xact_lock(hashtext($1))", [
+        `after-sales-round-deletion:${requestId}`,
+      ]);
+      const prior = await transaction.query<{
+        actor_account_id: number;
+        payload_hash: string;
+        result: DeleteInvalidAfterSalesRoundResult | string;
+      }>(
+        `select actor_account_id, payload_hash, result
+         from record_deletion_receipts where request_id = $1 for update`,
+        [requestId],
+      );
+      if (prior[0]) {
+        if (Number(prior[0].actor_account_id) !== input.context.actorAccountId
+            || prior[0].payload_hash !== payloadHash) {
+          throw new RepairRoundValidationError("删除请求编号已用于其他操作");
+        }
+        return parseAfterSalesRoundDeletionResult(prior[0].result);
+      }
+
       const current = await lockCurrentRound(transaction, businessOrderId);
       requireRoundVersion(current, expectedVersion);
-      if (
-        current.source !== "after_sales" ||
-        current.round_no <= 1 ||
-        current.status !== "waiting_assignment" ||
-        current.assigned_team_id !== null
-      ) {
-        throw new RepairRoundValidationError("只有误建且尚未派单的售后维修轮次可以撤销");
+      if (current.source !== "after_sales" || current.round_no <= 1) {
+        throw new RepairRoundValidationError("只有当前售后维修轮次可以删除");
+      }
+      const preview = await loadAfterSalesRoundDeletionPreview(transaction, businessOrderId, current);
+      if (input.requireEmptyRound) {
+        requireEmptyAfterSalesRound(preview, current);
+      } else {
+        if (input.previewFingerprint !== preview.previewFingerprint) {
+          throw new RepairRoundValidationError("删除预览已经过期，请刷新后重试");
+        }
+        if (input.confirmationRecordNo !== preview.recordNo) {
+          throw new RepairRoundValidationError("确认记录号与当前售后轮次不一致");
+        }
+        if (!preview.eligible) {
+          throw new RepairRoundValidationError("当前售后轮次不满足受控删除条件");
+        }
       }
 
-      const facts = await transaction.query<{ fact_count: number }>(
-        `select (
-           (select count(*) from repair_round_events where repair_round_id = $1) +
-           (select count(*) from repair_round_work_returns where repair_round_id = $1) +
-           (select count(*) from vehicle_mileage_records where repair_round_id = $1) +
-           (select count(*) from repair_round_intake_photos where repair_round_id = $1) +
-           (select count(*) from formal_handoffs where repair_round_id = $1) +
-           (select count(*) from inspection_reports where source_repair_round_id = $1)
-         )::integer as fact_count`,
-        [current.id],
+      const result: DeleteInvalidAfterSalesRoundResult = {
+        cancelled: true,
+        deletedRoundNo: current.round_no,
+        restoredRoundNo: current.round_no - 1,
+      };
+      await transaction.query(
+        `insert into record_deletion_receipts
+          (request_id, actor_account_id, payload_hash, root_kind, root_record_no,
+           reason_code, result, created_at)
+         values ($1, $2, $3, 'repair_round', $4, $5, $6::jsonb, $7)`,
+        [
+          requestId,
+          input.context.actorAccountId,
+          payloadHash,
+          preview.recordNo,
+          input.reasonCode,
+          JSON.stringify(result),
+          now,
+        ],
       );
-      if (Number(facts[0]?.fact_count ?? 0) > 0) {
-        throw new RepairRoundValidationError("本轮已经产生实际记录，不能作为误触轮次删除");
-      }
-
-      const previousRoundNo = current.round_no - 1;
-      const previous = await transaction.query<{ id: number; status: RepairRoundStatus }>(
-        `select id, status from repair_rounds
-         where business_order_id = $1 and round_no = $2
-         limit 1 for update`,
-        [businessOrderId, previousRoundNo],
-      );
-      if (previous[0]?.status !== "formally_handed_off") {
-        throw new RepairRoundValidationError("上一轮不是有效交单状态，不能撤销当前轮次");
-      }
-      const activeHandoff = await transaction.query<{ id: number }>(
-        `select handoff.id
-         from formal_handoffs as handoff
-         left join formal_handoff_cancellations as cancellation
-           on cancellation.formal_handoff_id = handoff.id
-         where handoff.repair_round_id = $1 and cancellation.id is null
-         limit 1`,
-        [previous[0].id],
-      );
-      if (!activeHandoff[0]) {
-        throw new RepairRoundValidationError("上一轮没有有效正式交单，不能撤销当前轮次");
-      }
-
+      await transaction.query("select set_config('app.record_deletion_request_id', $1, true)", [
+        requestId,
+      ]);
+      await authorizeAfterSalesRoundDeletionRows(transaction, requestId, current.id);
       await transaction.query(
         "select set_config('whole_hearted.repair_event_projection', 'on', true)",
       );
@@ -652,39 +794,116 @@ export class RepairRoundService {
              version = version + 1
          where id = $1 and version = $4 and current_repair_round_no = $5
          returning id`,
-        [businessOrderId, previousRoundNo, now, current.business_order_version, current.round_no],
+        [businessOrderId, result.restoredRoundNo, now, current.business_order_version, current.round_no],
       );
       if (!updated[0]) {
         throw new RepairRoundValidationError("Business Order 已发生变化，请刷新后重试");
       }
-      const deleted = await transaction.query<{ id: number }>(
-        `delete from repair_rounds
-         where id = $1 and version = $2
-         returning id`,
-        [current.id, expectedVersion],
-      );
-      if (!deleted[0]) {
-        throw new RepairRoundValidationError("维修轮次已发生变化，请刷新后重试");
-      }
-      await audit(
-        transaction,
-        input.context,
-        now,
-        "business_order.after_sales_round_cancelled",
-        businessOrderId,
-        {
+      await deleteAfterSalesRoundFacts(transaction, current.id, expectedVersion);
+      await writeAuditEvent(transaction, {
+        occurredAt: now,
+        actorAccountId: input.context.actorAccountId,
+        eventType: input.auditEventType,
+        objectType: "business_order",
+        objectId: String(businessOrderId),
+        reason: input.reasonNote
+          ? `${input.reasonCode}: ${input.reasonNote}`
+          : input.reasonCode,
+        after: {
+          businessOrderId,
           cancelledRoundNo: current.round_no,
-          previousRoundNo,
+          previousRoundNo: result.restoredRoundNo,
           issue: current.after_sales_issue,
+          deletionMode: input.requireEmptyRound ? "legacy_empty_round" : "authorized_invalid_round",
+          reasonCode: input.reasonCode,
+          reasonNoteProvided: Boolean(input.reasonNote),
+          previewFingerprint: preview.previewFingerprint,
+          deletedFactCounts: preview.counts,
         },
+        requestId: input.context.requestId,
+        ipAddress: input.context.ipAddress,
+        userAgent: input.context.userAgent,
+      });
+      return result;
+    });
+  }
+
+  async setPerformanceDraft(input: {
+    businessOrderId: number;
+    expectedRepairRoundId: number;
+    expectedRepairRoundVersion: number;
+    performanceValue: string;
+    context: BusinessOrderActionContext;
+  }): Promise<CurrentRepairRound> {
+    const businessOrderId = positiveId(input.businessOrderId, "Business Order");
+    const expectedRoundId = positiveId(input.expectedRepairRoundId, "绩效草稿目标维修轮次，请刷新后重新核对");
+    const expectedVersion = positiveId(input.expectedRepairRoundVersion, "维修轮次版本");
+    const performanceDraftMinor = parseSignedMoney(input.performanceValue, "绩效草稿");
+    const now = input.context.now ?? new Date();
+
+    await this.database.transaction(async (transaction) => {
+      await requirePcWriter(transaction, input.context.actorAccountId);
+      const current = await lockCurrentRound(transaction, businessOrderId);
+      if (Number(current.id) !== expectedRoundId) {
+        throw new RepairRoundValidationError("维修轮次已变化，请保留草稿并核对最新记录后重新调整");
+      }
+      if (current.voided_at) {
+        throw new RepairRoundValidationError("已作废的 Business Order 不能修改绩效草稿");
+      }
+      requireRoundVersion(current, expectedVersion);
+      if (current.status === "formally_handed_off") {
+        throw new RepairRoundValidationError("正式交单后的维修轮次不能修改绩效草稿");
+      }
+
+      await transaction.query(
+        "select set_config('whole_hearted.repair_event_projection', 'on', true)",
       );
-      return { cancelled: true };
+      const updated = await transaction.query<{ id: number }>(
+        `update repair_rounds
+         set performance_draft_minor = $1,
+             updated_at = $2,
+             version = version + 1
+         where id = $3 and version = $4
+         returning id`,
+        [performanceDraftMinor, now, current.id, expectedVersion],
+      );
+      if (!updated[0]) {
+        throw new RepairRoundValidationError("维修轮次已被其他操作修改，请刷新后重试");
+      }
+      await writeAuditEvent(transaction, {
+        occurredAt: now,
+        actorAccountId: input.context.actorAccountId,
+        eventType: "business_order.performance_draft_set",
+        objectType: "business_order",
+        objectId: String(businessOrderId),
+        before: {
+          businessOrderId,
+          repairRoundId: Number(current.id),
+          repairRoundNo: current.round_no,
+          performanceDraftMinor: nullableNumber(current.performance_draft_minor),
+        },
+        after: {
+          businessOrderId,
+          repairRoundId: Number(current.id),
+          repairRoundNo: current.round_no,
+          performanceDraftMinor,
+        },
+        requestId: input.context.requestId,
+        ipAddress: input.context.ipAddress,
+        userAgent: input.context.userAgent,
+      });
+    });
+
+    return this.getCurrentRound({
+      businessOrderId,
+      viewerAccountId: input.context.actorAccountId,
     });
   }
 
   async listRepairRounds(input: {
     businessOrderId: number;
     viewerAccountId: number;
+    now?: Date;
   }): Promise<RepairRoundHistoryRecord[]> {
     const businessOrderId = positiveId(input.businessOrderId, "Business Order");
     const currentRows = await selectCurrentRound(this.database, businessOrderId);
@@ -695,7 +914,8 @@ export class RepairRoundService {
     const rounds = await this.database.query<RepairRoundRow>(
       `select repair_round.id, repair_round.business_order_id,
               repair_round.round_no, repair_round.source,
-              repair_round.after_sales_issue, repair_round.status,
+              repair_round.after_sales_issue, repair_round.performance_draft_minor,
+              repair_round.status,
               repair_round.assigned_team_id, repair_round.created_at,
               repair_round.created_by, repair_round.updated_at,
               repair_round.version, business_order.vehicle_id,
@@ -746,6 +966,7 @@ export class RepairRoundService {
        order by handoff.handoff_no, handoff.id`,
       [businessOrderId],
     );
+    const currentJamaicaMonth = toBusinessMonthKey(input.now ?? new Date());
 
     return rounds.map((round) => ({
       id: Number(round.id),
@@ -753,6 +974,7 @@ export class RepairRoundService {
       roundNo: round.round_no,
       source: round.source,
       afterSalesIssue: round.after_sales_issue,
+      performanceDraftMinor: nullableNumber(round.performance_draft_minor),
       status: round.status,
       assignedTeamId: nullableNumber(round.assigned_team_id),
       createdAt: new Date(round.created_at),
@@ -772,16 +994,27 @@ export class RepairRoundService {
         })),
       formalHandoffs: handoffs
         .filter((handoff) => Number(handoff.repair_round_id) === Number(round.id))
-        .map((handoff) => ({
-          id: Number(handoff.id),
-          handoffNo: handoff.handoff_no,
-          performanceMinor: Number(handoff.performance_minor),
-          jamaicaMonth: normalizeMonth(handoff.jamaica_month),
-          handedOffAt: new Date(handoff.handed_off_at),
-          cancelledAt: handoff.cancelled_at === null
+        .map((handoff) => {
+          const jamaicaMonth = normalizeMonth(handoff.jamaica_month);
+          const cancelledAt = handoff.cancelled_at === null
             ? null
-            : new Date(handoff.cancelled_at),
-        })),
+            : new Date(handoff.cancelled_at);
+          const performanceAdjustmentUnavailableReason = cancelledAt
+            ? "cancelled" as const
+            : jamaicaMonth !== currentJamaicaMonth
+              ? "closed_month" as const
+              : null;
+          return {
+            id: Number(handoff.id),
+            handoffNo: handoff.handoff_no,
+            performanceMinor: Number(handoff.performance_minor),
+            jamaicaMonth,
+            handedOffAt: new Date(handoff.handed_off_at),
+            cancelledAt,
+            performanceAdjustmentAllowed: performanceAdjustmentUnavailableReason === null,
+            performanceAdjustmentUnavailableReason,
+          };
+        }),
     }));
   }
 
@@ -1162,7 +1395,7 @@ export class RepairRoundService {
   async recordPaperWorkReturn(input: {
     businessOrderId: number;
     expectedRepairRoundVersion: number;
-    actualStaffMemberId: number;
+    actualStaffMemberId?: number;
     attachmentIds: number[];
     workSummary?: string;
     exceptionSummary?: string;
@@ -1176,7 +1409,7 @@ export class RepairRoundService {
   async recordPaperWorkReturnAndFormallyHandOff(input: {
     businessOrderId: number;
     expectedRepairRoundVersion: number;
-    actualStaffMemberId: number;
+    actualStaffMemberId?: number;
     attachmentIds: number[];
     workSummary?: string;
     exceptionSummary?: string;
@@ -1319,7 +1552,7 @@ export class RepairRoundService {
 type PaperWorkReturnCommand = {
   businessOrderId: number;
   expectedVersion: number;
-  actualStaffMemberId: number;
+  actualStaffMemberId: number | null;
   attachmentIds: number[];
   workSummary: string | null;
   exceptionSummary: string | null;
@@ -1331,7 +1564,7 @@ type PaperWorkReturnCommand = {
 function normalizePaperWorkReturn(input: {
   businessOrderId: number;
   expectedRepairRoundVersion: number;
-  actualStaffMemberId: number;
+  actualStaffMemberId?: number;
   attachmentIds: number[];
   workSummary?: string;
   exceptionSummary?: string;
@@ -1339,13 +1572,12 @@ function normalizePaperWorkReturn(input: {
   context: BusinessOrderActionContext;
 }): PaperWorkReturnCommand {
   const attachmentIds = uniquePositiveIds(input.attachmentIds);
-  if (attachmentIds.length === 0) {
-    throw new RepairRoundValidationError("纸质回单必须上传清晰照片或 PDF");
-  }
   return {
     businessOrderId: positiveId(input.businessOrderId, "Business Order"),
     expectedVersion: positiveId(input.expectedRepairRoundVersion, "维修轮次版本"),
-    actualStaffMemberId: positiveId(input.actualStaffMemberId, "实际维修工"),
+    actualStaffMemberId: input.actualStaffMemberId === undefined
+      ? null
+      : positiveId(input.actualStaffMemberId, "实际维修工"),
     attachmentIds,
     workSummary: optionalText(input.workSummary),
     exceptionSummary: optionalText(input.exceptionSummary),
@@ -1366,12 +1598,14 @@ async function recordPaperWorkReturnInTransaction(
   if (round.assigned_team_id === null) {
     throw new RepairRoundValidationError("本轮尚未分配维修班组");
   }
-  await requireActiveTeamStaff(transaction, command.actualStaffMemberId, round.assigned_team_id);
+  if (command.actualStaffMemberId !== null) {
+    await requireActiveTeamStaff(transaction, command.actualStaffMemberId, round.assigned_team_id);
+  }
   await requireWorkReturnAttachments(transaction, {
     businessOrderId: command.businessOrderId,
     attachmentIds: command.attachmentIds,
     purpose: "paper_return",
-    required: true,
+    required: false,
   });
   const inserted = await insertWorkReturn(transaction, {
     round,
@@ -1419,11 +1653,295 @@ async function recordPaperWorkReturnInTransaction(
   return inserted;
 }
 
+type AfterSalesRoundDeletionCountsRow = {
+  events: number;
+  work_returns: number;
+  work_return_attachments: number;
+  mileage_records: number;
+  intake_photos: number;
+  formal_handoffs: number;
+  formal_handoff_cancellations: number;
+  active_formal_handoffs: number;
+  inspection_reports: number;
+  problem_description_versions: number;
+};
+
+async function loadAfterSalesRoundDeletionPreview(
+  executor: AuthSqlExecutor,
+  businessOrderId: number,
+  current: RepairRoundRow,
+): Promise<AfterSalesRoundDeletionPreview> {
+  const order = await executor.query<{ order_no: string }>(
+    "select order_no from business_orders where id = $1 limit 1",
+    [businessOrderId],
+  );
+  const counts = await executor.query<AfterSalesRoundDeletionCountsRow>(
+    `select
+       (select count(*)::integer from repair_round_events where repair_round_id = $1) as events,
+       (select count(*)::integer from repair_round_work_returns where repair_round_id = $1) as work_returns,
+       (select count(*)::integer from repair_round_work_return_attachments as attachment
+          join repair_round_work_returns as work_return on work_return.id = attachment.work_return_id
+          where work_return.repair_round_id = $1) as work_return_attachments,
+       (select count(*)::integer from vehicle_mileage_records where repair_round_id = $1) as mileage_records,
+       (select count(*)::integer from repair_round_intake_photos where repair_round_id = $1) as intake_photos,
+       (select count(*)::integer from formal_handoffs where repair_round_id = $1) as formal_handoffs,
+       (select count(*)::integer from formal_handoff_cancellations as cancellation
+          join formal_handoffs as handoff on handoff.id = cancellation.formal_handoff_id
+          where handoff.repair_round_id = $1) as formal_handoff_cancellations,
+       (select count(*)::integer from formal_handoffs as handoff
+          where handoff.repair_round_id = $1
+            and not exists (select 1 from formal_handoff_cancellations as cancellation
+                            where cancellation.formal_handoff_id = handoff.id)) as active_formal_handoffs,
+       (select count(*)::integer from inspection_reports where source_repair_round_id = $1) as inspection_reports,
+       (select count(*)::integer from repair_round_problem_versions where repair_round_id = $1) as problem_description_versions`,
+    [current.id],
+  );
+  const previous = await executor.query<{
+    id: number;
+    status: RepairRoundStatus;
+    has_active_handoff: boolean;
+  }>(
+    `select previous.id, previous.status,
+       exists(
+         select 1 from formal_handoffs as handoff
+         where handoff.repair_round_id = previous.id
+           and not exists (select 1 from formal_handoff_cancellations as cancellation
+                           where cancellation.formal_handoff_id = handoff.id)
+       ) as has_active_handoff
+     from repair_rounds as previous
+     where previous.business_order_id = $1 and previous.round_no = $2
+     limit 1`,
+    [businessOrderId, current.round_no - 1],
+  );
+  const count = counts[0];
+  if (!order[0] || !count) throw new RepairRoundNotFoundError();
+  const [inspectionRecords, activeHandoffRecords, documentSnapshotRecords] = await Promise.all([
+    executor.query<{ report_no: string }>(
+      `select report_no from inspection_reports
+       where source_repair_round_id = $1 order by id`,
+      [current.id],
+    ),
+    executor.query<{ handoff_no: number }>(
+      `select handoff.handoff_no
+       from formal_handoffs as handoff
+       where handoff.repair_round_id = $1
+         and not exists (
+           select 1 from formal_handoff_cancellations as cancellation
+           where cancellation.formal_handoff_id = handoff.id
+         )
+       order by handoff.handoff_no, handoff.id`,
+      [current.id],
+    ),
+    listRepairRoundDocumentSnapshots(executor, current.id),
+  ]);
+  const normalizedCounts: AfterSalesRoundDeletionPreview["counts"] = {
+    events: Number(count.events),
+    workReturns: Number(count.work_returns),
+    workReturnAttachments: Number(count.work_return_attachments),
+    mileageRecords: Number(count.mileage_records),
+    intakePhotos: Number(count.intake_photos),
+    formalHandoffs: Number(count.formal_handoffs),
+    formalHandoffCancellations: Number(count.formal_handoff_cancellations),
+    inspectionReports: Number(count.inspection_reports),
+    documentSnapshots: documentSnapshotRecords.length,
+    problemVersions: Number(count.problem_description_versions),
+  };
+  const recordNo = `${order[0].order_no}/R${current.round_no}`;
+  const blockers: AfterSalesRoundDeletionBlocker[] = [];
+  if (current.voided_at) {
+    blockers.push({
+      code: "BUSINESS_ORDER_VOIDED",
+      label: "Business Order 已作废，不能从作废记录中单独删除维修轮次",
+    });
+  }
+  if (previous[0]?.status !== "formally_handed_off") {
+    blockers.push({
+      code: "PREVIOUS_ROUND_NOT_FORMALLY_HANDED_OFF",
+      label: "上一轮不是正式交单状态，无法安全恢复到上一轮",
+    });
+  } else if (!previous[0].has_active_handoff) {
+    blockers.push({
+      code: "PREVIOUS_ROUND_HAS_NO_ACTIVE_HANDOFF",
+      label: "上一轮没有仍然有效的正式交单，无法安全恢复到上一轮",
+    });
+  }
+  if (Number(count.active_formal_handoffs) > 0) {
+    blockers.push({
+      code: "ACTIVE_FORMAL_HANDOFF_EXISTS",
+      label: "本轮仍有有效正式交单；请先取消正式交单，再删除本轮",
+      recordNos: activeHandoffRecords.map((handoff) => `${recordNo}/H${handoff.handoff_no}`),
+    });
+  }
+  if (normalizedCounts.inspectionReports > 0) {
+    blockers.push({
+      code: "INSPECTION_REPORTS_EXIST",
+      label: "本轮仍有关联检查报告；请先在检查结果中处理或删除这些报告",
+      recordNos: inspectionRecords.map((record) => record.report_no),
+    });
+  }
+  if (normalizedCounts.documentSnapshots > 0) {
+    blockers.push({
+      code: "DOCUMENT_SNAPSHOTS_EXIST",
+      label: "本轮已经生成不可篡改的正式单据，不能直接删除；请保留本轮并通过更正记录处理",
+      recordNos: documentSnapshotRecords,
+    });
+  }
+  const previewFingerprint = afterSalesRoundDeletionPreviewFingerprint({
+    recordNo,
+    repairRoundId: current.id,
+    repairRoundVersion: current.version,
+    performanceDraftMinor: nullableNumber(current.performance_draft_minor),
+    status: current.status,
+    assignedTeamId: nullableNumber(current.assigned_team_id),
+    voided: Boolean(current.voided_at),
+    previousRoundId: previous[0]?.id ?? null,
+    previousRoundStatus: previous[0]?.status ?? null,
+    previousRoundHasActiveHandoff: previous[0]?.has_active_handoff ?? false,
+    activeFormalHandoffs: Number(count.active_formal_handoffs),
+    counts: normalizedCounts,
+    blockers,
+  });
+  return {
+    eligible: blockers.length === 0,
+    recordNo,
+    repairRoundId: Number(current.id),
+    roundNo: current.round_no,
+    repairRoundVersion: current.version,
+    performanceDraftMinor: nullableNumber(current.performance_draft_minor),
+    counts: normalizedCounts,
+    blockers,
+    previewFingerprint,
+  };
+}
+
+async function listRepairRoundDocumentSnapshots(
+  executor: AuthSqlExecutor,
+  repairRoundId: number,
+): Promise<string[]> {
+  const table = await executor.query<{ table_name: string | null }>(
+    "select to_regclass('public.business_order_document_snapshots')::text as table_name",
+  );
+  if (!table[0]?.table_name) return [];
+  const records = await executor.query<{ document_no: string }>(
+    `select document_no from business_order_document_snapshots
+     where repair_round_id = $1 order by id`,
+    [repairRoundId],
+  );
+  return records.map((record) => record.document_no);
+}
+
+function requireEmptyAfterSalesRound(
+  preview: AfterSalesRoundDeletionPreview,
+  current: RepairRoundRow,
+) {
+  if (current.status !== "waiting_assignment" || current.assigned_team_id !== null) {
+    throw new RepairRoundValidationError("只有尚未派单且没有业务记录的售后维修轮次可以直接删除");
+  }
+  const factCount = preview.counts.events
+    + preview.counts.workReturns
+    + preview.counts.workReturnAttachments
+    + preview.counts.mileageRecords
+    + preview.counts.intakePhotos
+    + preview.counts.formalHandoffs
+    + preview.counts.inspectionReports
+    + preview.counts.documentSnapshots
+    + preview.counts.problemVersions;
+  if (factCount > 0) {
+    throw new RepairRoundValidationError("本轮已经产生业务记录，请使用删除预览处理关联记录");
+  }
+  if (preview.blockers.some((blocker) => blocker.code === "PREVIOUS_ROUND_NOT_FORMALLY_HANDED_OFF")) {
+    throw new RepairRoundValidationError("上一轮不是有效交单状态，不能撤销当前轮次");
+  }
+  if (preview.blockers.some((blocker) => blocker.code === "PREVIOUS_ROUND_HAS_NO_ACTIVE_HANDOFF")) {
+    throw new RepairRoundValidationError("上一轮没有有效正式交单，不能撤销当前轮次");
+  }
+  if (!preview.eligible) {
+    throw new RepairRoundValidationError("当前售后轮次不满足受控删除条件");
+  }
+}
+
+async function authorizeAfterSalesRoundDeletionRows(
+  executor: AuthSqlExecutor,
+  requestId: string,
+  repairRoundId: number,
+) {
+  const authorize = (tableName: string, rowKey: string) => executor.query(
+    `insert into record_deletion_authorized_rows (request_id, table_name, row_key)
+     select $1, $2, candidate.row_key
+     from (${rowKey}) as candidate(row_key)
+     on conflict do nothing`,
+    [requestId, tableName, repairRoundId],
+  );
+  await authorize("repair_round_events", "select id::text as row_key from repair_round_events where repair_round_id = $3");
+  await authorize("formal_handoff_cancellations", `select cancellation.id::text as row_key
+    from formal_handoff_cancellations as cancellation
+    join formal_handoffs as handoff on handoff.id = cancellation.formal_handoff_id
+    where handoff.repair_round_id = $3`);
+  await authorize("formal_handoffs", "select id::text as row_key from formal_handoffs where repair_round_id = $3");
+  await authorize("repair_round_intake_photos", `select repair_round_id::text || ':' || file_id::text as row_key
+    from repair_round_intake_photos where repair_round_id = $3`);
+  await authorize("vehicle_mileage_records", "select id::text as row_key from vehicle_mileage_records where repair_round_id = $3");
+  await authorize("repair_round_work_returns", "select id::text as row_key from repair_round_work_returns where repair_round_id = $3");
+  await authorize("repair_round_problem_versions", "select id::text as row_key from repair_round_problem_versions where repair_round_id = $3");
+  await authorize("repair_rounds", "select id::text as row_key from repair_rounds where id = $3");
+}
+
+async function deleteAfterSalesRoundFacts(
+  executor: AuthSqlExecutor,
+  repairRoundId: number,
+  expectedVersion: number,
+) {
+  await executor.query(
+    `delete from repair_round_work_return_attachments
+     where work_return_id in (select id from repair_round_work_returns where repair_round_id = $1)`,
+    [repairRoundId],
+  );
+  await executor.query("delete from repair_round_events where repair_round_id = $1", [repairRoundId]);
+  await executor.query(
+    `delete from formal_handoff_cancellations where formal_handoff_id in
+       (select id from formal_handoffs where repair_round_id = $1)`,
+    [repairRoundId],
+  );
+  await executor.query("delete from formal_handoffs where repair_round_id = $1", [repairRoundId]);
+  await executor.query("delete from repair_round_intake_photos where repair_round_id = $1", [repairRoundId]);
+  await executor.query("delete from vehicle_mileage_records where repair_round_id = $1", [repairRoundId]);
+  await executor.query("delete from repair_round_work_returns where repair_round_id = $1", [repairRoundId]);
+  await executor.query("delete from repair_round_problem_versions where repair_round_id = $1", [repairRoundId]);
+  const deleted = await executor.query<{ id: number }>(
+    "delete from repair_rounds where id = $1 and version = $2 returning id",
+    [repairRoundId, expectedVersion],
+  );
+  if (!deleted[0]) {
+    throw new RepairRoundValidationError("维修轮次已被其他操作修改，请刷新后重试");
+  }
+}
+
+function afterSalesRoundDeletionPreviewFingerprint(value: Record<string, unknown>) {
+  return createHash("sha256").update(JSON.stringify(value)).digest("hex");
+}
+
+function afterSalesRoundDeletionPayloadHash(value: Record<string, unknown>) {
+  return createHash("sha256").update(JSON.stringify(value)).digest("hex");
+}
+
+function parseAfterSalesRoundDeletionResult(
+  value: DeleteInvalidAfterSalesRoundResult | string,
+): DeleteInvalidAfterSalesRoundResult {
+  const parsed = typeof value === "string" ? JSON.parse(value) : value;
+  if (parsed?.cancelled !== true
+      || !Number.isSafeInteger(parsed.deletedRoundNo)
+      || !Number.isSafeInteger(parsed.restoredRoundNo)) {
+    throw new RepairRoundValidationError("删除回执数据无效");
+  }
+  return parsed;
+}
+
 async function selectCurrentRound(executor: AuthSqlExecutor, businessOrderId: number) {
   return executor.query<RepairRoundRow>(
     `select repair_round.id, repair_round.business_order_id,
             repair_round.round_no, repair_round.source,
-            repair_round.after_sales_issue, repair_round.status,
+            repair_round.after_sales_issue, repair_round.performance_draft_minor,
+            repair_round.status,
             repair_round.assigned_team_id, repair_round.version,
             repair_round.created_at, repair_round.created_by,
             repair_round.updated_at,
@@ -1443,7 +1961,8 @@ async function lockCurrentRound(executor: AuthSqlExecutor, businessOrderId: numb
   const rows = await executor.query<RepairRoundRow>(
     `select repair_round.id, repair_round.business_order_id,
             repair_round.round_no, repair_round.source,
-            repair_round.after_sales_issue, repair_round.status,
+            repair_round.after_sales_issue, repair_round.performance_draft_minor,
+            repair_round.status,
             repair_round.assigned_team_id, repair_round.version,
             repair_round.created_at, repair_round.created_by,
             repair_round.updated_at,
@@ -1822,6 +2341,28 @@ function nonempty(value: string, label: string) {
   const normalized = value.normalize("NFKC").trim();
   if (!normalized) throw new RepairRoundValidationError(`${label}不能为空`);
   return normalized;
+}
+
+function validAfterSalesRoundDeletionReasonCode(value: string) {
+  if (!["duplicate", "input_error", "test_data", "other"].includes(value)) {
+    throw new RepairRoundValidationError("删除原因代码无效");
+  }
+  return value as "duplicate" | "input_error" | "test_data" | "other";
+}
+
+function parseSignedMoney(value: string, label: string) {
+  const normalized = value.normalize("NFKC").trim();
+  if (!/^-?(0|[1-9]\d*)(?:\.\d{1,2})?$/.test(normalized)) {
+    throw new RepairRoundValidationError(`${label}格式不正确，最多保留两位小数`);
+  }
+  const negative = normalized.startsWith("-");
+  const unsigned = negative ? normalized.slice(1) : normalized;
+  const [whole, fraction = ""] = unsigned.split(".");
+  const minor = Number(whole) * 100 + Number(fraction.padEnd(2, "0"));
+  if (!Number.isSafeInteger(minor)) {
+    throw new RepairRoundValidationError(`${label}超出可处理范围`);
+  }
+  return negative ? -minor : minor;
 }
 
 function optionalText(value: string | undefined) {

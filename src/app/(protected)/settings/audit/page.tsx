@@ -56,6 +56,7 @@ const eventLabels: Record<string, string> = {
   "repair_team.retired": "停用并继承维修班组",
   "staff.created": "创建员工资料",
   "staff.salary_version_created": "新增员工工资版本",
+  "staff.salary_version_revised": "修订员工历史基准工资",
   "payroll.parameters_version_created": "新增月度工资参数",
 };
 

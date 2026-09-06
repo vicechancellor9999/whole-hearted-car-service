@@ -14,12 +14,14 @@ const TABS: ReadonlyArray<{
   id: FormalBusinessOrderWorkspace;
   labelZh: string;
   labelEn: string;
+  shortZh: string;
+  shortEn: string;
 }> = [
-  { id: "operations", labelZh: "收费 · 收款 · 维修班组", labelEn: "Charges · Payments · Repair team" },
-  { id: "documents", labelZh: "三联生成 · 预览 · 打印", labelEn: "Documents · Preview · Print" },
-  { id: "attachments", labelZh: "业务附件", labelEn: "Attachments" },
-  { id: "history", labelZh: "历史记录", labelEn: "History" },
-  { id: "messages", labelZh: "沟通交流", labelEn: "Comments" },
+  { id: "operations", labelZh: "业务单明细", labelEn: "Order details", shortZh: "明细", shortEn: "Details" },
+  { id: "documents", labelZh: "单据与打印", labelEn: "Documents", shortZh: "单据", shortEn: "Docs" },
+  { id: "attachments", labelZh: "业务附件", labelEn: "Attachments", shortZh: "附件", shortEn: "Files" },
+  { id: "history", labelZh: "历史记录", labelEn: "History", shortZh: "历史", shortEn: "History" },
+  { id: "messages", labelZh: "沟通交流", labelEn: "Comments", shortZh: "沟通", shortEn: "Chat" },
 ];
 
 export function parseBusinessOrderWorkspace(
@@ -58,7 +60,7 @@ export function FormalBusinessOrderTabs({
     <nav
       aria-label={language === "en" ? "Business Order workspace" : "Business Order 工作区"}
       role="tablist"
-      className="sticky top-0 z-20 grid gap-1 rounded-2xl border border-line bg-card p-1.5 shadow-card sm:grid-cols-2 xl:grid-cols-5"
+      className="grid shrink-0 grid-cols-5 gap-1 rounded-xl border border-line bg-card p-1"
     >
       {TABS.map((tab) => {
         const selected = active === tab.id;
@@ -69,15 +71,26 @@ export function FormalBusinessOrderTabs({
             href={buildBusinessOrderWorkspaceHref(pathname, searchParams, tab.id)}
             role="tab"
             aria-selected={selected}
+            aria-label={language === "en" ? tab.labelEn : tab.labelZh}
             aria-controls={`business-order-${tab.id}-workspace`}
+            tabIndex={selected ? 0 : -1}
+            onKeyDown={(event) => {
+              const tabs = Array.from(event.currentTarget.parentElement?.querySelectorAll<HTMLAnchorElement>('[role="tab"]') ?? []);
+              const index = tabs.indexOf(event.currentTarget);
+              const next = event.key === "ArrowRight" ? (index + 1) % tabs.length
+                : event.key === "ArrowLeft" ? (index - 1 + tabs.length) % tabs.length
+                : event.key === "Home" ? 0 : event.key === "End" ? tabs.length - 1 : null;
+              if (next !== null) { event.preventDefault(); tabs[next]?.focus(); }
+            }}
             scroll={false}
-            className={`flex min-h-11 items-center justify-center gap-2 rounded-xl px-3 text-center text-xs font-bold transition ${
+            className={`relative flex min-h-11 min-w-0 items-center justify-center gap-2 rounded-lg px-1 text-center text-sm font-semibold transition focus-visible:outline focus-visible:outline-2 focus-visible:outline-primary sm:px-3 ${
               selected
                 ? "bg-primary text-white shadow-sm"
                 : "text-ink-soft hover:bg-layer-2 hover:text-accent"
             }`}
           >
-            <span>{language === "en" ? tab.labelEn : tab.labelZh}</span>
+            <span className="sm:hidden">{language === "en" ? tab.shortEn : tab.shortZh}</span>
+            <span className="hidden sm:inline">{language === "en" ? tab.labelEn : tab.labelZh}</span>
             {unread > 0 ? (
               <span
                 aria-label={language === "en" ? `${unread} unread mentions` : `${unread} 条未读提及`}

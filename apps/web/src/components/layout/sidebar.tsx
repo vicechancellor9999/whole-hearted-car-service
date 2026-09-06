@@ -81,12 +81,13 @@ function hasActiveChild(node: NavNode, pathname: string): boolean {
 }
 
 /** 递归节点：叶子=链接；父级=可展开子菜单。 */
-function TreeNode({ node, pathname, depth, collapsed, onNavigate }: {
+function TreeNode({ node, pathname, depth, collapsed, onNavigate, onExpand }: {
   node: NavNode;
   pathname: string;
   depth: number;
   collapsed: boolean;
   onNavigate?: () => void;
+  onExpand?: () => void;
 }) {
   const { t } = useI18n();
   const label = t(node.labelKey);
@@ -100,7 +101,7 @@ function TreeNode({ node, pathname, depth, collapsed, onNavigate }: {
   if (node.children && node.children.length > 0) {
     if (collapsed) {
       return (
-        <button type="button" title={label} onClick={() => onNavigate?.()}
+        <button type="button" title={label} aria-label={label} aria-expanded={false} onClick={() => { setOpen(true); onExpand?.(); }}
           className={cn("flex w-10 items-center justify-center rounded-xl py-2.5 text-ink-soft hover:bg-layer-2 hover:text-ink",
             hasActiveChild(node, pathname) && "bg-[var(--wh-background-selected)] text-accent")}>
           <Icon size={18} />
@@ -242,7 +243,7 @@ export function Sidebar({ variant = "desktop" }: { variant?: "desktop" | "drawer
 
       <nav className={cn("flex-1 overflow-y-auto px-3 py-2", effectiveCollapsed && "flex flex-col items-center gap-0.5 px-0")}>
         {visibleNavigation.map((node) => (
-          <TreeNode key={node.labelKey + (node.href ?? "")} node={node} pathname={pathname} depth={0} collapsed={effectiveCollapsed} />
+          <TreeNode key={node.labelKey + (node.href ?? "")} node={node} pathname={pathname} depth={0} collapsed={effectiveCollapsed} onExpand={toggleCollapsed} />
         ))}
       </nav>
 

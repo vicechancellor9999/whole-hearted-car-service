@@ -29,7 +29,8 @@ export function calculateCharges(fields: {
   items: ParsedChargeItem[];
 }): { items: CalculatedChargeItem[]; totals: ChargeTotals } {
   const items = fields.items.map((item) => {
-    const unitPriceMinor = safeMoney(item.unitPrice);
+    // Zero is the accounting contribution only; pendingQuote remains the price fact.
+    const unitPriceMinor = safeMoney(item.pendingQuote && item.unitPrice === "" ? "0" : item.unitPrice);
     const itemDiscountMinor = safeMoney(item.itemDiscount);
     const quantityThousandths = parseQuantityThousandths(item.quantity);
     const grossMinor = roundDivide(

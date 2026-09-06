@@ -8,7 +8,9 @@ const source = readFileSync(
 );
 
 test("record deletion dialog keeps the approved labels and two-step controls", () => {
-  expect(source).toContain('>删除<');
+  // The action label now distinguishes untouched, pending, and completed requests.
+  // Its rendered states are exercised by record-delete-recovery.test.tsx.
+  expect(source).toContain('deletionResult ? "查看删除结果" : submittedDelete ? "查看删除进度" : "删除"');
   expect(source).toContain("确认删除");
   expect(source).toContain("当前记录无法删除");
   expect(source).toContain("selectableLinkedRecords");
@@ -20,9 +22,9 @@ test("record deletion dialog keeps the approved labels and two-step controls", (
   expect(source).toContain("confirmationRecordNo");
 });
 
-test("record deletion button waits for formal role and handles stale previews", () => {
-  expect(source).toContain('/api/formal/auth/session');
-  expect(source).toContain('role === "super_admin" || role === "front_desk"');
+test("record deletion dialog retains stale-preview and navigation recovery wiring", () => {
+  // Account verification moved to a shared hook; role/identity behavior is
+  // covered through rendered components in record-delete-recovery.test.tsx.
   expect(source).toContain('error.code === "DELETION_PREVIEW_STALE"');
   expect(source).toContain("router.push(returnTo)");
   expect(source).toContain('role="alert"');

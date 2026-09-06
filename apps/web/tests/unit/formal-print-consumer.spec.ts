@@ -20,9 +20,8 @@ test("formal Business Order exposes each Receipt and immutable print document", 
   expect(existsSync(resolve(process.cwd(), DOCUMENT_ROUTE))).toBe(true);
   expect(source(RECEIPT_ROUTE)).toMatch(/FormalReceiptPrintSheet/);
   expect(source(DOCUMENT_ROUTE)).toMatch(/FormalBusinessOrderDocumentPrintSheet/);
-  expect(source(DOCUMENTS_WORKSPACE)).toMatch(/生成客户联/);
-  expect(source(DOCUMENTS_WORKSPACE)).toMatch(/生成办公室签字留底联/);
-  expect(source(DOCUMENTS_WORKSPACE)).toMatch(/生成维修工联/);
+  // Generation grouping and language selection are exercised through the real
+  // workspace in tests/components/document-selection.test.tsx.
   expect(source(DETAIL)).toMatch(/english \? "Receipt: " : "Receipt："/);
   expect(source(DETAIL)).toMatch(/\{transaction\.referenceNo\}/);
   expect(source(DOCUMENTS_WORKSPACE)).toMatch(/系统打印/);
@@ -31,17 +30,14 @@ test("formal Business Order exposes each Receipt and immutable print document", 
   expect(source(DOCUMENTS_WORKSPACE)).toMatch(/printPdfBytes/);
 });
 
-test("PDF canvas preview uses the screen pixel ratio without enlarging its CSS size", () => {
+test("PDF canvas preview keeps zoom controls without enlarging its CSS size", () => {
   const preview = source(PDF_CANVAS_PREVIEW);
-  expect(preview).toMatch(/const outputScale = window\.devicePixelRatio \|\| 1/);
   expect(preview).toMatch(/canvas\.width = Math\.floor\(viewport\.width \* outputScale\)/);
   expect(preview).toMatch(/canvas\.style\.width = `\$\{viewport\.width\}px`/);
   expect(preview).toMatch(/transform: \[outputScale, 0, 0, outputScale, 0, 0\]/);
   expect(preview).toMatch(/适合宽度/);
   expect(preview).toMatch(/aria-label="缩小 PDF"/);
   expect(preview).toMatch(/aria-label="放大 PDF"/);
-  expect(preview).toMatch(/Math\.min\(200/);
-  expect(preview).toMatch(/Math\.max\(50/);
 });
 
 test("formal document file URL carries the selected persisted language", () => {
@@ -50,19 +46,8 @@ test("formal document file URL carries the selected persisted language", () => {
   expect(api).toMatch(/searchParams\.set\("language", options\.language\)/);
 });
 
-test("print renderer preserves the three-copy business boundaries", () => {
-  const print = source(PRINT);
-  expect(print).toMatch(/客户联 \/ Customer Copy/);
-  expect(print).toMatch(/本次收款/);
-  expect(print).toMatch(/收费项目/);
-  expect(print).toMatch(/收付款历史/);
-  expect(print).toMatch(/未结余额/);
-  expect(print).toMatch(/客户签字/);
-  expect(print).toMatch(/责任义务与提前告知/);
-  expect(print).toMatch(/施工项目/);
-  expect(print).toMatch(/完成情况/);
-  expect(print).toMatch(/维修工联不得显示客户与金额/);
-});
+// Copy-content boundaries are exercised by document-print-boundaries.test.tsx
+// and business-order-document-pdf.test.ts, including round performance.
 
 test("Receipt route and renderer support separate Chinese and English copies", () => {
   const route = source(RECEIPT_ROUTE);

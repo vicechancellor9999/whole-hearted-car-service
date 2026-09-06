@@ -1,0 +1,22 @@
+.reader { display: flex; flex-direction: column; height: 100%; min-height: 0; min-width: 0; background: var(--wh-layer-2); }
+.paper { border-radius: 2px; box-shadow: 0 2px 5px #0f172a0a, 0 12px 32px #0f172a0a; }
+.copyNavigation { display: flex; flex-wrap: wrap; align-items: center; flex-shrink: 0; gap: 8px 20px; padding: 8px 16px; border-bottom: 1px solid var(--wh-border-subtle); background: var(--wh-layer-1); font-size: 12px; }
+.copyNavigation > span { color: var(--wh-text-soft); }
+.copyRange { margin-left: 6px; font-size: 11px; font-weight: 400; color: var(--wh-text-soft); }
+.pageSelect { min-height: 44px; max-width: 100%; padding: 0 8px; border: 1px solid var(--wh-border-subtle); border-radius: 6px; background: var(--wh-layer-1); }
+.copyNavigation nav { display: flex; gap: 6px; overflow-x: auto; max-width: 100%; }
+.copyNavigation button { flex-shrink: 0; padding: 8px 14px; min-height: 36px; border: 1px solid var(--wh-border-subtle); border-radius: 6px; font-weight: 600; }
+.copyNavigation button[aria-current="page"] { color: var(--wh-accent); border-color: var(--wh-accent); background: var(--wh-layer-2); }
+.copyNavigation button:focus-visible { outline: 2px solid var(--wh-accent); outline-offset: 2px; }
+.pageSection { margin: 0 auto 28px; }
+.pageSection:last-child { margin-bottom: 0; }
+.pageHeading { display: flex; align-items: center; min-height: 36px; padding: 0 4px; font-size: 13px; font-weight: 600; color: var(--wh-text-soft); }
+.controls { display: flex; flex-shrink: 0; align-items: center; justify-content: center; gap: 32px; padding: 5px 12px; background: var(--wh-layer-1); border-top: 1px solid var(--wh-border-subtle); font-size: 12px; }
+.controlGroup { display: flex; align-items: center; gap: 2px; }
+.controls button { height: 36px; min-width: 36px; padding: 0 8px; border-radius: 6px; font-weight: 600; }
+.controls button:hover { background: var(--wh-layer-2); }
+.controls button:disabled { opacity: .3; }
+.pageNumber { font-variant-numeric: tabular-nums; min-width: 60px !important; }
+.controls select { height: 36px; width: 100px; padding: 0 8px; background: transparent; border-radius: 6px; font-size: 12px; }
+.controls :focus-visible { outline: 2px solid var(--wh-accent); outline-offset: -2px; }
+@media (pointer: coarse), (max-width: 640px) { .copyNavigation button { min-height: 44px; } .controls button, .controls select { height: 44px; } .controls button { min-width: 44px; } .controls { gap: 12px; padding: 2px 4px; justify-content: space-between; } }

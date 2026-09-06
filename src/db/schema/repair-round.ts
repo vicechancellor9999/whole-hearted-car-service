@@ -68,6 +68,7 @@ export const repairRounds = pgTable(
     )
       .notNull()
       .default(0),
+    performanceDraftMinor: bigint("performance_draft_minor", { mode: "number" }),
     createdAt: timestamp("created_at", { withTimezone: true })
       .notNull()
       .defaultNow(),

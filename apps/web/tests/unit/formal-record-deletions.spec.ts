@@ -3,6 +3,21 @@ import {
   executeFormalRecordDeletion,
   previewFormalRecordDeletion,
 } from "../../src/lib/api/formal-record-deletions";
+import type { RecordDeletionExecuteInput } from "../../../../src/modules/record-deletion/record-deletion-types";
+
+const deletionInput: RecordDeletionExecuteInput = { root: { kind: "inspection_report", recordNo: "IR-20260905-0009" }, selectedRecords: [{ kind: "inspection_report", recordNo: "IR-20260905-0009" }], reasonCode: "test_data", reasonNote: null, confirmationRecordNo: "IR-20260905-0009", previewFingerprint: "a".repeat(64), requestId: "delete-response-9" };
+const deletionResult = { requestId: "delete-response-9", root: deletionInput.root, deletedRecords: deletionInput.selectedRecords, dependentCounts: {}, releasedIdentityKinds: [], fileCleanupPending: 0 };
+
+for (const [name, result] of [
+  ["empty object", {}],
+  ["another request", { ...deletionResult, requestId: "delete-other-9" }],
+  ["another root", { ...deletionResult, root: { ...deletionInput.root, recordNo: "IR-20260905-0010" } }],
+  ["incomplete deleted scope", { ...deletionResult, deletedRecords: [] }],
+] as const) {
+  test(`does not confirm deletion from ${name}`, async () => {
+    await expect(executeFormalRecordDeletion(deletionInput, async () => Response.json(result))).rejects.toMatchObject({ code: "DELETION_RESULT_UNCONFIRMED", requestId: "delete-response-9" });
+  });
+}
 
 test("record deletion client posts preview and execute payloads to formal endpoints", async () => {
   const requests: Request[] = [];

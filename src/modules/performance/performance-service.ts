@@ -27,6 +27,16 @@ export type MonthlyTeamPerformance = {
   targetPerformanceMinor: number | null;
   completionRate: number | null;
   targetMissingReasons: string[];
+  payrollTotalCnyMinor: number | null;
+  members: MonthlyPerformanceMember[];
+};
+
+export type MonthlyPerformanceMember = {
+  memberId: number;
+  memberName: string;
+  salaryCnyMinor: number | null;
+  targetPerformanceMinor: number | null;
+  payableSalaryCnyMinor: number | null;
 };
 
 export type MonthlyPerformanceResult = {
@@ -147,6 +157,7 @@ export class PerformanceService {
         performanceMinor: 0,
         ...target,
         completionRate: null,
+        payrollTotalCnyMinor: null,
       }];
     }));
     for (const handoff of handoffs) {
@@ -164,6 +175,7 @@ export class PerformanceService {
           performanceMinor: handoff.performanceMinor,
           ...target,
           completionRate: null,
+          payrollTotalCnyMinor: null,
         });
       }
     }
@@ -176,6 +188,17 @@ export class PerformanceService {
     for (const team of teams) {
       team.completionRate = team.targetStatus === "configured"
         ? calculateCompletionRate(team.performanceMinor, team.targetPerformanceMinor ?? 0)
+        : null;
+      team.members = team.members.map((member) => ({
+        ...member,
+        payableSalaryCnyMinor: member.salaryCnyMinor === null || team.completionRate === null
+          ? null
+          : Math.max(0, Math.round(member.salaryCnyMinor * team.completionRate / 100)),
+      }));
+      team.payrollTotalCnyMinor = team.members.every(
+        (member) => member.payableSalaryCnyMinor !== null,
+      )
+        ? team.members.reduce((sum, member) => sum + member.payableSalaryCnyMinor!, 0)
         : null;
     }
     const totalPerformanceMinor = handoffs.reduce(
@@ -209,6 +232,13 @@ function targetForTeam(
       targetStatus: target.targetStatus,
       targetPerformanceMinor: target.targetPerformanceMinor,
       targetMissingReasons: target.targetMissingReasons,
+      members: target.members.map((member) => ({
+        memberId: member.memberId,
+        memberName: member.memberName,
+        salaryCnyMinor: member.salaryCnyMinor,
+        targetPerformanceMinor: member.targetPerformanceMinor,
+        payableSalaryCnyMinor: null,
+      })),
     };
   }
   const parameterReason = `缺少 ${month} 绩效参数`;
@@ -217,6 +247,7 @@ function targetForTeam(
     targetStatus: parameterMissing ? "not_configured" as const : "configured" as const,
     targetPerformanceMinor: parameterMissing ? null : 0,
     targetMissingReasons: parameterMissing ? [parameterReason] : [],
+    members: [],
   };
 }
 

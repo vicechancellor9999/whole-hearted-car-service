@@ -94,6 +94,8 @@ type MechanicWorkRenderSnapshotV1 = {
     id: number;
     roundNo: number;
     teamName: string | null;
+    performanceMinor?: number | null;
+    performanceSource?: "draft" | "handoff" | "unrecorded";
   };
   workItems: Array<{
     kind: "labor" | "part" | "other";

@@ -21,6 +21,8 @@ const result = {
       targetPerformanceMinor: null,
       completionRate: null,
       targetMissingReasons: ["缺少 2026-09 绩效参数"],
+      payrollTotalCnyMinor: null,
+      members: [],
     },
     {
       teamId: 22,
@@ -32,6 +34,8 @@ const result = {
       targetPerformanceMinor: null,
       completionRate: null,
       targetMissingReasons: ["缺少 2026-09 绩效参数"],
+      payrollTotalCnyMinor: null,
+      members: [],
     },
   ],
   handoffs: [
