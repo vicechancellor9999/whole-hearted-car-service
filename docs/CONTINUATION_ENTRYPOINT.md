@@ -1,5 +1,11 @@
 # Whole Hearted 正式系统续接入口
 
+## 2026-09-06 程序员审查分支
+
+- 用户已要求将项目同步到 GitHub 供程序员审查。
+- 当前产品审查入口：[候选分支 README](https://github.com/vicechancellor9999/whole-hearted-car-service/tree/codex/ai-service-wip-20260827)。候选检查点为 `45d00bcc9b1286e48d959ef2a62fd932d9712c33`。
+- 本分支 `codex/formal-foundation` 保存较早正式基线、运行接管说明及 [Lark 业务学习报告](research/2026-09-04-lark-business-learning.md)。请使用候选分支评审当前界面与业务实现。
+
 **最后更新：** 2026-08-27（Jamaica）\
 **正式仓库：** `/Volumes/公司文件/Whole Hearted Car Service 正式系统`
 
@@ -51,3 +57,11 @@
 - 现有 3210、3211 和当前数据库在候选通过前保持不变。
 - 已记录候选业务基线与候选端到端验收清单；二者尚未获得业务批准。
 - 正在把现有正式接口改为单进程调用，并恢复经营概览与绩效目标计算。
+
+## 2026-09-02 当前候选运行接管
+
+- 当前实际候选代码位于 `/Volumes/公司文件/Whole Hearted Car Service 单体候选/3210-single-runtime`，用户入口为 `http://127.0.0.1:3220`，内置 PostgreSQL 为 `127.0.0.1:55433`。
+- 登录用户域 LaunchAgent `com.whcarservice.candidate-runtime` 已接管候选运行时，支持登录加载、异常重启和外置卷挂载后重试。
+- 启动器、配置主源、自动测试与日志位于 `/Volumes/公司文件/Whole Hearted Car Service 单体候选/service`；macOS 实际加载的小型 plist 位于 `/Users/lijianfu/Library/LaunchAgents/com.whcarservice.candidate-runtime.plist`，这是用户明确批准的本机例外。
+- 2026-09-02 已验证：LaunchAgent 为 `running`；3220 的 `next-server` 工作目录属于候选 `apps/web`；55433 的 PostgreSQL 数据目录属于候选 `.runtime/postgresql`；强制终止 Web 子进程和重新加载 LaunchAgent 后均约 4 秒恢复；登录页及经营概览实页正常，控制台无错误。
+- 候选仓库仍保留此前已完成但尚未拆分提交的 Inspection Report 与 Business Order 工作区改动。继续业务开发前先依据候选仓库的 `docs/implementation/2026-08-31-inspection-detail-and-business-order-workspace.md` 核对所有权与交付边界，禁止清理或覆盖现有未提交文件。
