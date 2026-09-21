@@ -1,5 +1,12 @@
 # Whole Hearted 正式系统续接入口
 
+## 2026-09-21 登录跳转修复同步
+
+- 本次同步候选工作树中已有的登录、退出适配与测试改动，主要审查分支仍为 `codex/ai-service-wip-20260827`。
+- 登录成功、维修工登录、登录失败、限流和退出均返回站内相对 `Location`，由浏览器沿当前访问域名跳转，避免反向代理的内部 `localhost:3220` 地址泄露到跳转目标；会话写入和过期 Cookie 继续透传。
+- 本次验证：`pnpm --dir apps/web test:unit tests/unit/formal-auth-route.spec.ts` 8 项通过；`pnpm --dir apps/web exec tsc --noEmit --incremental false` 通过；上述三个文件的 ESLint 和 `git diff --check` 通过。
+- 验证范围为登录路由隔离测试、Web 类型和改动文件检查；本次未重建或重启候选服务，既有上线缺口继续见 09-05 审查材料和 09-06 检查点。
+
 ## 2026-09-06 GitHub 程序员审查检查点
 
 - 用户已要求同步当前成果供程序员审查；本轮整理现有源码、迁移、测试与交接材料，保留开发历史。
